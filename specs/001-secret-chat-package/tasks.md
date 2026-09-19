@@ -29,10 +29,10 @@ are in Phase 8 and **must not be pulled earlier** — until then the oracles are
 
 **Purpose**: the skeleton every later phase writes into.
 
-- [ ] T001 Create the package layout from plan.md in `telethon_secret_chat/` — empty modules `errors.py`, `dh.py`, `handshake.py`, `crypto.py`, `framing.py`, `sequence.py`, `rekey.py`, `actions.py`, `files.py`, `chat.py`, `manager.py`, and packages `storage/` and `schema/`, each with a docstring naming the protocol-reference section it implements
+- [X] T001 Create the package layout from plan.md in `telethon_secret_chat/` — empty modules `errors.py`, `dh.py`, `handshake.py`, `crypto.py`, `framing.py`, `sequence.py`, `rekey.py`, `actions.py`, `files.py`, `chat.py`, `manager.py`, and packages `storage/` and `schema/`, each with a docstring naming the protocol-reference section it implements
 - [x] T002 [P] Create `tests/unit/`, `tests/vectors/`, `tests/interop/` with `__init__.py` and a `conftest.py` that makes `tests/interop` skip with a stated reason when `TSC_TEST_SESSION` or `TSC_TEST_PEER` is unset
 - [x] T003 [P] Add the coverage source list to `pyproject.toml` — one entry per module, so a new file must be added deliberately and cannot arrive uncovered
-- [ ] T004 Generate the secret-chat TL schema into `telethon_secret_chat/schema/secret_tl.py`, marked `# generated` at the top and exempted from the line ceiling in `.flake8`
+- [X] T004 Generate the secret-chat TL schema into `telethon_secret_chat/schema/secret_tl.py`, marked `# generated` at the top and exempted from the line ceiling in `.flake8`
 
 ---
 
