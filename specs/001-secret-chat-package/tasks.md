@@ -148,15 +148,27 @@ established on a bad prime cannot be repaired afterwards, so this precedes the h
 
 ## Phase 8: Third-party vectors and interop 🔒 BLOCKED until Phase 4 is green
 
-> **STATUS 2026-09-19: still blocked, and not by Phase 4.** Phases 1-7, 9 and 10 are
-> green, so the Phase-4 precondition is met. What remains unmet is the material:
-> T040/T041 need ciphertext captured from a live chat with TDLib (research.md Q2 -
-> TDLib exposes no crypto primitive, so a vector cannot be synthesised), and
-> T042/T043 need a second live Telegram account. Neither can be invented, so all
-> four stay unchecked. **SC-001 and SC-002 are therefore NOT met**, and the
-> package must not be described as proved against a third-party implementation
-> until they are. The oracles currently standing in are Telethon's
-> `MTProtoState._calc_key` and `AES.encrypt_ige` (tests/vectors).
+> **STATUS 2026-09-19 (second pass): T042/T043 written, T040/T041 still blocked.**
+> Phases 1-7, 9 and 10 are green, so the Phase-4 precondition is met.
+>
+> **T042/T043 are done as tasks**: the two files exist, collect, and skip with the
+> reason stated, so the tier is ready for an operator with a second account. They
+> have never been EXECUTED, and writing a test is not running one - **SC-001 and
+> SC-002 remain NOT met** until someone runs `pytest tests/interop -s` with
+> `TSC_TEST_SESSION`, `TSC_TEST_PEER`, `TSC_TEST_API_ID` and `TSC_TEST_API_HASH`
+> set and follows the printed steps on the second account. Until then the package
+> must not be described as proved against a third-party implementation.
+>
+> **T040/T041 stay unchecked** and the reason is a fact about TDLib, not a missing
+> account: its JSON API returns `secretChat.key_hash` (the 32-byte visualisation
+> hash) and never the key, and never the raw `encryptedMessage` either, so a
+> recorded vector cannot be obtained from a stock build at all. The only route is
+> to instrument TDLib's own `SecretChatActor` to log the negotiated key and the
+> ciphertext, rebuild it, and run one exchange - a from-source TDLib build, and a
+> decision for whoever owns this package rather than something a test can arrange.
+>
+> The oracles currently standing in are Telethon's `MTProtoState._calc_key` and
+> `AES.encrypt_ige` (tests/vectors).
 
 **Purpose**: Principle I's strongest evidence. **research.md Q2: TDLib exposes no crypto
 primitive, so these cannot be synthesised — they are recorded from a real chat. Do not
@@ -164,8 +176,8 @@ attempt these before a chat works.**
 
 - [ ] T040 [US1] Record a real secret-chat exchange with TDLib: capture the negotiated key, the plaintexts and the ciphertexts TDLib produced, into `tests/vectors/recorded/` as fixtures that carry no account identity
 - [ ] T041 [P] [US1] `tests/vectors/test_recorded_tdlib.py` — decrypt each recorded TDLib ciphertext with the recorded key and assert the plaintext; encrypt each recorded plaintext and assert the ciphertext matches byte for byte
-- [ ] T042 [US1] `tests/interop/test_live_roundtrip.py` — opt-in: request a chat with a second real account, assert both ends report the SAME fingerprint, send and read in both directions (SC-001)
-- [ ] T043 [US5] `tests/interop/test_live_media.py` — opt-in: each media kind sent and opened on the far side, and one received and verified
+- [X] T042 [US1] `tests/interop/test_live_roundtrip.py` — opt-in: request a chat with a second real account, assert both ends report the SAME fingerprint, send and read in both directions (SC-001)
+- [X] T043 [US5] `tests/interop/test_live_media.py` — opt-in: each media kind sent and opened on the far side, and one received and verified. Written and collected; video/audio come from `TSC_TEST_MEDIA_DIR` and are reported as not covered when it is unset, rather than faked
 
 ---
 
