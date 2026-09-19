@@ -26,6 +26,7 @@ operator's account with them, and the next run's "accept the new secret chat" be
 an instruction they cannot follow.
 """
 
+import os
 import secrets
 
 import pytest
@@ -58,7 +59,10 @@ async def test_both_ends_agree_on_the_key_fingerprint(manager, peer, announce):
 
 async def test_a_message_crosses_in_both_directions(manager, peer, announce):
     chat, _ = await ready_chat(manager, peer, announce, "message round trip")
-    nonce = secrets.token_hex(4)
+    # Fixed by `TSC_TEST_NONCE` when set, so the operator can be told the code
+    # BEFORE the run starts instead of watching for it and racing the deadline.
+    # Random otherwise, so two runs cannot be confused with each other.
+    nonce = os.environ.get("TSC_TEST_NONCE") or secrets.token_hex(4)
     try:
         await manager.send_message(chat.id, f"interop {nonce}")
 

@@ -200,7 +200,7 @@ class SecretChatManager:
         chat.require_sendable()
         random_id = secrets.randbits(63)
         if entities is None and text:
-            text, entities = self._parse_text(text)
+            text, entities = await self._parse_text(text)
         # §4.1's trigger, checked on the path that counts messages. Before the send
         # rather than after, so the message that crosses the threshold already goes
         # out under whichever key the exchange settles on.
@@ -600,9 +600,17 @@ class SecretChatManager:
         dh.check_config(g=config.g, p=p)
         return config.g, p
 
-    def _parse_text(self, text: str):
+    async def _parse_text(self, text: str):
         """``client._parse_message_text`` - the ONE private Telethon attribute this
         package uses (research.md Q3).
+
+        ASYNC, and that is not cosmetic: Telethon's ``_parse_message_text`` is a
+        coroutine function. Returning its result unawaited handed the caller a
+        coroutine to unpack - `TypeError: cannot unpack non-iterable coroutine
+        object` on the first formatted message - while the fallback path returned a
+        plain tuple, so the return type depended on which branch ran. Found by the
+        live interop run; every unit test missed it because the fake client has no
+        such attribute, so only the fallback was ever exercised.
 
         Documented fallback, named here so it is not re-derived under pressure: if
         it disappears, send the text unparsed and let the caller pass ``entities``.
@@ -612,7 +620,7 @@ class SecretChatManager:
         if parse is None:
             return text, None
         try:
-            return parse(text, None)
+            return await parse(text, None)
         except Exception:
             return text, None
 

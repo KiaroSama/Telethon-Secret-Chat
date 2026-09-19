@@ -79,15 +79,22 @@ def accept(chat, wrapper, storage) -> Accepted:
     if peer_in > chat.out_seq_no:
         _abort(chat, "the peer claims to have seen a message this side has not sent")
     # TDLib's third condition, with no documentation counterpart (§3.6, marked
-    # UNVERIFIED there): a peer may not walk its announced layer backwards, because
-    # a peer that can would walk it below 73 and out of MTProto 2.0.
-    if wrapper.layer < chat.layer:
-        _abort(chat, "the peer announced a lower layer than it had already claimed")
+    # UNVERIFIED there): a peer may not walk backwards the layer it ENCODES IN.
+    # Against `chat.wrapper_layer`, never `chat.layer` - `chat.layer` is also raised
+    # by a NotifyLayer, and a peer announcing 143 there still encodes its first
+    # messages at 73 while it believes we are at 46. Comparing against the
+    # capability closed a chat with the owner's own Telegram Desktop on 2026-09-20.
+    if wrapper.layer < chat.wrapper_layer:
+        _abort(chat, "the peer encoded below the layer it had already used")
 
     # §7.2: "must always be updated immediately after receiving any packet
     # containing information of an upper layer" - immediately, so here rather than
     # at delivery: a message held behind a gap has still been RECEIVED.
     chat.layer = framing.raise_remote_layer(chat.layer, wrapper.layer)
+    # `seq_no_state_.his_layer = new_his_layer` - a plain assignment in TDLib
+    # (`SecretChatActor.cpp:1124-1126`), which the check above has already made
+    # non-decreasing.
+    chat.wrapper_layer = wrapper.layer
     chat.peer_in_seq_no = peer_in
 
     # --- §3.5, the peer's counter ---------------------------------------------
