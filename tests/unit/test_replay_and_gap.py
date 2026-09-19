@@ -1,0 +1,202 @@
+"""protocol-reference.md §3.5 and §3.6 - replay, gaps, and the counter echoed back.
+
+§3.5, the peer's counter: "Your client must check that it has received each message
+with the sequence number out_seq_no starting from 0 to some current point C. It
+should then expect the next message to have the sequence number out_seq_no=C+1."
+
+- at or below C: "the local client must drop the message (repeated message). The
+  client should not check the contents of the message because the original message
+  could have been deleted."
+- above C+1: a gap. "Note that in_seq_no is not increased upon receipt of such a
+  message; it is advanced only after all preceding gaps are filled."
+
+§3.6, our counter coming back: non-decreasing, and "if D is the out_seq_no of last
+message we sent, the received in_seq_no should not be greater than D + 1". "If
+in_seq_no contradicts these criteria, the local client is required to immediately
+abort the secret chat."
+
+§8.3 measured all of it as absent.
+"""
+
+import pytest
+
+from telethon_secret_chat import sequence
+from telethon_secret_chat.chat import ChatState, SecretChat
+from telethon_secret_chat.errors import MessageRejected
+from telethon_secret_chat.schema import secret_tl as tl
+from telethon_secret_chat.storage import MemoryStorage
+
+KEY = bytes((i * 5 + 3) % 256 for i in range(256))
+
+
+def a_chat(sent=0):
+    """We are the originator, so incoming carries (in odd, out even)."""
+    chat = SecretChat(id=7, access_hash=1, peer_user_id=2, is_outbound=True)
+    chat.adopt_key(KEY)
+    chat.out_seq_no = sent  # how many WE have sent, for §3.6's D
+    return chat
+
+
+def peer_message(raw_out, text="x", raw_in=0):
+    """A message from the peer, with §3.4's transform already applied."""
+    return tl.DecryptedMessageLayer(
+        random_bytes=b"\x00" * 31,
+        layer=144,
+        in_seq_no=2 * raw_in + 1,  # the peer is the recipient: x = 1
+        out_seq_no=2 * raw_out,  # ... and x = 0 on its out
+        message=tl.DecryptedMessage(random_id=raw_out, ttl=0, message=text),
+    )
+
+
+def texts(result):
+    return [w.message.message for w in result.ready]
+
+
+# --- the ordinary case --------------------------------------------------------
+
+
+def test_the_expected_message_is_delivered():
+    chat, store = a_chat(), MemoryStorage()
+    assert texts(sequence.accept(chat, peer_message(0, "first"), store)) == ["first"]
+    assert chat.in_seq_no == 1
+
+
+def test_a_run_of_messages_is_delivered_in_order():
+    chat, store = a_chat(), MemoryStorage()
+    got = []
+    for i in range(5):
+        got += texts(sequence.accept(chat, peer_message(i, f"m{i}"), store))
+    assert got == [f"m{i}" for i in range(5)]
+    assert chat.in_seq_no == 5
+
+
+# --- replay -------------------------------------------------------------------
+
+
+def test_a_repeated_message_is_dropped_and_never_delivered():
+    """ "the local client must drop the message (repeated message)". Dropped, not
+    refused: a replay is not grounds to end the chat."""
+    chat, store = a_chat(), MemoryStorage()
+    sequence.accept(chat, peer_message(0), store)
+    result = sequence.accept(chat, peer_message(0, "the same one again"), store)
+    assert result.ready == []
+    assert chat.in_seq_no == 1
+    assert chat.state is ChatState.READY
+
+
+def test_an_old_message_well_below_the_counter_is_dropped():
+    chat, store = a_chat(), MemoryStorage()
+    for i in range(4):
+        sequence.accept(chat, peer_message(i), store)
+    assert sequence.accept(chat, peer_message(1, "ancient"), store).ready == []
+    assert chat.in_seq_no == 4
+
+
+def test_a_replay_is_not_inspected():
+    """ "The client should not check the contents of the message because the original
+    message could have been deleted." So a replay carrying a malformed inner message
+    is still just dropped."""
+    chat, store = a_chat(), MemoryStorage()
+    sequence.accept(chat, peer_message(0), store)
+    broken = peer_message(0)
+    broken.message = None
+    assert sequence.accept(chat, broken, store).ready == []
+
+
+# --- gaps ---------------------------------------------------------------------
+
+
+def test_a_message_ahead_of_a_hole_is_held_not_delivered():
+    chat, store = a_chat(), MemoryStorage()
+    result = sequence.accept(chat, peer_message(2, "from the future"), store)
+    assert result.ready == []
+    assert chat.in_seq_no == 0, "in_seq_no advanced across a gap"
+
+
+def test_the_hole_closing_releases_everything_behind_it_in_order():
+    """§3.7: "interpret recovered messages in seq_no order first, then drain the
+    queue in seq_no order"."""
+    chat, store = a_chat(), MemoryStorage()
+    sequence.accept(chat, peer_message(2, "third"), store)
+    sequence.accept(chat, peer_message(1, "second"), store)
+    released = sequence.accept(chat, peer_message(0, "first"), store)
+    assert texts(released) == ["first", "second", "third"]
+    assert chat.in_seq_no == 3
+
+
+def test_a_partially_filled_hole_stays_held():
+    chat, store = a_chat(), MemoryStorage()
+    sequence.accept(chat, peer_message(3, "fourth"), store)
+    assert texts(sequence.accept(chat, peer_message(1, "second"), store)) == []
+    assert chat.in_seq_no == 0
+
+
+def test_a_gap_asks_for_exactly_the_missing_span():
+    """§3.7: "you can easily get the necessary start_seq_no by adding 2 to the
+    out_seq_no of the last message before the hole and the end_seq_no by subtracting
+    2 from the out_seq_no of the received message". Transformed values, not raw."""
+    chat, store = a_chat(), MemoryStorage()
+    sequence.accept(chat, peer_message(0), store)  # last before the hole: wire 0
+    result = sequence.accept(chat, peer_message(4), store)  # arrived: wire 8
+    assert result.resend == (0 + 2, 8 - 2)
+
+
+def test_only_one_resend_is_requested_per_hole():
+    """§3.7: "if the remote client keeps sending out of sync messages, they should be
+    put into the queue without sending a new request"."""
+    chat, store = a_chat(), MemoryStorage()
+    assert sequence.accept(chat, peer_message(3), store).resend is not None
+    assert sequence.accept(chat, peer_message(4), store).resend is None
+    assert sequence.accept(chat, peer_message(5), store).resend is None
+
+
+def test_a_closed_hole_allows_a_later_one_to_be_requested():
+    chat, store = a_chat(), MemoryStorage()
+    sequence.accept(chat, peer_message(1), store)
+    assert sequence.accept(chat, peer_message(0), store).ready
+    assert sequence.accept(chat, peer_message(5), store).resend is not None
+
+
+# --- §3.6, our counter coming back --------------------------------------------
+
+
+def test_a_non_decreasing_echo_is_accepted():
+    chat, store = a_chat(sent=5), MemoryStorage()
+    sequence.accept(chat, peer_message(0, raw_in=1), store)
+    sequence.accept(chat, peer_message(1, raw_in=1), store)
+    sequence.accept(chat, peer_message(2, raw_in=3), store)
+    assert chat.in_seq_no == 3
+
+
+def test_an_echo_that_goes_backwards_ends_the_chat():
+    """ "in_seq_no must form a non-decreasing sequence of non-negative integer
+    numbers.\" """
+    chat, store = a_chat(sent=5), MemoryStorage()
+    sequence.accept(chat, peer_message(0, raw_in=3), store)
+    with pytest.raises(MessageRejected):
+        sequence.accept(chat, peer_message(1, raw_in=1), store)
+    assert chat.state is ChatState.CLOSED
+
+
+def test_an_echo_past_what_we_have_sent_ends_the_chat():
+    """ "if D is the out_seq_no of last message we sent, the received in_seq_no should
+    not be greater than D + 1". We have sent 2, so D is 1 and 2 is the ceiling.
+
+    This is what makes "manipulations with delayed messages impossible": a peer
+    cannot claim to have seen a message we have not written yet.
+    """
+    chat, store = a_chat(sent=2), MemoryStorage()
+    sequence.accept(chat, peer_message(0, raw_in=2), store)  # exactly D+1, allowed
+    with pytest.raises(MessageRejected):
+        sequence.accept(chat, peer_message(1, raw_in=3), store)
+    assert chat.state is ChatState.CLOSED
+
+
+def test_the_echo_is_checked_before_the_message_is_queued():
+    """A message held for a gap is a message whose §3.6 fields were already checked;
+    holding one that violates them would defer the abort until the hole closed."""
+    chat, store = a_chat(sent=1), MemoryStorage()
+    with pytest.raises(MessageRejected):
+        sequence.accept(chat, peer_message(4, raw_in=9), store)
+    assert chat.state is ChatState.CLOSED
+    assert store.take_in(chat.id) == []

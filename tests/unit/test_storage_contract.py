@@ -201,3 +201,36 @@ def test_the_file_backend_is_owner_only(tmp_path):
     if os.name != "nt":
         mode = stat.S_IMODE(path.stat().st_mode)
         assert mode & (stat.S_IRWXG | stat.S_IRWXO) == 0, f"group/other can read: {mode:o}"
+
+
+# --- the two queues survive a restart (T033) ----------------------------------
+
+
+def test_both_queues_survive_a_new_backend_over_the_same_file(tmp_path):
+    """§3.7's gap queue and §3.7's outgoing retention are the two things that make a
+    lossy conversation recoverable, and §8.3 measured the archived package
+    persisting NEITHER - its retention was a dict marked `# TODO store these maybe
+    too`, so it was empty after any restart and every resend request the peer made
+    was unsatisfiable, which the protocol answers by ending the chat."""
+    path = tmp_path / "queues.db"
+    store = FileStorage(path)
+    store.save(_record())
+    store.queue_out(1, {"seq_no": 1, "body": "sent-a"})
+    store.queue_out(1, {"seq_no": 3, "body": "sent-b"})
+    store.queue_in(1, {"seq_no": 4, "body": "held-later"})
+    store.queue_in(1, {"seq_no": 2, "body": "held-earlier"})
+
+    revived = FileStorage(path)
+    assert [m["body"] for m in revived.retained_out(1)] == ["sent-a", "sent-b"]
+    assert [m["body"] for m in revived.take_in(1)] == ["held-earlier", "held-later"]
+
+
+def test_taking_the_gap_queue_is_persisted_not_only_in_memory(tmp_path):
+    """A drain that only happened in memory would replay the whole queue after a
+    restart, delivering every held message twice."""
+    path = tmp_path / "queues.db"
+    store = FileStorage(path)
+    store.save(_record())
+    store.queue_in(1, {"seq_no": 2, "body": "held"})
+    assert store.take_in(1)
+    assert FileStorage(path).take_in(1) == []

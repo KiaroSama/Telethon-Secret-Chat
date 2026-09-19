@@ -110,15 +110,15 @@ established on a bad prime cannot be repaired afterwards, so this precedes the h
 
 ### Tests for User Story 3 (write first, watch fail)
 
-- [ ] T028 [P] [US3] `tests/unit/test_sequence_parity.py` — §3.4: a message whose `seq_no` parity does not match the sender's role is rejected and the chat ends, per the reference
-- [ ] T029 [P] [US3] `tests/unit/test_replay_and_gap.py` — §3.5: `out_seq_no <= C` is DISCARDED and never delivered; `> C+1` is held as a gap, not delivered; the hole closing releases the held messages **in order**
-- [ ] T030 [P] [US3] `tests/unit/test_in_seq_no.py` — §3.6: the peer's echo of this side's counter must be monotonic and `<= D+1`; a violation ends the chat
-- [ ] T031 [US3] `tests/unit/test_resend.py` — §3.7: a gap produces a `Resend` for exactly the missing span; an incoming `Resend` is answered once per message, in order; a span outside retention raises `ResendUnsatisfiable` and ends the chat
+- [X] T028 [P] [US3] `tests/unit/test_sequence_parity.py` — §3.4: a message whose `seq_no` parity does not match the sender's role is rejected and the chat ends, per the reference
+- [X] T029 [P] [US3] `tests/unit/test_replay_and_gap.py` — §3.5: `out_seq_no <= C` is DISCARDED and never delivered; `> C+1` is held as a gap, not delivered; the hole closing releases the held messages **in order**
+- [X] T030 [P] [US3] `tests/unit/test_in_seq_no.py` — §3.6: the peer's echo of this side's counter must be monotonic and `<= D+1`; a violation ends the chat
+- [X] T031 [US3] `tests/unit/test_resend.py` — §3.7: a gap produces a `Resend` for exactly the missing span; an incoming `Resend` is answered once per message, in order; a span outside retention raises `ResendUnsatisfiable` and ends the chat
 
 ### Implementation for User Story 3
 
-- [ ] T032 [US3] Implement `telethon_secret_chat/sequence.py` — §3.4–§3.8 parity, replay, gap detection, the ordered gap queue, and outgoing retention with its stated bound. T028–T031 go green
-- [ ] T033 [US3] Wire the gap queue and retention through `telethon_secret_chat/storage/__init__.py` and `storage/file.py` so both survive a restart, extending `tests/unit/test_storage_contract.py`
+- [X] T032 [US3] Implement `telethon_secret_chat/sequence.py` — §3.4–§3.8 parity, replay, gap detection, the ordered gap queue, and outgoing retention with its stated bound. T028–T031 go green
+- [X] T033 [US3] Wire the gap queue and retention through `telethon_secret_chat/storage/__init__.py` and `storage/file.py` so both survive a restart, extending `tests/unit/test_storage_contract.py`
 
 **Checkpoint**: a lossy, reordering network no longer corrupts a conversation.
 
