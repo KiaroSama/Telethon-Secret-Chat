@@ -22,15 +22,18 @@ never as a trusted implementation.
 
 **Language/Version**: Python 3.11+ (3.11, 3.12, 3.13, 3.14 in CI)
 
-**Primary Dependencies**: Telethon 1.45+ (transport and TL schema only). `pyaes` arrives
-through Telethon and provides AES-IGE. No cryptographic dependency is added.
+**Primary Dependencies**: Telethon 1.45+ — transport, TL schema, and `telethon.crypto.AES`
+for IGE, which is PUBLIC API (Phase 0 Q1). No cryptographic dependency is added and no
+cipher loop is written here.
 
 **Storage**: application-supplied backend behind an interface this package defines. Two
 shipped: in-memory (tests) and a single-file one (single-process use). Neither is
 selected silently — FR-014.
 
-**Testing**: pytest, with three tiers — unit (pure functions), vector (fixtures captured
-from TDLib), and interop (a live account, opt-in, skipped when unconfigured).
+**Testing**: pytest, three tiers — unit (pure functions, no account), vector (fixtures
+RECORDED from a real chat with TDLib, since Phase 0 Q2 found TDLib exposes no crypto
+primitive to ask for synthetic ones), and interop (a live account, opt-in, skipped when
+unconfigured).
 
 **Target Platform**: any platform Telethon runs on; developed and CI-tested on Linux and
 Windows.
@@ -65,9 +68,9 @@ No violations. Complexity Tracking is therefore empty and omitted.
 
 **Post-Phase-1 re-check**: the design below adds no component that a principle does not
 require. The one judgement worth restating is vendoring the key derivation (~10 lines,
-fully specified in §2.4) rather than calling Telethon's private `MTProtoState._calc_key`:
-Principle I says correctness must be provable, and a private method can change on any
-release without notice. That is a deliberate ~10 lines, and it gets a vector test.
+fully specified in §2.4) rather than calling Telethon's private `MTProtoState._calc_key` at
+runtime: a private method can change on any release without notice. The same method is used
+as the TEST oracle, so the two are compared on every run and a divergence fails loudly.
 
 ## Project Structure
 
