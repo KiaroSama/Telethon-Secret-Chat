@@ -118,7 +118,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/download-artifact@v6
+      - uses: actions/download-artifact@v8
         with:
           pattern: cases-py*
           path: records
