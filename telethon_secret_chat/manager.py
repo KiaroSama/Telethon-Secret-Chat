@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import secrets
+import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -29,7 +30,7 @@ from telethon.extensions import BinaryReader
 from telethon.tl import functions, types
 
 from . import actions as actions_module
-from . import crypto, dh, files, framing, handshake, sequence
+from . import crypto, dh, files, framing, handshake, rekey as rekey_module, sequence
 from .chat import ChatState, SecretChat
 from .errors import SecretChatError, StorageRequired
 from .events import (
@@ -135,6 +136,7 @@ class SecretChatManager:
             admin_id=getattr(result, "admin_id", None),
             participant_id=getattr(result, "participant_id", None),
         )
+        chat.dh_prime, chat.dh_g = p, g
         self._chats[chat.id] = chat
         self._secrets[chat.id] = {"secret": a, "p": p, "g": g}
         self._save(chat)
@@ -153,6 +155,7 @@ class SecretChatManager:
         key = handshake.shared_key(peer_value=g_a, secret=b, p=p, chat_id=chat_id)
         g_b = handshake.public_value(g, b, p)
 
+        chat.dh_prime, chat.dh_g = p, g
         chat.adopt_key(key)
         await self._client(
             functions.messages.AcceptEncryptionRequest(
@@ -198,6 +201,10 @@ class SecretChatManager:
         random_id = secrets.randbits(63)
         if entities is None and text:
             text, entities = self._parse_text(text)
+        # §4.1's trigger, checked on the path that counts messages. Before the send
+        # rather than after, so the message that crosses the threshold already goes
+        # out under whichever key the exchange settles on.
+        await self._rekey_if_due(chat)
         message = tl.DecryptedMessage(
             random_id=random_id,
             ttl=chat.ttl,
@@ -206,6 +213,20 @@ class SecretChatManager:
         )
         await self._send(chat, message)
         return random_id
+
+    async def rekey(self, chat_id: int) -> None:
+        """§4. Ask for a new key now, rather than waiting for §4.1's trigger.
+
+        The spec's Assumptions: "the package rekeys automatically on the documented
+        trigger, and the application can ask for one. It is not left to the caller
+        to remember."
+        """
+        await rekey_module.start(self, self._sendable(chat_id))
+
+    async def _rekey_if_due(self, chat: SecretChat) -> None:
+        """§4.1's trigger, checked where messages are counted."""
+        if chat.state is ChatState.READY and rekey_module.should_rekey(chat, time.time()):
+            await rekey_module.start(self, chat)
 
     # --- files (§6, contracts §2) ---------------------------------------------
     # The bodies live in `files.py`, which owns §6 end to end: the one-time keys,
@@ -434,6 +455,7 @@ class SecretChatManager:
                 admin_id=encrypted.admin_id,
                 participant_id=encrypted.participant_id,
             )
+            chat.dh_prime, chat.dh_g = p, g
             self._chats[chat.id] = chat
             self._secrets[chat.id] = {"g_a": g_a, "p": p, "g": g}
             self._save(chat)
@@ -482,8 +504,28 @@ class SecretChatManager:
         if chat.state is ChatState.CLOSED:
             self._emit(DecryptFailed(chat.id, "the chat is closed"))
             return
+        # §2.6 and §4.5: the fingerprint prefix says WHICH held key this frame was
+        # written under - the current one, the previous one still retained through a
+        # rekey, or the pending one when the peer has switched and its CommitKey has
+        # not arrived yet.
+        named = rekey_module.select_key(
+            chat, int.from_bytes(message.bytes[:8], "little", signed=True)
+        )
+        if named is None:
+            self._emit(DecryptFailed(chat.id, "no key this chat holds matches the frame"))
+            return
+        if named is chat.pending_key:
+            # §4.5: "a message encrypted by the new key, recognized by the value of
+            # key_fingerprint ... it assumes that A has started using the new key for
+            # encryption, and does the same" - the switch, without the CommitKey.
+            rekey_module.adopt_new_key(chat, named)
+            named = chat.key
+            if chat.state is ChatState.REKEYING:
+                chat.transition_to(ChatState.READY)
         try:
-            body = crypto.decrypt_frame(chat.key, message.bytes, chat.in_x, chat_id=chat.id)
+            body = crypto.decrypt_frame(
+                chat.key if named is chat.key else named, message.bytes, chat.in_x, chat_id=chat.id
+            )
             wrapper = framing.unwrap(body, chat_id=chat.id)
             await self._answer_any_resend(chat, wrapper)
             accepted = sequence.accept(chat, wrapper, self._storage)
@@ -498,6 +540,9 @@ class SecretChatManager:
 
         # §3.6's echo says what the peer has taken in, so retention can shrink.
         sequence.forget_acknowledged(chat, self._storage, chat.peer_in_seq_no)
+        # §4.8: with no gap open, nothing written before the switch can still be in
+        # flight, so the old key has no remaining use and is dropped.
+        rekey_module.retire_previous_key_if_settled(chat)
         for item in accepted.ready:
             await self._deliver(chat, item, message)
         self._save(chat)

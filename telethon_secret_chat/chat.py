@@ -79,8 +79,21 @@ class SecretChat:
 
         self.key: Optional[bytes] = None
         self.key_fingerprint: Optional[int] = None
-        self.pending_key: Optional[bytes] = None  # §4.8: two keys during an exchange
+        self.pending_key: Optional[bytes] = None  # §4.3: the key B has derived
+        # §4.8: "the previous key may be kept until there are no gaps in received
+        # messages up to the switch". Dropping it early makes a message still in
+        # flight undecryptable.
+        self.previous_key: Optional[bytes] = None
         self.exchange_id: Optional[int] = None
+        self.exchange_secret: Optional[int] = None  # this side's `a`/`b` for §4.2
+        # Which commitment this side has made, for §4.6's point of no return:
+        # None, "requested", "accepted" or "committed".
+        self.rekey_role: Optional[str] = None
+        # §4.2: "the same Diffie-Hellman parameters (p,g) ... are used. They do not
+        # need to be re-transmitted explicitly" - so they have to survive a restart,
+        # or a chat that restarts can never rekey again.
+        self.dh_prime: Optional[int] = None
+        self.dh_g: Optional[int] = None
 
         # §3.4: "(out_seq_no, in_seq_no) := (0,0), and incremented strictly by 1
         # after any message (service or not) is sent/received and processed."
@@ -171,7 +184,12 @@ class SecretChat:
         "key",
         "key_fingerprint",
         "pending_key",
+        "previous_key",
         "exchange_id",
+        "exchange_secret",
+        "rekey_role",
+        "dh_prime",
+        "dh_g",
         "in_seq_no",
         "out_seq_no",
         "peer_in_seq_no",

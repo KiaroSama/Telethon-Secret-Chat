@@ -161,9 +161,9 @@ attempt these before a chat works.**
 
 ## Phase 9: User Story 6 — Keys that do not last forever (Priority: P3)
 
-- [ ] T044 [P] [US6] `tests/unit/test_rekey.py` — §4: the 100-message / one-week trigger, the four-action exchange, and that a message sent MID-EXCHANGE is delivered rather than dropped or encrypted under a discarded key
-- [ ] T045 [US6] Implement `telethon_secret_chat/rekey.py` — §4, holding both keys during the exchange and persisting both. T044 goes green
-- [ ] T046 [US6] Extend `tests/unit/test_restart.py`: a restart DURING an exchange leaves the chat usable or stated-unusable, never silently on a half-swapped key
+- [X] T044 [P] [US6] `tests/unit/test_rekey.py` — §4: the 100-message / one-week trigger, the four-action exchange, and that a message sent MID-EXCHANGE is delivered rather than dropped or encrypted under a discarded key
+- [X] T045 [US6] Implement `telethon_secret_chat/rekey.py` — §4, holding both keys during the exchange and persisting both. T044 goes green
+- [X] T046 [US6] Extend `tests/unit/test_restart.py`: a restart DURING an exchange leaves the chat usable or stated-unusable, never silently on a half-swapped key
 
 ---
 
