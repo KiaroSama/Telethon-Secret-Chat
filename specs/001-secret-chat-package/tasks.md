@@ -59,14 +59,14 @@ established on a bad prime cannot be repaired afterwards, so this precedes the h
 
 ### Tests for User Story 2 (write first, watch fail)
 
-- [ ] T009 [P] [US2] `tests/unit/test_dh_parameters.py` — §1.2: a `p` that is not a safe 2048-bit prime, a `p` of the wrong bit length, `g` outside `1 < g < p-1`, and a `g` failing its quadratic-residue condition for that `p`. Each asserts `ParameterRejected` and that **no key was derived**
-- [ ] T010 [P] [US2] `tests/unit/test_peer_value.py` — §1.2: the peer's `g_a`/`g_b` outside the documented range is rejected before the shared key is computed
-- [ ] T011 [P] [US2] `tests/unit/test_receive_rejections.py` — §2.7: wrong key fingerprint, wrong `msg_key`, padding outside 12–1024 or not 16-byte aligned, and a length prefix beyond the decrypted body. Each asserts rejection and that **nothing was delivered**
+- [X] T009 [P] [US2] `tests/unit/test_dh_parameters.py` — §1.2: a `p` that is not a safe 2048-bit prime, a `p` of the wrong bit length, `g` outside `1 < g < p-1`, and a `g` failing its quadratic-residue condition for that `p`. Each asserts `ParameterRejected` and that **no key was derived**
+- [X] T010 [P] [US2] `tests/unit/test_peer_value.py` — §1.2: the peer's `g_a`/`g_b` outside the documented range is rejected before the shared key is computed
+- [X] T011 [P] [US2] `tests/unit/test_receive_rejections.py` — §2.7: wrong key fingerprint, wrong `msg_key`, padding outside 12–1024 or not 16-byte aligned, and a length prefix beyond the decrypted body. Each asserts rejection and that **nothing was delivered**
 
 ### Implementation for User Story 2
 
-- [ ] T012 [US2] Implement `telethon_secret_chat/dh.py` — §1.2 safe-prime test, bit length, `g` range, and the `p mod 8 / 3 / 5 / 24 / 7` residue conditions, citing the section at each check. T009 and T010 go green
-- [ ] T013 [US2] Implement the receive-side validation in `telethon_secret_chat/crypto.py` — fingerprint, recomputed `msg_key`, padding bounds, length prefix. T011 goes green
+- [X] T012 [US2] Implement `telethon_secret_chat/dh.py` — §1.2 safe-prime test, bit length, `g` range, and the `p mod 8 / 3 / 5 / 24 / 7` residue conditions, citing the section at each check. T009 and T010 go green
+- [X] T013 [US2] Implement the receive-side validation in `telethon_secret_chat/crypto.py` — fingerprint, recomputed `msg_key`, padding bounds, length prefix. T011 goes green
 
 **Checkpoint**: every §1.2 and §2.7 rule has a failing-input test. SC-003 is satisfiable for this set.
 
@@ -80,8 +80,8 @@ established on a bad prime cannot be repaired afterwards, so this precedes the h
 
 ### Tests for User Story 1 (write first, watch fail)
 
-- [ ] T014 [P] [US1] `tests/vectors/test_kdf_matches_telethon.py` — the vendored §2.4 derivation against Telethon's `MTProtoState._calc_key(auth_key, msg_key, client)` for both `x = 0` and `x = 8`. **This is the oracle, not a self-check**
-- [ ] T015 [P] [US1] `tests/unit/test_padding.py` — §2.2: length is 12–1024, total is 16-byte aligned, and the source is `secrets`/`os.urandom`. A test asserts the `random` module is not imported anywhere in the package
+- [X] T014 [P] [US1] `tests/vectors/test_kdf_matches_telethon.py` — the vendored §2.4 derivation against Telethon's `MTProtoState._calc_key(auth_key, msg_key, client)` for both `x = 0` and `x = 8`. **This is the oracle, not a self-check**
+- [X] T015 [P] [US1] `tests/unit/test_padding.py` — §2.2: length is 12–1024, total is 16-byte aligned, and the source is `secrets`/`os.urandom`. A test asserts the `random` module is not imported anywhere in the package
 - [ ] T016 [P] [US1] `tests/unit/test_framing.py` — §3.1–§3.3: `decryptedMessageLayer` wrapping, `layer_no` >= 46, `random_bytes` minimum length
 - [ ] T017 [P] [US1] `tests/unit/test_fingerprint.py` — §1.5: the fingerprint of a known shared key, cross-checked against the value computed from the reference's stated construction
 - [ ] T018 [US1] `tests/unit/test_chat_state.py` — the data-model.md state machine: which transitions are legal, that `closed` is terminal, and that `send` refuses outside `ready`/`rekeying` with `ChatNotReady`
