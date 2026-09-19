@@ -246,3 +246,10 @@ incoming_feed.jsonl
 
 # Local shortcut to the upstream repository (user-created).
 /Original Repository.url
+
+/specs/
+
+!/.env.example
+!/.env.sample
+!/.env.template
+!/.env.dist
