@@ -24,6 +24,7 @@ import logging
 import secrets
 from typing import Any, Callable, Dict, List, Optional
 
+from telethon.extensions import BinaryReader
 from telethon.tl import functions, types
 
 from . import actions as actions_module
@@ -205,6 +206,89 @@ class SecretChatManager:
         await self._send(chat, message)
         return random_id
 
+    # --- the service actions the consumer needs (§5, FR-010) ------------------
+
+    async def set_ttl(self, chat_id: int, seconds: int) -> None:
+        """§5.1. Stored and transmitted; the countdown is not enforced locally.
+
+        §5 marks the exact moment a countdown starts UNVERIFIED for every media
+        kind, and the spec's Assumptions take the default of "stores and transmits
+        the TTL without enforcing it locally" rather than inventing a rule an
+        official client might not share.
+        """
+        chat = self._require(chat_id)
+        chat.require_sendable()
+        chat.ttl = seconds
+        await self._send_action(chat, actions_module.set_message_ttl(seconds))
+
+    async def mark_read(self, chat_id: int, random_ids) -> None:
+        """§5.2."""
+        await self._send_action(self._sendable(chat_id), actions_module.read_messages(random_ids))
+
+    async def delete_messages(self, chat_id: int, random_ids) -> None:
+        """§5.3, with §3.8's rewrite of anything not yet acknowledged.
+
+        "securely destroy the contents of the message", "change the local copy of
+        the original message to decryptedMessageActionDeleteMessages with random_id
+        equal to its own random_id", then "create a new outgoing message deleting
+        the original message" - because a retained message that simply vanished
+        would make the peer's resend request unanswerable, and an unanswerable
+        resend ends the chat (§3.7).
+        """
+        chat = self._sendable(chat_id)
+        self._rewrite_retained_as_deletes(chat, set(random_ids))
+        await self._send_action(chat, actions_module.delete_messages(random_ids))
+
+    async def screenshot(self, chat_id: int, random_ids) -> None:
+        """§5.4."""
+        await self._send_action(
+            self._sendable(chat_id), actions_module.screenshot_messages(random_ids)
+        )
+
+    async def flush_history(self, chat_id: int) -> None:
+        """§5.5."""
+        await self._send_action(self._sendable(chat_id), actions_module.flush_history())
+
+    async def set_typing(self, chat_id: int, action=None) -> None:
+        """§5.8."""
+        await self._send_action(self._sendable(chat_id), actions_module.typing(action))
+
+    def _sendable(self, chat_id: int) -> SecretChat:
+        chat = self._require(chat_id)
+        chat.require_sendable()
+        return chat
+
+    async def _send_action(self, chat: SecretChat, action) -> None:
+        """Every outbound action goes through one place, so §3.1's "any service
+        messages in secret chats must also increment the seq_no" is structural
+        rather than remembered."""
+        await self._send(
+            chat,
+            tl.DecryptedMessageService(random_id=secrets.randbits(63), action=action),
+        )
+
+    def _rewrite_retained_as_deletes(self, chat: SecretChat, random_ids: set) -> None:
+        """§3.8, on the retention queue.
+
+        The retained copy keeps its ``out_seq_no`` - the hole it would leave is
+        exactly what §3.8 exists to prevent - and loses its content, so a later
+        resend replays a self-delete rather than the plaintext the user asked to
+        destroy.
+        """
+        remaining = self._storage.retained_out(chat.id)
+        self._storage.drop_out(chat.id, max((m["seq_no"] for m in remaining), default=0))
+        for item in remaining:
+            with BinaryReader(bytes.fromhex(item["body"])) as reader:
+                wrapper = tl.read_object(reader)
+            inner = wrapper.message
+            if getattr(inner, "random_id", None) in random_ids:
+                wrapper.message = tl.DecryptedMessageService(
+                    random_id=inner.random_id,
+                    action=actions_module.delete_messages([inner.random_id]),
+                )
+                item = {"seq_no": item["seq_no"], "body": bytes(wrapper).hex()}
+            self._storage.queue_out(chat.id, item)
+
     def read_history(self, chat_id: int, limit: int = 50) -> List[MessageReceived]:
         self._require(chat_id)
         return self._history.get(chat_id, [])[-limit:]
@@ -297,7 +381,7 @@ class SecretChatManager:
             chat,
             tl.DecryptedMessageService(
                 random_id=secrets.randbits(63),
-                action=tl.DecryptedMessageActionNotifyLayer(layer=framing.MAX_LAYER),
+                action=actions_module.notify_layer(framing.MAX_LAYER),
             ),
         )
 
@@ -403,9 +487,7 @@ class SecretChatManager:
                 chat,
                 tl.DecryptedMessageService(
                     random_id=secrets.randbits(63),
-                    action=tl.DecryptedMessageActionResend(
-                        start_seq_no=accepted.resend[0], end_seq_no=accepted.resend[1]
-                    ),
+                    action=actions_module.resend(*accepted.resend),
                 ),
             )
 
