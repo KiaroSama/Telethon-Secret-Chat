@@ -82,21 +82,21 @@ established on a bad prime cannot be repaired afterwards, so this precedes the h
 
 - [X] T014 [P] [US1] `tests/vectors/test_kdf_matches_telethon.py` — the vendored §2.4 derivation against Telethon's `MTProtoState._calc_key(auth_key, msg_key, client)` for both `x = 0` and `x = 8`. **This is the oracle, not a self-check**
 - [X] T015 [P] [US1] `tests/unit/test_padding.py` — §2.2: length is 12–1024, total is 16-byte aligned, and the source is `secrets`/`os.urandom`. A test asserts the `random` module is not imported anywhere in the package
-- [ ] T016 [P] [US1] `tests/unit/test_framing.py` — §3.1–§3.3: `decryptedMessageLayer` wrapping, `layer_no` >= 46, `random_bytes` minimum length
-- [ ] T017 [P] [US1] `tests/unit/test_fingerprint.py` — §1.5: the fingerprint of a known shared key, cross-checked against the value computed from the reference's stated construction
-- [ ] T018 [US1] `tests/unit/test_chat_state.py` — the data-model.md state machine: which transitions are legal, that `closed` is terminal, and that `send` refuses outside `ready`/`rekeying` with `ChatNotReady`
-- [ ] T019 [US1] `tests/unit/test_restart.py` — a chat saved, the manager destroyed, a new manager loaded from the same backend: same key, same fingerprint, same counters, and the conversation continues in order
+- [X] T016 [P] [US1] `tests/unit/test_framing.py` — §3.1–§3.3: `decryptedMessageLayer` wrapping, `layer_no` >= 46, `random_bytes` minimum length
+- [X] T017 [P] [US1] `tests/unit/test_fingerprint.py` — §1.5: the fingerprint of a known shared key, cross-checked against the value computed from the reference's stated construction
+- [X] T018 [US1] `tests/unit/test_chat_state.py` — the data-model.md state machine: which transitions are legal, that `closed` is terminal, and that `send` refuses outside `ready`/`rekeying` with `ChatNotReady`
+- [X] T019 [US1] `tests/unit/test_restart.py` — a chat saved, the manager destroyed, a new manager loaded from the same backend: same key, same fingerprint, same counters, and the conversation continues in order
 
 ### Implementation for User Story 1
 
-- [ ] T020 [US1] Implement `telethon_secret_chat/crypto.py` §2.1–§2.6 — serialization, padding from `secrets`, `msg_key`, the vendored KDF, and the IGE frame via the PUBLIC `telethon.crypto.AES`. T014, T015 go green
-- [ ] T021 [US1] Implement `telethon_secret_chat/framing.py` — §3.1–§3.3. T016 goes green
-- [ ] T022 [US1] Implement `telethon_secret_chat/handshake.py` — §1.3–§1.6 request, accept, shared key, fingerprint, using `dh.py` for every parameter. T017 goes green
-- [ ] T023 [US1] Implement `telethon_secret_chat/chat.py` — the `SecretChat` entity and the state machine from data-model.md §1, with `key` and `key_fingerprint` written as ONE atomic unit. T018 goes green
-- [ ] T024 [US1] Implement `telethon_secret_chat/storage/file.py` — the single-file backend, owner-only permissions, atomic replace. T008's shared suite goes green for it
-- [ ] T025 [US1] Implement `telethon_secret_chat/manager.py` — construction per `contracts/public-api.md` §1, `start`/`stop`, the update subscription, and `create`/`accept`/`close`/`list`/`status`. T019 goes green
-- [ ] T026 [US1] Implement `send_message` and `read_history` in `telethon_secret_chat/manager.py`, resolving on Telegram's acceptance per the spec's Assumptions, and the `MessageReceived` / `ChatReady` / `ChatClosed` events
-- [ ] T027 [US1] Export exactly the contract surface from `telethon_secret_chat/__init__.py` — and nothing else. A test asserts `__all__` matches the contract and that no protocol internal is reachable from the package root
+- [X] T020 [US1] Implement `telethon_secret_chat/crypto.py` §2.1–§2.6 — serialization, padding from `secrets`, `msg_key`, the vendored KDF, and the IGE frame via the PUBLIC `telethon.crypto.AES`. T014, T015 go green
+- [X] T021 [US1] Implement `telethon_secret_chat/framing.py` — §3.1–§3.3. T016 goes green
+- [X] T022 [US1] Implement `telethon_secret_chat/handshake.py` — §1.3–§1.6 request, accept, shared key, fingerprint, using `dh.py` for every parameter. T017 goes green
+- [X] T023 [US1] Implement `telethon_secret_chat/chat.py` — the `SecretChat` entity and the state machine from data-model.md §1, with `key` and `key_fingerprint` written as ONE atomic unit. T018 goes green
+- [X] T024 [US1] Implement `telethon_secret_chat/storage/file.py` — the single-file backend, owner-only permissions, atomic replace. T008's shared suite goes green for it
+- [X] T025 [US1] Implement `telethon_secret_chat/manager.py` — construction per `contracts/public-api.md` §1, `start`/`stop`, the update subscription, and `create`/`accept`/`close`/`list`/`status`. T019 goes green
+- [X] T026 [US1] Implement `send_message` and `read_history` in `telethon_secret_chat/manager.py`, resolving on Telegram's acceptance per the spec's Assumptions, and the `MessageReceived` / `ChatReady` / `ChatClosed` events
+- [X] T027 [US1] Export exactly the contract surface from `telethon_secret_chat/__init__.py` — and nothing else. A test asserts `__all__` matches the contract and that no protocol internal is reachable from the package root
 
 **Checkpoint**: 🎯 **MVP.** A text conversation works and survives a restart. Stop here and it is a usable product.
 
