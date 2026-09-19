@@ -12,7 +12,7 @@ reflected back at us.
 
 import pytest
 
-from telethon_secret_chat import sequence
+from telethon_secret_chat import actions, sequence
 from telethon_secret_chat.chat import ChatState, SecretChat
 from telethon_secret_chat.errors import MessageRejected
 from telethon_secret_chat.schema import secret_tl as tl
@@ -127,3 +127,44 @@ def test_a_peer_raising_its_layer_is_accepted():
     deliver(chat, wrapper(in_seq_no=1, out_seq_no=0, layer=101))
     deliver(chat, wrapper(in_seq_no=1, out_seq_no=2, layer=144))
     assert chat.layer == 144
+
+
+def test_a_notify_layer_does_not_raise_the_bar_the_next_wrapper_must_clear():
+    """The two layers TDLib keeps apart, and this package had collapsed into one.
+
+    ``config_state_.his_layer`` is the peer's CAPABILITY: raised by a NotifyLayer
+    (``[TD:SecretChatActor.cpp:2007-2008]``) and by any wrapper announcing higher
+    (``:852-853``), and it is what ``current_layer()`` clamps our outgoing layer to.
+    ``seq_no_state_.his_layer`` is the layer of the last ACCEPTED WRAPPER, written
+    only from ``message->his_layer()`` (``:1124-1126``), and it is the one
+    ``check_seq_no`` requires to be monotonic (``:902``). A NotifyLayer never
+    touches it.
+
+    Storing both in ``chat.layer`` made a NotifyLayer raise the floor every later
+    wrapper had to clear, and a real client does not keep to it: it sends
+    NotifyLayer at its full capability and encodes messages at
+    ``min(mine, his)`` - so its first wrappers carry 73 while it still believes we
+    are at 46. TDLib expects exactly that and says so at ``:848``, where the
+    below-73 rejection is disabled with ``// Android app can send such messages``.
+
+    Measured, against the owner's own Telegram Desktop on 2026-09-20: the chat
+    opened, the peer announced 143, its first message arrived at a lower wrapper
+    layer and this package closed the chat -
+    ``the peer announced a lower layer than it had already claimed``.
+    """
+    import asyncio
+
+    chat = a_chat(is_outbound=True)
+    outcome = asyncio.run(
+        actions.handle(None, chat, tl.DecryptedMessageActionNotifyLayer(layer=143))
+    )
+    assert outcome.applied
+    assert chat.layer == 143, "a NotifyLayer must still raise the capability layer"
+
+    # The peer's first real message, encoded at the layer it believed we supported.
+    deliver(chat, wrapper(in_seq_no=1, out_seq_no=0, layer=73))
+
+    assert chat.state is not ChatState.CLOSED, (
+        "a wrapper below the peer's announced CAPABILITY closed the chat - the "
+        "monotonic check is reading the capability instead of the last wrapper"
+    )
