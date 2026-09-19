@@ -221,8 +221,10 @@ def _refusals():
         "sequence: echo too far": lambda: sequence.accept(
             chat(out_seq_no=0), wrapper(9, 0), MemoryStorage()
         ),
+        # `wrapper_layer`, not `layer`: the monotonic check reads the layer the peer
+        # has ENCODED IN, never its announced capability (.ai/BUGS.md B-001).
         "sequence: layer backwards": lambda: sequence.accept(
-            chat(layer=144), wrapper(1, 0, layer=101), MemoryStorage()
+            chat(wrapper_layer=144), wrapper(1, 0, layer=101), MemoryStorage()
         ),
         # §3.7
         "sequence: resend unsatisfiable": lambda: sequence.answer_resend(
