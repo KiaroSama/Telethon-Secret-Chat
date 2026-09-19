@@ -36,9 +36,7 @@ POLL = 0.25
 def env(name: str) -> str:
     value = os.environ.get(name)
     if not value:  # pragma: no cover - conftest skips before this can fire
-        raise RuntimeError(
-            f"{name} is unset; tests/interop/conftest.py should have skipped"
-        )
+        raise RuntimeError(f"{name} is unset; tests/interop/conftest.py should have skipped")
     return value
 
 
@@ -59,9 +57,7 @@ class Recorder:
     def of(self, kind: str) -> List[Any]:
         return [one for one in self.events if type(one).__name__ == kind]
 
-    def first(
-        self, kind: str, where: Optional[Callable[[Any], bool]] = None
-    ) -> Optional[Any]:
+    def first(self, kind: str, where: Optional[Callable[[Any], bool]] = None) -> Optional[Any]:
         for one in self.of(kind):
             if where is None or where(one):
                 return one

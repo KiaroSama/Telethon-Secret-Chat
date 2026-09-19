@@ -49,9 +49,9 @@ async def test_both_ends_agree_on_the_key_fingerprint(manager, peer, announce):
             "no encryptedChat update carried the peer's fingerprint - the chat "
             "reached ready without the number the comparison is made against"
         )
-        assert mine == theirs, (
-            f"the two ends derived different keys: this end {mine}, the peer {theirs}"
-        )
+        assert (
+            mine == theirs
+        ), f"the two ends derived different keys: this end {mine}, the peer {theirs}"
     finally:
         await manager.close(chat.id, reason="interop fingerprint check finished")
 
