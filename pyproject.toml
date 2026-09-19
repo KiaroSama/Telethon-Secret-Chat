@@ -72,6 +72,9 @@ branch = true
 source = [
     # Listed per module rather than as a package, so a new file has to be added
     # here deliberately and cannot arrive uncovered and unnoticed.
+    "telethon_secret_chat",
+    "telethon_secret_chat.errors",
+    "telethon_secret_chat.storage",
 ]
 
 [tool.coverage.report]
