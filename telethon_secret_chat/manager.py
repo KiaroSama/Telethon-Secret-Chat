@@ -243,6 +243,53 @@ class SecretChatManager:
             )
         )
 
+    async def _answer_any_resend(self, chat: SecretChat, wrapper) -> None:
+        """§3.7's one exception to in-order interpretation.
+
+        "decryptedMessageActionResend must always be interpreted immediately upon
+        receipt in all cases, even if its out_seq_no>=C+1." Otherwise the rule is
+        circular: a request that arrives after the hole it is trying to close would
+        be queued BEHIND that hole, and the hole would never close.
+
+        "Note that each decryptedMessageActionResend must only be handled once, it
+        must not be interpreted again when we interpret messages in the queue." The
+        action is rewritten to Noop in place, exactly as TDLib does it - and because
+        the rewrite happens before `sequence.accept`, the copy that goes into the
+        gap queue carries the Noop too.
+        """
+        inner = getattr(wrapper, "message", None)
+        if not isinstance(inner, (tl.DecryptedMessageService, tl.DecryptedMessageService8)):
+            return
+        action = inner.action
+        if not isinstance(action, tl.DecryptedMessageActionResend):
+            return
+        # Raises ResendUnsatisfiable - and closes the chat - when it cannot be
+        # served, which is what the protocol requires rather than silence.
+        answer = sequence.answer_resend(
+            chat, self._storage, action.start_seq_no, action.end_seq_no
+        )
+        inner.action = tl.DecryptedMessageActionNoop()
+        for retained in answer:
+            await self._resend_retained(chat, retained)
+
+    async def _resend_retained(self, chat: SecretChat, retained: dict) -> None:
+        """Put a retained message back on the wire unchanged.
+
+        The original bytes, so the original ``out_seq_no`` - which is the only thing
+        that can fill the peer's hole. Nothing is counted: §3.4 says the numbers are
+        assigned once "at the exact moment when the message is created" and are
+        never changed. §8.3 measured the archived package composing a NEW message
+        here, with a new counter, which leaves the peer's hole exactly where it was.
+        """
+        frame = crypto.encrypt_frame(chat.key, bytes.fromhex(retained["body"]), chat.out_x)
+        await self._client(
+            functions.messages.SendEncryptedRequest(
+                peer=types.InputEncryptedChat(chat_id=chat.id, access_hash=chat.access_hash),
+                random_id=secrets.randbits(63),
+                data=frame,
+            )
+        )
+
     async def _notify_layer(self, chat: SecretChat) -> None:
         """§7.3: "As soon as a new secret chat has been created, immediately after
         the secret key has been successfully exchanged"."""
@@ -334,7 +381,8 @@ class SecretChatManager:
         try:
             body = crypto.decrypt_frame(chat.key, message.bytes, chat.in_x, chat_id=chat.id)
             wrapper = framing.unwrap(body, chat_id=chat.id)
-            ready = sequence.accept(chat, wrapper)
+            await self._answer_any_resend(chat, wrapper)
+            accepted = sequence.accept(chat, wrapper, self._storage)
         except SecretChatError as refusal:
             # Includes the failures §3.4 and §3.6 say must END the chat: `sequence`
             # closes it and raises, and the application learns both facts as events.
@@ -344,14 +392,28 @@ class SecretChatManager:
             self._save(chat)
             return
 
-        for item in ready:
+        # §3.6's echo says what the peer has taken in, so retention can shrink.
+        sequence.forget_acknowledged(chat, self._storage, chat.peer_in_seq_no)
+        for item in accepted.ready:
             await self._deliver(chat, item, message)
         self._save(chat)
+        if accepted.resend is not None:
+            # §3.7: ask for exactly the missing span, once per hole.
+            await self._send(
+                chat,
+                tl.DecryptedMessageService(
+                    random_id=secrets.randbits(63),
+                    action=tl.DecryptedMessageActionResend(
+                        start_seq_no=accepted.resend[0], end_seq_no=accepted.resend[1]
+                    ),
+                ),
+            )
 
     async def _deliver(self, chat: SecretChat, wrapper, envelope) -> None:
         """One accepted message, in conversation order."""
         inner = wrapper.message
-        chat.layer = framing.raise_remote_layer(chat.layer, wrapper.layer)
+        # The layer was raised in `sequence.accept`, beside the §3.6 check that
+        # forbids lowering it - the two are one rule and drift if they are apart.
 
         if isinstance(inner, (tl.DecryptedMessageService, tl.DecryptedMessageService8)):
             outcome = await actions_module.handle(self, chat, inner.action)

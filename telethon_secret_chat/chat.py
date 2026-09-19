@@ -82,8 +82,17 @@ class SecretChat:
         self.pending_key: Optional[bytes] = None  # §4.8: two keys during an exchange
         self.exchange_id: Optional[int] = None
 
-        self.in_seq_no = 0  # this side's counter
-        self.out_seq_no = 0  # the peer's counter, as last accepted
+        # §3.4: "(out_seq_no, in_seq_no) := (0,0), and incremented strictly by 1
+        # after any message (service or not) is sent/received and processed."
+        self.in_seq_no = 0  # messages received and processed; the next expected
+        self.out_seq_no = 0  # messages sent; §3.6's D + 1
+        # The peer's echo of OUR counter, kept so §3.6 can check it is
+        # non-decreasing across messages rather than only within one.
+        self.peer_in_seq_no = 0
+        # §3.7: "if the remote client keeps sending out of sync messages, they
+        # should be put into the queue without sending a new request". One request
+        # per hole, and this is what makes it one.
+        self.gap_requested = False
         self.layer = INITIAL_REMOTE_LAYER  # §7.2: starts at 46, only rises
         self.ttl = 0  # §5.1: 0 disables
 
@@ -165,6 +174,8 @@ class SecretChat:
         "exchange_id",
         "in_seq_no",
         "out_seq_no",
+        "peer_in_seq_no",
+        "gap_requested",
         "layer",
         "ttl",
         "created_at",
