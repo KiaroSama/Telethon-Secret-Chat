@@ -110,16 +110,13 @@ async def test_every_media_kind_is_sent_and_opens_on_the_far_side(
 
         answer = (verdict.text or "").strip().lower()
         assert answer == "ok", (
-            f"the operator reported a file that did not open on the far side: "
-            f"{verdict.text!r}"
+            f"the operator reported a file that did not open on the far side: " f"{verdict.text!r}"
         )
     finally:
         await manager.close(chat.id, reason="interop media check finished")
 
 
-async def test_a_file_from_the_far_side_decrypts_and_is_written(
-    manager, peer, announce, tmp_path
-):
+async def test_a_file_from_the_far_side_decrypts_and_is_written(manager, peer, announce, tmp_path):
     chat, _ = await ready_chat(manager, peer, announce, "incoming file")
     try:
         announce(
@@ -130,9 +127,7 @@ async def test_a_file_from_the_far_side_decrypts_and_is_written(
             manager.recorder,
             "MessageReceived",
             where=lambda one: (
-                one.chat_id == chat.id
-                and one.media is not None
-                and one.file is not None
+                one.chat_id == chat.id and one.media is not None and one.file is not None
             ),
             deadline=HUMAN_DEADLINE,
             missing="no file arrived from the second account",

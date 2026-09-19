@@ -94,9 +94,7 @@ async def client():
     )
     await one.connect()
     if not await one.is_user_authorized():
-        _pytest.fail(
-            "TSC_TEST_SESSION is not authorized - the string is stale or was revoked"
-        )
+        _pytest.fail("TSC_TEST_SESSION is not authorized - the string is stale or was revoked")
     try:
         yield one
     finally:
@@ -127,9 +125,7 @@ async def manager(client):
 
     async def watch(update):
         chat = getattr(update, "chat", None)
-        if isinstance(update, types.UpdateEncryption) and isinstance(
-            chat, types.EncryptedChat
-        ):
+        if isinstance(update, types.UpdateEncryption) and isinstance(chat, types.EncryptedChat):
             recorder.peer_fingerprints[chat.id] = chat.key_fingerprint
 
     client.add_event_handler(watch)
