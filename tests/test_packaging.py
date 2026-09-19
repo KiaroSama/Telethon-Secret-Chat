@@ -36,9 +36,17 @@ def test_the_inherited_notices_are_preserved():
     assert "core.telegram.org/api/end-to-end" in notice, "the protocol source is unattributed"
 
 
-def test_the_package_makes_no_promise_it_cannot_keep():
-    """It imports, and it exports nothing. A stub that exported names would let a
-    caller write code against an implementation that does not exist."""
+def test_the_package_promises_only_what_it_implements():
+    """Every exported name resolves, and nothing under it is a stub.
+
+    This began as ``assert pkg.__all__ == []`` - correct while the package was a
+    scaffold, and stale the moment there was something to export. What it was
+    really guarding is kept: a caller must not be able to write code against a name
+    that is not backed by an implementation. tests/unit/test_manager.py pins the
+    exact contents against contracts/public-api.md; this pins that they are real.
+    """
     import telethon_secret_chat as pkg
 
-    assert pkg.__all__ == []
+    assert pkg.__all__, "the package exports nothing"
+    missing = [name for name in pkg.__all__ if not hasattr(pkg, name)]
+    assert not missing, f"exported but absent: {missing}"

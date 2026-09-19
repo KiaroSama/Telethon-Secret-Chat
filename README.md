@@ -34,6 +34,72 @@ The alternatives were measured rather than assumed, and both were rejected:
 Owning the secret-chat layer in Python is the remaining route, and it is a bounded one: the
 protocol has been frozen since Layer 73.
 
+## Usage
+
+```python
+from telethon import TelegramClient
+from telethon_secret_chat import SecretChatManager, FileStorage
+
+client = TelegramClient(session, api_id, api_hash)
+await client.connect()
+
+# Storage is REQUIRED and has no default. A library that quietly picks where to
+# write key material picks a location the operator never protected.
+manager = SecretChatManager(client, storage=FileStorage("secret-chats.db"))
+await manager.start()
+
+chat = await manager.create(peer)
+# Show chat.key_fingerprint to the user - the peer's client shows the same value.
+await manager.send_message(chat.id, "hello")
+```
+
+Events are registered by name and carry a shape, never a value:
+
+```python
+manager.on("ChatReady", lambda e: print("fingerprint", e.key_fingerprint))
+manager.on("MessageReceived", lambda e: print(e.text))
+manager.on("DecryptFailed", lambda e: log.warning("refused: %s", e.reason))
+```
+
+A failed decrypt is an **event**, not an exception thrown through your update loop.
+Failures the protocol says must end a chat also produce `ChatClosed`.
+
+### The operations
+
+| Call | Does |
+|---|---|
+| `create(user)` / `accept(chat_id)` / `close(chat_id)` | the chat's life |
+| `list()` / `status(chat_id)` | what exists, with fingerprint and TTL |
+| `send_message(chat_id, text)` / `read_history(chat_id, limit)` | text |
+| `send_file(chat_id, path)` / `save_file(message, path)` | media |
+| `set_ttl`, `mark_read`, `delete_messages`, `screenshot`, `flush_history`, `set_typing` | the chat's controls |
+| `rekey(chat_id)` | a new key now, rather than on the documented trigger |
+
+`send_message` and `send_file` resolve when **Telegram accepts the ciphertext**, not
+when the peer acknowledges; acknowledgement arrives as an event.
+
+### Running the tests
+
+```bash
+uv sync --all-extras
+uv run --locked pytest tests/unit -q      # no account, no network
+uv run --locked pytest tests/vectors -q   # cross-checked against Telethon's own primitives
+
+# Interop needs two real accounts and is never run in CI.
+export TSC_TEST_SESSION="<a StringSession for the test account>"
+export TSC_TEST_PEER="<the second account's username or id>"
+uv run --locked pytest tests/interop -q
+```
+
+### What is not implemented
+
+- **MTProto 1.0.** A chat that cannot proceed without it is refused with that stated
+  as the reason. Layers below 73 are out of scope.
+- **Moving a chat between devices.** A secret chat is bound to the authorization that
+  performed its DH exchange. Adopting this package means re-creating existing chats.
+- **Two processes on one session.** That property belongs to the session, not to this
+  package, and is not claimed here.
+
 ## Correctness
 
 The rule this project is built on:
@@ -48,8 +114,9 @@ while it is still present; the fixtures outlive it.
 ## Requirements
 
 - Python 3.11+
-- Telethon 1.45+ — the package touches exactly two Telethon internals, and a test fails when
-  either disappears
+- Telethon 1.45+ — the package touches exactly **one** Telethon internal
+  (`TelegramClient._parse_message_text`), and `tests/unit/test_telethon_canary.py`
+  fails when it disappears, naming the fallback in its failure message
 
 ## Licence
 

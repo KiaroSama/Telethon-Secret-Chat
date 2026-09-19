@@ -23,6 +23,7 @@ from typing import Optional, Tuple
 __all__ = [
     "SecretChatError",
     "ParameterRejected",
+    "MessageRejected",
     "ChatNotReady",
     "ChatClosed",
     "StorageRequired",
@@ -68,6 +69,26 @@ class ParameterRejected(SecretChatError):
     def __init__(self, *, chat_id: Optional[int] = None, reason: str):
         self.reason = reason
         super().__init__(f"refused the key exchange: {reason}", chat_id=chat_id)
+
+
+class MessageRejected(SecretChatError):
+    """A received message failed one of the receive-side checks (§2.7, §3.4-§3.6).
+
+    Internal to the package, and deliberately not in the public surface of
+    ``contracts/public-api.md`` §4: the contract says a failed decrypt reaches the
+    application as a ``DecryptFailed`` EVENT, not as an exception thrown through its
+    update loop. This is what the manager catches to build that event.
+
+    ``reason`` is a phrase this module wrote. Never the ciphertext, never a partial
+    plaintext, and never how far the parse got - "the difference between a
+    decryption failure and a buffer-length oracle" is §2.7's own wording, and an
+    error that reports which check failed at which offset rebuilds the oracle the
+    checks were written to close.
+    """
+
+    def __init__(self, *, chat_id: Optional[int] = None, reason: str):
+        self.reason = reason
+        super().__init__(f"rejected a received message: {reason}", chat_id=chat_id)
 
 
 class ChatNotReady(SecretChatError):

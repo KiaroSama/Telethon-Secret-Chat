@@ -6,33 +6,25 @@ max-line-length = 99
 exclude = .git,__pycache__,.venv,build,dist,docs/source/conf.py
 # black owns line length and slice/operator whitespace.
 extend-ignore = E203,E501,W503
-# F401/F403/F405 are silenced HERE, per file, and not repository-wide.
+# F401/F403/F405 are silenced HERE, per file, and never repository-wide. Silencing
+# them across a whole tree once let `import subprocess` sit dead for months after
+# the call it belonged to was deleted, with thirteen more like it behind it.
 #
-# They have to be silenced somewhere: the tool modules deliberately open with
-# `from telegram_mcp.runtime import *`, and runtime.py's own import block is
-# their public surface, so flake8 cannot tell which of those names get used.
-# That is the price of the architecture, not an oversight - see
-# telegram_mcp/tools/__init__.py.
+# The list is hand-maintained, and that is safe in the one direction that matters:
+# add a file needing an exemption and forget to list it, and lint fails loudly on
+# the next run. The failure mode is noise, not silence.
 #
-# Silencing it EVERYWHERE was a different thing, and it cost. With the check off
-# across the whole tree, `import subprocess` sat dead in aliases.py for months
-# after the icacls call it belonged to was deleted, together with the timeout
-# constant that bounded that subprocess. Thirteen more like it had accumulated.
-# Nothing was ever going to report them.
-#
-# The list below is hand-maintained, and that is safe in the one direction that
-# matters: add a star-importing file and forget to list it, and lint fails
-# loudly on the next run. The failure mode is noise, not silence.
+# telethon_secret_chat/schema/secret_tl.py is THE exempt file of this repository,
+# and the constitution names it: "Generated schema files are exempt and MUST be
+# marked as generated". It is 2,500 lines of emitted constructors, `# generated` on
+# line 1, rebuilt by `uv run --locked python tools/generate_schema.py` from the
+# schema fetched verbatim into schema/end-to-end.tl. The exemption is from the
+# 800-line ceiling, which is a constitution rule rather than a flake8 one - it is
+# recorded here because this is where a reader comes to ask why a file is special.
+# Its ninety `__init__` parameters shadow nothing and the file is black-clean, so
+# no code is silenced for it: nothing below is a licence to stop reading it.
 per-file-ignores =
-    main.py:F401,F403,F405
-    telegram_mcp/media_preview.py:F401,F403,F405
-    telegram_mcp/runner.py:F401,F403,F405
-    telegram_mcp/runtime.py:F401,F403,F405
-    telegram_mcp/tools/*.py:F401,F403,F405
-    tests/test_chats_split.py:F401,F403,F405
-    tests/test_groups_split.py:F401,F403,F405
-    tests/test_message_view.py:F401,F403,F405
-    tests/test_tool_registry.py:F401,F403,F405
+    tools/generate_schema.py:E731
 # max-complexity is deliberately absent. Setting a limit that is already breached, or
 # raising the limit until it fits, would both be theatre. Reducing complexity is
 # separate, deliberate work.
