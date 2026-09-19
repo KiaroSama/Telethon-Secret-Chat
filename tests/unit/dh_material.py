@@ -21,6 +21,16 @@ SAFE_PRIME = int(
     16,
 )
 
-# 2048 bits and in range, but divisible by 3 - so it fails the primality test
-# immediately rather than after fifteen Miller-Rabin rounds.
+# 2048 bits and in range, but ``p mod 8 == 1``, so with ``g = 2`` it is refused by
+# the RESIDUE condition before primality is ever tested. Useful for driving that
+# branch; useless for driving the safe-prime one, which is what the constant below
+# is for.
 COMPOSITE_2048 = 2**2047 + 1
+
+# 2048 bits, in range, and ``p mod 8 == 7`` so ``g = 2`` passes its §1.2 residue
+# condition - which means the SAFE-PRIME branch is what has to refuse it. Divisible
+# by three, so Miller-Rabin rejects it on trial division rather than after fifteen
+# rounds. Without this case the primality branch is never reached by a test, and a
+# leak added there would go unnoticed - which is exactly what a mutation check
+# found.
+COMPOSITE_PASSING_RESIDUE = 2**2047 + 7
