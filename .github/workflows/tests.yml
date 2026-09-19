@@ -127,19 +127,34 @@ jobs:
       # legs then disagree. It cannot catch a suite deleted everywhere at once -
       # that is what a tracked suite count is for, added when there are suites to
       # count.
-      - name: Refuse a matrix whose legs disagree
+      #
+      # The skip gate below catches what agreement cannot: a suite that every leg
+      # collected and no leg RAN. One misscoped `pytest_collection_modifyitems` in
+      # tests/interop/conftest.py - a session hook, handed every item in the
+      # repository rather than the ones beside it - skipped the whole suite on one
+      # unset environment variable. Every leg agreed, every leg was green, and
+      # nothing had executed. Counting cases is not counting evidence.
+      - name: Refuse a matrix whose legs disagree, or that ran nothing
         run: |
           python - <<'PY'
           import xml.etree.ElementTree as ET, pathlib, sys
-          counts = {}
+          counts, skipped = {}, {}
           for p in sorted(pathlib.Path("records").rglob("*.xml")):
               r = ET.parse(p).getroot()
               s = r if r.tag == "testsuite" else r.find("testsuite")
               counts[p.parent.name] = int(s.get("tests"))
+              skipped[p.parent.name] = int(s.get("skipped") or 0)
           print("collected per leg:", counts)
+          print("skipped per leg:  ", skipped)
           if not counts:
               sys.exit("no case records were uploaded - no leg reached collection")
           if len(set(counts.values())) != 1:
               sys.exit(f"legs disagree on how many cases exist: {counts}")
-          print(f"all {len(counts)} leg(s) agree: {next(iter(counts.values()))} case(s)")
+          ran = {leg: counts[leg] - skipped[leg] for leg in counts}
+          empty = [leg for leg, n in ran.items() if n == 0]
+          if empty:
+              sys.exit(f"these legs collected cases and executed none: {empty} - "
+                       "a fully skipped suite is not a passing suite")
+          print(f"all {len(counts)} leg(s) agree: {next(iter(counts.values()))} case(s), "
+                f"executed per leg: {ran}")
           PY
