@@ -95,7 +95,7 @@ established on a bad prime cannot be repaired afterwards, so this precedes the h
 - [ ] T023 [US1] Implement `telethon_secret_chat/chat.py` — the `SecretChat` entity and the state machine from data-model.md §1, with `key` and `key_fingerprint` written as ONE atomic unit. T018 goes green
 - [ ] T024 [US1] Implement `telethon_secret_chat/storage/file.py` — the single-file backend, owner-only permissions, atomic replace. T008's shared suite goes green for it
 - [ ] T025 [US1] Implement `telethon_secret_chat/manager.py` — construction per `contracts/public-api.md` §1, `start`/`stop`, the update subscription, and `create`/`accept`/`close`/`list`/`status`. T019 goes green
-- [ ] T026 [US1] Implement `send_message` and `read_history` on the manager, resolving on Telegram's acceptance per the spec's Assumptions, and the `MessageReceived` / `ChatReady` / `ChatClosed` events
+- [ ] T026 [US1] Implement `send_message` and `read_history` in `telethon_secret_chat/manager.py`, resolving on Telegram's acceptance per the spec's Assumptions, and the `MessageReceived` / `ChatReady` / `ChatClosed` events
 - [ ] T027 [US1] Export exactly the contract surface from `telethon_secret_chat/__init__.py` — and nothing else. A test asserts `__all__` matches the contract and that no protocol internal is reachable from the package root
 
 **Checkpoint**: 🎯 **MVP.** A text conversation works and survives a restart. Stop here and it is a usable product.
@@ -118,7 +118,7 @@ established on a bad prime cannot be repaired afterwards, so this precedes the h
 ### Implementation for User Story 3
 
 - [ ] T032 [US3] Implement `telethon_secret_chat/sequence.py` — §3.4–§3.8 parity, replay, gap detection, the ordered gap queue, and outgoing retention with its stated bound. T028–T031 go green
-- [ ] T033 [US3] Wire the gap queue and retention through `storage/` so both survive a restart, extending T008's shared suite
+- [ ] T033 [US3] Wire the gap queue and retention through `telethon_secret_chat/storage/__init__.py` and `storage/file.py` so both survive a restart, extending `tests/unit/test_storage_contract.py`
 
 **Checkpoint**: a lossy, reordering network no longer corrupts a conversation.
 
@@ -132,7 +132,7 @@ established on a bad prime cannot be repaired afterwards, so this precedes the h
 
 - [ ] T034 [P] [US4] `tests/unit/test_actions_encoding.py` — all thirteen `decryptedMessageAction*` from §5 round-trip, and an unknown action is reported rather than dropped
 - [ ] T035 [US4] Implement `telethon_secret_chat/actions.py` — §5, splitting Conversation actions (surfaced as `ServiceActionReceived`, may change stored `ttl`) from Protocol/Rekey actions (handled internally, still reported). T034 goes green
-- [ ] T036 [US4] Add `set_ttl` to the manager and the TTL field to the chat record, noting at the site that the countdown start is UNVERIFIED in the reference and that this package stores and transmits without enforcing locally
+- [ ] T036 [US4] Add `set_ttl` to `telethon_secret_chat/manager.py` and the TTL field to `telethon_secret_chat/chat.py`, noting at the site that the countdown start is UNVERIFIED in the reference and that this package stores and transmits without enforcing locally
 
 ---
 
@@ -142,7 +142,7 @@ established on a bad prime cannot be repaired afterwards, so this precedes the h
 
 - [ ] T037 [P] [US5] `tests/unit/test_file_keys.py` — §6: a file whose key fingerprint does not match is refused **before any byte is written to disk**
 - [ ] T038 [US5] Implement `telethon_secret_chat/files.py` — §6 key/iv/fingerprint, encrypted upload and download. T037 goes green
-- [ ] T039 [US5] Add `send_file` and `save_file` to the manager per the contract
+- [ ] T039 [US5] Add `send_file` and `save_file` to `telethon_secret_chat/manager.py` per `contracts/public-api.md` §2
 
 ---
 
@@ -170,10 +170,10 @@ attempt these before a chat works.**
 ## Phase 10: Polish & Cross-Cutting Concerns
 
 - [ ] T047 [P] `tests/unit/test_telethon_canary.py` — asserts `TelegramClient._parse_message_text` exists, names the documented fallback in its failure message, and asserts `telethon.crypto.AES.encrypt_ige` is still public
-- [ ] T048 [P] Extend T005's leak test to drive EVERY failure path added in Phases 3–9 and assert the same boundary (SC-005)
+- [ ] T048 [P] Extend `tests/unit/test_errors_leak_nothing.py` to drive EVERY failure path added in Phases 3–9 and assert the same boundary (SC-005)
 - [ ] T049 [P] Add a `tests/unit/test_no_insecure_random.py` that fails if `import random` appears anywhere in the package
 - [ ] T050 Write the README usage section from `quickstart.md`, and record in `.ai/memory.md` which of the reference's UNVERIFIED items remain unverified
-- [ ] T051 Re-run `graphify .` and re-index CBM now that there is real code to graph
+- [ ] T051 Re-run `graphify .` and re-index CBM against `telethon_secret_chat/` now that there is real code to graph
 
 ---
 
