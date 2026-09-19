@@ -42,6 +42,10 @@ class FakeClient:
         # updateEncryption carrying the key before any message that follows it.
         self.hold = False
         self.held = []
+        # Every blob handed to the server, so a test can assert the plaintext never
+        # was one (§6.4: the bytes are encrypted client-side BEFORE upload).
+        self.uploaded = []
+        self.stored = {}  # file id -> ciphertext, standing in for the CDN
 
     # --- the surface manager.py uses -----------------------------------------
 
@@ -77,9 +81,30 @@ class FakeClient:
             elif self.peer is not None:
                 await self.peer.deliver(request.peer.chat_id, request.data)
             return types.messages.SentEncryptedMessage(date=0)
+        if isinstance(request, functions.messages.SendEncryptedFileRequest):
+            if self.hold:
+                self.held.append((request.peer.chat_id, request.data, request.file))
+            elif self.peer is not None:
+                await self.peer.deliver(request.peer.chat_id, request.data, request.file)
+            return types.messages.SentEncryptedMessage(date=0)
         if isinstance(request, functions.messages.DiscardEncryptionRequest):
             return types.BoolTrue()
         raise AssertionError(f"the manager sent a request this fake does not answer: {request!r}")
+
+    async def upload_file(self, file, **kwargs):
+        """Telethon's public upload. The bytes arriving here are ciphertext."""
+        blob = file.read() if hasattr(file, "read") else bytes(file)
+        self.uploaded.append(blob)
+        file_id = len(self.uploaded)
+        # Both sides of a Wire share one store, as one Telegram CDN would.
+        self.stored[file_id] = blob
+        if self.peer is not None:
+            self.peer.stored[file_id] = blob
+        return types.InputFile(id=file_id, parts=1, name="upload.bin", md5_checksum="")
+
+    async def download_file(self, location, out, **kwargs):
+        out.write(self.stored[location.id])
+        return out
 
     async def get_input_entity(self, user):
         return types.InputUser(user_id=int(user), access_hash=0)
@@ -96,11 +121,24 @@ class FakeClient:
 
     # --- delivering an update -------------------------------------------------
 
-    async def deliver(self, chat_id, data):
-        """Hand an encrypted message to whatever is subscribed, as the server does."""
+    async def deliver(self, chat_id, data, file=None):
+        """Hand an encrypted message to whatever is subscribed, as the server does.
+
+        ``file`` is the ``encryptedFile`` the server returns for a media message -
+        the address and the §6.2 fingerprint, in cleartext, OUTSIDE the encryption.
+        """
+        attached = types.EncryptedFileEmpty()
+        if file is not None:
+            attached = types.EncryptedFile(
+                id=file.id,
+                access_hash=0,
+                size=len(self.stored.get(file.id, b"")),
+                dc_id=1,
+                key_fingerprint=file.key_fingerprint,
+            )
         update = types.UpdateNewEncryptedMessage(
             message=types.EncryptedMessage(
-                random_id=1, chat_id=chat_id, date=0, bytes=data, file=types.EncryptedFileEmpty()
+                random_id=1, chat_id=chat_id, date=0, bytes=data, file=attached
             ),
             qts=0,
         )
@@ -114,8 +152,8 @@ class FakeClient:
     async def release(self):
         """Deliver everything held, in the order it was sent."""
         held, self.held, self.hold = self.held, [], False
-        for chat_id, data in held:
-            await self.peer.deliver(chat_id, data)
+        for item in held:
+            await self.peer.deliver(*item)
 
 
 class Wire:

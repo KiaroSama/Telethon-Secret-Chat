@@ -22,13 +22,14 @@ from __future__ import annotations
 
 import logging
 import secrets
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from telethon.extensions import BinaryReader
 from telethon.tl import functions, types
 
 from . import actions as actions_module
-from . import crypto, dh, framing, handshake, sequence
+from . import crypto, dh, files, framing, handshake, sequence
 from .chat import ChatState, SecretChat
 from .errors import SecretChatError, StorageRequired
 from .events import (
@@ -206,6 +207,20 @@ class SecretChatManager:
         await self._send(chat, message)
         return random_id
 
+    # --- files (§6, contracts §2) ---------------------------------------------
+    # The bodies live in `files.py`, which owns §6 end to end: the one-time keys,
+    # the MD5 fingerprint that is NOT §1.5's, and the ordering FR-012 requires.
+    # Keeping them there rather than here is what stops §6 being half in a module
+    # named for it and half in the orchestrator.
+
+    async def send_file(self, chat_id: int, path, *, caption: str = "", mime_type=None) -> int:
+        """§6.3-§6.4. The key travels inside the message, the address outside it."""
+        return await files.send(self, self._sendable(chat_id), path, caption, mime_type)
+
+    async def save_file(self, message: MessageReceived, path) -> Path:
+        """§6.3: check the fingerprint, THEN write. FR-012."""
+        return await files.receive(self, message, path)
+
     # --- the service actions the consumer needs (§5, FR-010) ------------------
 
     async def set_ttl(self, chat_id: int, seconds: int) -> None:
@@ -295,7 +310,7 @@ class SecretChatManager:
 
     # --- sending --------------------------------------------------------------
 
-    async def _send(self, chat: SecretChat, message) -> None:
+    async def _send(self, chat: SecretChat, message, file=None) -> None:
         """Wrap (§3.1), count (§3.4), encrypt (§2) and hand to Telegram.
 
         The counters are assigned here and nowhere else. §3.4: "assign in_seq_no and
@@ -319,13 +334,18 @@ class SecretChatManager:
             {"seq_no": wrapped.out_seq_no, "body": bytes(wrapped).hex()},
         )
         self._save(chat)
-        await self._client(
-            functions.messages.SendEncryptedRequest(
-                peer=types.InputEncryptedChat(chat_id=chat.id, access_hash=chat.access_hash),
-                random_id=secrets.randbits(63),
-                data=frame,
+        peer = types.InputEncryptedChat(chat_id=chat.id, access_hash=chat.access_hash)
+        if file is None:
+            request = functions.messages.SendEncryptedRequest(
+                peer=peer, random_id=secrets.randbits(63), data=frame
             )
-        )
+        else:
+            # §6.4: a media message goes through a different method, carrying the
+            # file's address alongside the ciphertext rather than inside it.
+            request = functions.messages.SendEncryptedFileRequest(
+                peer=peer, random_id=secrets.randbits(63), data=frame, file=file
+            )
+        await self._client(request)
 
     async def _answer_any_resend(self, chat: SecretChat, wrapper) -> None:
         """§3.7's one exception to in-order interpretation.
