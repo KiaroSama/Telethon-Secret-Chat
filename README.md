@@ -80,10 +80,16 @@ when the peer acknowledges; acknowledgement arrives as an event.
 
 ### Running the tests
 
+**`python -m pytest`, not `pytest`.** uv launches a console script through a
+trampoline that cannot canonicalize a path containing a SPACE, and this project's
+folder is `Telethon Secret Chat`; `uv run pytest` fails with
+`uv trampoline failed to canonicalize script path`. The module form skips it. CI
+runs on a path without spaces and is unaffected.
+
 ```bash
 uv sync --all-extras
-uv run --locked pytest tests/unit -q      # no account, no network
-uv run --locked pytest tests/vectors -q   # cross-checked against Telethon's own primitives
+uv run --locked python -m pytest tests/unit -q      # no account, no network
+uv run --locked python -m pytest tests/vectors -q   # cross-checked against Telethon's own primitives
 
 # Interop needs two real accounts and is never run in CI. The second account
 # is driven BY HAND in an official client - that is the whole claim - so the
@@ -95,7 +101,7 @@ export TSC_TEST_API_HASH="<its api_hash>"
 # Optional: real video/audio samples. Without it those kinds are reported as
 # not covered rather than faked with a few bytes wearing a video mime type.
 export TSC_TEST_MEDIA_DIR="<a directory of sample files>"
-uv run --locked pytest tests/interop -q -s
+uv run --locked python -m pytest tests/interop -q -s
 ```
 
 On Windows, beside a `telegram-mcp` checkout, `scripts/run_interop.ps1` supplies the
