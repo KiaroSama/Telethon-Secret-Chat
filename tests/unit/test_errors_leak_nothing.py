@@ -138,3 +138,145 @@ def test_all_of_them_are_one_family():
     assert (
         exported == covered
     ), f"these error types are not covered by the leak test: {sorted(exported - covered)}"
+
+
+# --- T048: every failure path added in Phases 3-9 (SC-005) --------------------
+#
+# The tests above drive each ERROR TYPE with dangerous material. These drive each
+# real refusal SITE with material that would be catastrophic to print, because the
+# type being safe is not the same as every construction of it being safe: a reason
+# string is written at the site, and the site is where a protocol object is in
+# scope.
+
+PLAIN = "the quick brown fox jumps over the lazy dog"
+KEY_256 = bytes((i * 7 + 3) % 256 for i in range(256))
+
+
+def _catch(call):
+    """Run a refusal and return everything it emitted, as one string."""
+    import pytest as _pytest
+
+    with _pytest.raises(errors.SecretChatError) as caught:
+        call()
+    error = caught.value
+    return str(error) + repr(error) + repr(vars(error))
+
+
+def _refusals():
+    """One callable per refusal site reachable without a network."""
+    import os
+
+    from telethon_secret_chat import crypto, dh, files, framing, sequence
+    from telethon_secret_chat.chat import SecretChat
+    from telethon_secret_chat.schema import secret_tl as tl
+    from telethon_secret_chat.storage import MemoryStorage
+
+    def chat(**over):
+        c = SecretChat(id=42, access_hash=1, peer_user_id=2, is_outbound=True)
+        c.adopt_key(KEY_256)
+        for k, v in over.items():
+            setattr(c, k, v)
+        return c
+
+    def wrapper(in_seq_no, out_seq_no, layer=144):
+        return tl.DecryptedMessageLayer(
+            random_bytes=b"\x00" * 31,
+            layer=layer,
+            in_seq_no=in_seq_no,
+            out_seq_no=out_seq_no,
+            message=tl.DecryptedMessage(random_id=1, ttl=0, message=PLAIN),
+        )
+
+    frame = crypto.encrypt_frame(KEY_256, bytes(wrapper(1, 0)), 0)
+    corrupt = bytearray(frame)
+    corrupt[-1] ^= 0x01
+    file_key, file_iv = os.urandom(32), os.urandom(32)
+
+    return {
+        # §1.2
+        # Two different §1.2 branches: the residue condition, and the safe-prime
+        # test behind it. One case cannot reach both.
+        "dh: bad residue": lambda: dh.check_config(g=2, p=2**2047 + 1, chat_id=42),
+        "dh: composite prime": lambda: dh.check_config(g=2, p=2**2047 + 7, chat_id=42),
+        "dh: peer value": lambda: dh.check_peer_value(1, 2**2047 + 1, chat_id=42),
+        # §2.7
+        "crypto: wrong fingerprint": lambda: crypto.decrypt_frame(
+            bytes(256), frame, 0, chat_id=42
+        ),
+        "crypto: tampered": lambda: crypto.decrypt_frame(KEY_256, bytes(corrupt), 0, chat_id=42),
+        "crypto: truncated": lambda: crypto.decrypt_frame(KEY_256, frame[:30], 0, chat_id=42),
+        # §3.1-§3.2
+        "framing: not a wrapper": lambda: framing.unwrap(
+            bytes(tl.DecryptedMessage(random_id=1, ttl=0, message=PLAIN)), chat_id=42
+        ),
+        "framing: unparseable": lambda: framing.unwrap(b"\xde\xad\xbe\xef", chat_id=42),
+        "framing: layer too low": lambda: framing.require_supported_layer(
+            chat_id=42, peer_layer=8
+        ),
+        # §3.4-§3.6
+        "sequence: parity": lambda: sequence.accept(chat(), wrapper(0, 0), MemoryStorage()),
+        "sequence: echo backwards": lambda: sequence.accept(
+            chat(peer_in_seq_no=5, out_seq_no=9), wrapper(1, 0), MemoryStorage()
+        ),
+        "sequence: echo too far": lambda: sequence.accept(
+            chat(out_seq_no=0), wrapper(9, 0), MemoryStorage()
+        ),
+        "sequence: layer backwards": lambda: sequence.accept(
+            chat(layer=144), wrapper(1, 0, layer=101), MemoryStorage()
+        ),
+        # §3.7
+        "sequence: resend unsatisfiable": lambda: sequence.answer_resend(
+            chat(), MemoryStorage(), 1, 9
+        ),
+        "sequence: resend too wide": lambda: sequence.answer_resend(
+            chat(), MemoryStorage(), 1, 1 + 2 * sequence.MAX_RESEND_COUNT + 2
+        ),
+        # §6.2
+        "files: fingerprint": lambda: files.verify_file_fingerprint(
+            chat_id=42, key=file_key, iv=file_iv, claimed=0
+        ),
+        # the chat's own refusals
+        "chat: not ready": lambda: SecretChat(
+            id=42, access_hash=1, peer_user_id=2, is_outbound=True
+        ).require_sendable(),
+        "chat: closed": lambda: _closed().require_sendable(),
+    }
+
+
+def _closed():
+    from telethon_secret_chat.chat import SecretChat
+
+    c = SecretChat(id=42, access_hash=1, peer_user_id=2, is_outbound=True)
+    c.adopt_key(KEY_256)
+    c.close("an integrity check failed")
+    return c
+
+
+@pytest.mark.parametrize("name", list(_refusals()))
+def test_no_refusal_path_emits_key_material_or_plaintext(name):
+    """SC-005: "No key material or plaintext appears anywhere outside the chat,
+    demonstrated by a test that exercises the failure paths and inspects what they
+    emitted.\" """
+    rendered = _catch(_refusals()[name])
+    assert PLAIN not in rendered, f"{name} leaked plaintext"
+    assert KEY_256.hex()[:32] not in rendered.lower(), f"{name} leaked the key"
+    assert repr(KEY_256) not in rendered, f"{name} leaked the key's repr"
+    assert "DecryptedMessage" not in rendered, f"{name} formatted a protocol object"
+
+
+@pytest.mark.parametrize("name", list(_refusals()))
+def test_every_refusal_path_still_says_something_useful(name):
+    """A boundary that emitted nothing would pass every assertion above. Each
+    refusal names its chat and describes what was refused."""
+    rendered = _catch(_refusals()[name])
+    assert "42" in rendered, f"{name} does not name the chat"
+    assert len(rendered) > 40, f"{name} says too little to act on"
+
+
+@pytest.mark.parametrize("name", list(_refusals()))
+def test_no_refusal_path_emits_a_long_opaque_run(name):
+    """The catch-all: key material that reached a message by accident looks like a
+    long unbroken run of hex or base64, whatever route it took to get there."""
+    rendered = _catch(_refusals()[name])
+    for run in re.findall(r"[A-Za-z0-9+/=]{24,}", rendered):
+        assert not re.fullmatch(r"[0-9a-fA-F]{24,}", run), f"{name} emitted {run[:24]}..."

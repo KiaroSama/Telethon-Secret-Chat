@@ -17,7 +17,7 @@ import pytest
 from telethon_secret_chat import dh
 from telethon_secret_chat.errors import ParameterRejected
 
-from .dh_material import COMPOSITE_2048, SAFE_PRIME
+from .dh_material import COMPOSITE_2048, COMPOSITE_PASSING_RESIDUE, SAFE_PRIME
 
 # --- what must be accepted ----------------------------------------------------
 
@@ -31,10 +31,24 @@ def test_a_real_safe_prime_with_g_2_is_accepted():
 
 
 def test_a_composite_prime_is_refused():
-    """§1.2: "The client is expected to check whether p is a safe 2048-bit prime"."""
+    """§1.2: "The client is expected to check whether p is a safe 2048-bit prime".
+
+    ``COMPOSITE_PASSING_RESIDUE`` and not ``COMPOSITE_2048``: the latter is refused
+    by the RESIDUE condition first, whose message also contains the word "prime", so
+    asserting on that word made this test pass without the primality check existing
+    at all. A mutation check found it.
+    """
+    with pytest.raises(ParameterRejected) as caught:
+        dh.check_config(g=2, p=COMPOSITE_PASSING_RESIDUE)
+    assert "safe prime" in str(caught.value)
+
+
+def test_the_residue_condition_is_what_refuses_a_prime_of_the_wrong_class():
+    """The branch `COMPOSITE_2048` actually reaches, asserted on its own message so
+    the two cases cannot be confused again."""
     with pytest.raises(ParameterRejected) as caught:
         dh.check_config(g=2, p=COMPOSITE_2048)
-    assert "prime" in str(caught.value)
+    assert "subgroup" in str(caught.value)
 
 
 def test_a_prime_of_the_wrong_bit_length_is_refused():

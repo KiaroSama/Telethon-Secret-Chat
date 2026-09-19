@@ -11,7 +11,6 @@ with ``random.randint`` - the non-cryptographic module - which is why the last t
 here reads the package's own source.
 """
 
-import ast
 import pathlib
 import re
 
@@ -82,37 +81,9 @@ def module_sources():
         yield path, path.read_text(encoding="utf-8")
 
 
-def test_the_random_module_is_not_imported_anywhere_in_the_package():
-    """The constitution's "Secret Material Handling" rule, read off the AST rather
-    than off a grep: ``import random``, ``from random import ...`` and
-    ``importlib.import_module("random")`` all count, and a comment mentioning the
-    word does not."""
-    offenders = []
-    for path, source in module_sources():
-        tree = ast.parse(source, filename=str(path))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                offenders += [
-                    f"{path.name}: import {a.name}"
-                    for a in node.names
-                    if a.name == "random" or a.name.startswith("random.")
-                ]
-            elif isinstance(node, ast.ImportFrom):
-                if node.module == "random":
-                    offenders.append(f"{path.name}: from random import ...")
-            elif isinstance(node, ast.Call):
-                target = getattr(node.func, "attr", getattr(node.func, "id", ""))
-                if target == "import_module" and node.args:
-                    literal = getattr(node.args[0], "value", None)
-                    if literal == "random":
-                        offenders.append(f"{path.name}: import_module('random')")
-    assert not offenders, offenders
-
-
-def test_the_generated_schema_is_included_in_that_ban():
-    """The generated file is exempt from the line ceiling, not from the rules."""
-    names = {path.name for path, _ in module_sources()}
-    assert "secret_tl.py" in names
+# The ban on the `random` module used to be enforced here. It is a package-wide
+# rule rather than a padding rule, so it lives in test_no_insecure_random.py -
+# moved, not duplicated, because two copies of a rule drift.
 
 
 def test_no_module_exceeds_the_line_ceiling():
