@@ -319,3 +319,39 @@ def test_there_is_no_way_to_supply_a_key_or_skip_a_check():
     for name in ("__init__", "create", "accept", "send_message"):
         parameters = inspect.signature(getattr(SecretChatManager, name)).parameters
         assert not [p for p in parameters if any(f in p.lower() for f in forbidden)]
+
+
+async def test_formatted_text_is_parsed_rather_than_left_a_coroutine():
+    """`client._parse_message_text` is ASYNC, and not awaiting it sent nothing.
+
+    The live interop run found this: `send_message` raised
+    `TypeError: cannot unpack non-iterable coroutine object` against real Telethon,
+    with `RuntimeWarning: coroutine '_parse_message_text' was never awaited`. Every
+    unit test missed it for one reason - `FakeClient` does not define that attribute
+    at all, so `_parse_text` took its `None` fallback and the real branch never ran.
+    A double that lacks the thing under test cannot fail for it.
+
+    So this double HAS the attribute, and is async exactly like Telethon's.
+    """
+
+    class _Parsing:
+        async def _parse_message_text(self, text, parse_mode):
+            return text.upper(), ["entity"]
+
+    manager = SecretChatManager(_Parsing(), MemoryStorage())
+
+    text, entities = await manager._parse_text("hello")
+
+    assert text == "HELLO", "the parser's result was not awaited"
+    assert entities == ["entity"]
+
+
+async def test_a_client_without_the_private_parser_still_sends_plain_text():
+    """The documented fallback, which is the branch the fakes were exercising."""
+
+    class _Bare:
+        pass
+
+    manager = SecretChatManager(_Bare(), MemoryStorage())
+
+    assert await manager._parse_text("hello") == ("hello", None)

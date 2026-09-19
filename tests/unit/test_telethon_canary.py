@@ -42,8 +42,14 @@ def test_parse_message_text_still_exists():
     )
 
 
-def test_the_package_survives_that_attribute_disappearing():
-    """The fallback is not a plan, it is a code path - so it is exercised."""
+async def test_the_package_survives_that_attribute_disappearing():
+    """The fallback is not a plan, it is a code path - so it is exercised.
+
+    `async` because `_parse_text` is: Telethon's `_parse_message_text` is a
+    coroutine function, so the wrapper has to await it, and both branches then
+    return the same way. This test previously called it synchronously and passed,
+    which is exactly how the missing `await` survived to the live run.
+    """
     from telethon_secret_chat import SecretChatManager
     from telethon_secret_chat.storage import MemoryStorage
 
@@ -55,7 +61,7 @@ def test_the_package_survives_that_attribute_disappearing():
             pass
 
     manager = SecretChatManager(WithoutIt(), storage=MemoryStorage())
-    assert manager._parse_text("**bold**") == ("**bold**", None)
+    assert await manager._parse_text("**bold**") == ("**bold**", None)
 
 
 # --- the public surface -------------------------------------------------------
