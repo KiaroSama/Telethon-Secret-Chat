@@ -140,9 +140,9 @@ established on a bad prime cannot be repaired afterwards, so this precedes the h
 
 **Goal**: media crosses the chat and opens on the peer's real client.
 
-- [ ] T037 [P] [US5] `tests/unit/test_file_keys.py` — §6: a file whose key fingerprint does not match is refused **before any byte is written to disk**
-- [ ] T038 [US5] Implement `telethon_secret_chat/files.py` — §6 key/iv/fingerprint, encrypted upload and download. T037 goes green
-- [ ] T039 [US5] Add `send_file` and `save_file` to `telethon_secret_chat/manager.py` per `contracts/public-api.md` §2
+- [X] T037 [P] [US5] `tests/unit/test_file_keys.py` — §6: a file whose key fingerprint does not match is refused **before any byte is written to disk**
+- [X] T038 [US5] Implement `telethon_secret_chat/files.py` — §6 key/iv/fingerprint, encrypted upload and download. T037 goes green
+- [X] T039 [US5] Add `send_file` and `save_file` to `telethon_secret_chat/manager.py` per `contracts/public-api.md` §2
 
 ---
 
