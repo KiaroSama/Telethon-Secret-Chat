@@ -1,0 +1,79 @@
+[project]
+name = "telethon-secret-chat"
+version = "0.0.1"
+description = "Telegram MTProto 2.0 end-to-end encryption (secret chats) for Telethon"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "KiaroSama" }]
+keywords = ["telegram", "telethon", "mtproto", "secret-chat", "end-to-end-encryption"]
+classifiers = [
+    # Alpha, and meant literally: the protocol code inherits from a package that
+    # shipped no tests, and the constitution treats every inherited line as
+    # unverified until a red test has covered it.
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    # No "License ::" classifier: PEP 639 superseded them by the SPDX expression
+    # in `license` above, and setuptools now REFUSES a project carrying both
+    # ("License classifiers have been superseded by license expressions").
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Communications :: Chat",
+    "Topic :: Security :: Cryptography",
+]
+
+dependencies = [
+    # 1.45 is the floor, not a preference: it announces TL layer 229, and the
+    # encryption requests this package drives (messages.requestEncryption,
+    # acceptEncryption, sendEncrypted*, getDhConfig) must match the schema the
+    # transport announces.
+    "telethon>=1.45.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/KiaroSama/Telethon-Secret-Chat"
+"Bug Tracker" = "https://github.com/KiaroSama/Telethon-Secret-Chat/issues"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=5.0",
+    "pytest-timeout>=2.3",
+    "black>=24.0",
+    "flake8>=7.0",
+]
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["telethon_secret_chat*"]
+
+[tool.black]
+# 99, matching the reference project this was scaffolded from, so a file moved
+# between the two is not reformatted on arrival.
+line-length = 99
+target-version = ["py311"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+# Bounded by default. A crypto handshake that never completes is the shape of
+# failure this package can produce, and an unbounded test hides it as a hang.
+timeout = 120
+
+[tool.coverage.run]
+branch = true
+source = [
+    # Listed per module rather than as a package, so a new file has to be added
+    # here deliberately and cannot arrive uncovered and unnoticed.
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
