@@ -85,10 +85,17 @@ uv sync --all-extras
 uv run --locked pytest tests/unit -q      # no account, no network
 uv run --locked pytest tests/vectors -q   # cross-checked against Telethon's own primitives
 
-# Interop needs two real accounts and is never run in CI.
+# Interop needs two real accounts and is never run in CI. The second account
+# is driven BY HAND in an official client - that is the whole claim - so the
+# run prints instructions and waits for them, which is why it needs `-s`.
 export TSC_TEST_SESSION="<a StringSession for the test account>"
 export TSC_TEST_PEER="<the second account's username or id>"
-uv run --locked pytest tests/interop -q
+export TSC_TEST_API_ID="<the api_id the session was created under>"
+export TSC_TEST_API_HASH="<its api_hash>"
+# Optional: real video/audio samples. Without it those kinds are reported as
+# not covered rather than faked with a few bytes wearing a video mime type.
+export TSC_TEST_MEDIA_DIR="<a directory of sample files>"
+uv run --locked pytest tests/interop -q -s
 ```
 
 ### What is not implemented
