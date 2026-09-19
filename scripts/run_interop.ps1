@@ -32,6 +32,11 @@
     Optional. A directory of real video/audio samples. Without it those kinds are
     reported as not covered rather than faked.
 
+.PARAMETER Only
+    Optional. A pytest node id, to run one case instead of the whole tier. The
+    fingerprint case needs NO human step - the peer's phone accepts the chat by
+    itself - so that one can run unattended.
+
 .PARAMETER McpRoot
     Where to find the telegram-mcp `.env`. Defaults to the sibling checkout.
 
@@ -43,6 +48,8 @@ param(
     [Parameter(Mandatory = $true)][string]$Account,
     [Parameter(Mandatory = $true)][string]$Peer,
     [string]$MediaDir,
+    [string]$Only,
+    [string]$Nonce,
     [string]$McpRoot = 'G:\Program Files\Portable\Scripts\Telegram-mcp'
 )
 
@@ -100,6 +107,7 @@ foreach ($pair in $found.GetEnumerator()) {
     Set-Item -Path ("Env:" + $pair.Key) -Value $pair.Value
 }
 $env:TSC_TEST_PEER = $Peer
+if ($Nonce) { $env:TSC_TEST_NONCE = $Nonce }
 if ($MediaDir) {
     if (-not (Test-Path -LiteralPath $MediaDir -PathType Container)) {
         Fail "-MediaDir $MediaDir is not a directory."
@@ -122,12 +130,17 @@ Push-Location -LiteralPath $here
 try {
     # `-s` is not optional: the instructions are printed while the run waits for
     # them, and capturing them buffers them past the deadline they exist to beat.
-    & uv run --locked pytest tests/interop -q -s
+    $target = if ($Only) { $Only } else { 'tests/interop' }
+    # `python -m pytest`, never `uv run pytest`: uv launches a console script
+    # through a trampoline that cannot canonicalize a path containing a SPACE,
+    # and this project lives in "Telethon Secret Chat". The module form does not
+    # go through it.
+    & uv run --locked python -m pytest $target -q -s
     $code = $LASTEXITCODE
 } finally {
     Pop-Location
     foreach ($name in @('TSC_TEST_SESSION', 'TSC_TEST_API_ID', 'TSC_TEST_API_HASH',
-            'TSC_TEST_PEER', 'TSC_TEST_MEDIA_DIR')) {
+            'TSC_TEST_PEER', 'TSC_TEST_MEDIA_DIR', 'TSC_TEST_NONCE')) {
         Remove-Item -Path ("Env:" + $name) -ErrorAction SilentlyContinue
     }
 }
