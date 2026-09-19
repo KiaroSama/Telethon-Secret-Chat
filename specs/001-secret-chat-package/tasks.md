@@ -130,9 +130,9 @@ established on a bad prime cannot be repaired afterwards, so this precedes the h
 
 **Independent test**: exercise each against a real client and observe the far side.
 
-- [ ] T034 [P] [US4] `tests/unit/test_actions_encoding.py` — all thirteen `decryptedMessageAction*` from §5 round-trip, and an unknown action is reported rather than dropped
-- [ ] T035 [US4] Implement `telethon_secret_chat/actions.py` — §5, splitting Conversation actions (surfaced as `ServiceActionReceived`, may change stored `ttl`) from Protocol/Rekey actions (handled internally, still reported). T034 goes green
-- [ ] T036 [US4] Add `set_ttl` to `telethon_secret_chat/manager.py` and the TTL field to `telethon_secret_chat/chat.py`, noting at the site that the countdown start is UNVERIFIED in the reference and that this package stores and transmits without enforcing locally
+- [X] T034 [P] [US4] `tests/unit/test_actions_encoding.py` — all thirteen `decryptedMessageAction*` from §5 round-trip, and an unknown action is reported rather than dropped
+- [X] T035 [US4] Implement `telethon_secret_chat/actions.py` — §5, splitting Conversation actions (surfaced as `ServiceActionReceived`, may change stored `ttl`) from Protocol/Rekey actions (handled internally, still reported). T034 goes green
+- [X] T036 [US4] Add `set_ttl` to `telethon_secret_chat/manager.py` and the TTL field to `telethon_secret_chat/chat.py`, noting at the site that the countdown start is UNVERIFIED in the reference and that this package stores and transmits without enforcing locally
 
 ---
 
