@@ -54,6 +54,11 @@ def _every_error():
     with dangerous material where the type plausibly accepts it."""
     return [
         errors.ParameterRejected(chat_id=42, reason="the prime is not a safe 2048-bit prime"),
+        # Every receive-side refusal of §2.7 and §3.4-§3.6 arrives through this one
+        # type, so driving it once here covers the failure paths Phases 3-9 add.
+        errors.MessageRejected(
+            chat_id=42, reason="the recomputed message key does not match the one received"
+        ),
         errors.ChatNotReady(chat_id=42, state="requested"),
         errors.ChatClosed(chat_id=42, reason="the peer discarded the chat"),
         errors.StorageRequired(),
