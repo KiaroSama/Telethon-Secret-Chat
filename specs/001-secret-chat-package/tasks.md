@@ -29,10 +29,10 @@ are in Phase 8 and **must not be pulled earlier** — until then the oracles are
 
 **Purpose**: the skeleton every later phase writes into.
 
-- [ ] T001 Create the package layout from plan.md in `telethon_secret_chat/` — empty modules `errors.py`, `dh.py`, `handshake.py`, `crypto.py`, `framing.py`, `sequence.py`, `rekey.py`, `actions.py`, `files.py`, `chat.py`, `manager.py`, and packages `storage/` and `schema/`, each with a docstring naming the protocol-reference section it implements
+- [X] T001 Create the package layout from plan.md in `telethon_secret_chat/` — empty modules `errors.py`, `dh.py`, `handshake.py`, `crypto.py`, `framing.py`, `sequence.py`, `rekey.py`, `actions.py`, `files.py`, `chat.py`, `manager.py`, and packages `storage/` and `schema/`, each with a docstring naming the protocol-reference section it implements
 - [x] T002 [P] Create `tests/unit/`, `tests/vectors/`, `tests/interop/` with `__init__.py` and a `conftest.py` that makes `tests/interop` skip with a stated reason when `TSC_TEST_SESSION` or `TSC_TEST_PEER` is unset
 - [x] T003 [P] Add the coverage source list to `pyproject.toml` — one entry per module, so a new file must be added deliberately and cannot arrive uncovered
-- [ ] T004 Generate the secret-chat TL schema into `telethon_secret_chat/schema/secret_tl.py`, marked `# generated` at the top and exempted from the line ceiling in `.flake8`
+- [X] T004 Generate the secret-chat TL schema into `telethon_secret_chat/schema/secret_tl.py`, marked `# generated` at the top and exempted from the line ceiling in `.flake8`
 
 ---
 
@@ -59,14 +59,14 @@ established on a bad prime cannot be repaired afterwards, so this precedes the h
 
 ### Tests for User Story 2 (write first, watch fail)
 
-- [ ] T009 [P] [US2] `tests/unit/test_dh_parameters.py` — §1.2: a `p` that is not a safe 2048-bit prime, a `p` of the wrong bit length, `g` outside `1 < g < p-1`, and a `g` failing its quadratic-residue condition for that `p`. Each asserts `ParameterRejected` and that **no key was derived**
-- [ ] T010 [P] [US2] `tests/unit/test_peer_value.py` — §1.2: the peer's `g_a`/`g_b` outside the documented range is rejected before the shared key is computed
-- [ ] T011 [P] [US2] `tests/unit/test_receive_rejections.py` — §2.7: wrong key fingerprint, wrong `msg_key`, padding outside 12–1024 or not 16-byte aligned, and a length prefix beyond the decrypted body. Each asserts rejection and that **nothing was delivered**
+- [X] T009 [P] [US2] `tests/unit/test_dh_parameters.py` — §1.2: a `p` that is not a safe 2048-bit prime, a `p` of the wrong bit length, `g` outside `1 < g < p-1`, and a `g` failing its quadratic-residue condition for that `p`. Each asserts `ParameterRejected` and that **no key was derived**
+- [X] T010 [P] [US2] `tests/unit/test_peer_value.py` — §1.2: the peer's `g_a`/`g_b` outside the documented range is rejected before the shared key is computed
+- [X] T011 [P] [US2] `tests/unit/test_receive_rejections.py` — §2.7: wrong key fingerprint, wrong `msg_key`, padding outside 12–1024 or not 16-byte aligned, and a length prefix beyond the decrypted body. Each asserts rejection and that **nothing was delivered**
 
 ### Implementation for User Story 2
 
-- [ ] T012 [US2] Implement `telethon_secret_chat/dh.py` — §1.2 safe-prime test, bit length, `g` range, and the `p mod 8 / 3 / 5 / 24 / 7` residue conditions, citing the section at each check. T009 and T010 go green
-- [ ] T013 [US2] Implement the receive-side validation in `telethon_secret_chat/crypto.py` — fingerprint, recomputed `msg_key`, padding bounds, length prefix. T011 goes green
+- [X] T012 [US2] Implement `telethon_secret_chat/dh.py` — §1.2 safe-prime test, bit length, `g` range, and the `p mod 8 / 3 / 5 / 24 / 7` residue conditions, citing the section at each check. T009 and T010 go green
+- [X] T013 [US2] Implement the receive-side validation in `telethon_secret_chat/crypto.py` — fingerprint, recomputed `msg_key`, padding bounds, length prefix. T011 goes green
 
 **Checkpoint**: every §1.2 and §2.7 rule has a failing-input test. SC-003 is satisfiable for this set.
 
@@ -80,23 +80,23 @@ established on a bad prime cannot be repaired afterwards, so this precedes the h
 
 ### Tests for User Story 1 (write first, watch fail)
 
-- [ ] T014 [P] [US1] `tests/vectors/test_kdf_matches_telethon.py` — the vendored §2.4 derivation against Telethon's `MTProtoState._calc_key(auth_key, msg_key, client)` for both `x = 0` and `x = 8`. **This is the oracle, not a self-check**
-- [ ] T015 [P] [US1] `tests/unit/test_padding.py` — §2.2: length is 12–1024, total is 16-byte aligned, and the source is `secrets`/`os.urandom`. A test asserts the `random` module is not imported anywhere in the package
-- [ ] T016 [P] [US1] `tests/unit/test_framing.py` — §3.1–§3.3: `decryptedMessageLayer` wrapping, `layer_no` >= 46, `random_bytes` minimum length
-- [ ] T017 [P] [US1] `tests/unit/test_fingerprint.py` — §1.5: the fingerprint of a known shared key, cross-checked against the value computed from the reference's stated construction
-- [ ] T018 [US1] `tests/unit/test_chat_state.py` — the data-model.md state machine: which transitions are legal, that `closed` is terminal, and that `send` refuses outside `ready`/`rekeying` with `ChatNotReady`
-- [ ] T019 [US1] `tests/unit/test_restart.py` — a chat saved, the manager destroyed, a new manager loaded from the same backend: same key, same fingerprint, same counters, and the conversation continues in order
+- [X] T014 [P] [US1] `tests/vectors/test_kdf_matches_telethon.py` — the vendored §2.4 derivation against Telethon's `MTProtoState._calc_key(auth_key, msg_key, client)` for both `x = 0` and `x = 8`. **This is the oracle, not a self-check**
+- [X] T015 [P] [US1] `tests/unit/test_padding.py` — §2.2: length is 12–1024, total is 16-byte aligned, and the source is `secrets`/`os.urandom`. A test asserts the `random` module is not imported anywhere in the package
+- [X] T016 [P] [US1] `tests/unit/test_framing.py` — §3.1–§3.3: `decryptedMessageLayer` wrapping, `layer_no` >= 46, `random_bytes` minimum length
+- [X] T017 [P] [US1] `tests/unit/test_fingerprint.py` — §1.5: the fingerprint of a known shared key, cross-checked against the value computed from the reference's stated construction
+- [X] T018 [US1] `tests/unit/test_chat_state.py` — the data-model.md state machine: which transitions are legal, that `closed` is terminal, and that `send` refuses outside `ready`/`rekeying` with `ChatNotReady`
+- [X] T019 [US1] `tests/unit/test_restart.py` — a chat saved, the manager destroyed, a new manager loaded from the same backend: same key, same fingerprint, same counters, and the conversation continues in order
 
 ### Implementation for User Story 1
 
-- [ ] T020 [US1] Implement `telethon_secret_chat/crypto.py` §2.1–§2.6 — serialization, padding from `secrets`, `msg_key`, the vendored KDF, and the IGE frame via the PUBLIC `telethon.crypto.AES`. T014, T015 go green
-- [ ] T021 [US1] Implement `telethon_secret_chat/framing.py` — §3.1–§3.3. T016 goes green
-- [ ] T022 [US1] Implement `telethon_secret_chat/handshake.py` — §1.3–§1.6 request, accept, shared key, fingerprint, using `dh.py` for every parameter. T017 goes green
-- [ ] T023 [US1] Implement `telethon_secret_chat/chat.py` — the `SecretChat` entity and the state machine from data-model.md §1, with `key` and `key_fingerprint` written as ONE atomic unit. T018 goes green
-- [ ] T024 [US1] Implement `telethon_secret_chat/storage/file.py` — the single-file backend, owner-only permissions, atomic replace. T008's shared suite goes green for it
-- [ ] T025 [US1] Implement `telethon_secret_chat/manager.py` — construction per `contracts/public-api.md` §1, `start`/`stop`, the update subscription, and `create`/`accept`/`close`/`list`/`status`. T019 goes green
-- [ ] T026 [US1] Implement `send_message` and `read_history` in `telethon_secret_chat/manager.py`, resolving on Telegram's acceptance per the spec's Assumptions, and the `MessageReceived` / `ChatReady` / `ChatClosed` events
-- [ ] T027 [US1] Export exactly the contract surface from `telethon_secret_chat/__init__.py` — and nothing else. A test asserts `__all__` matches the contract and that no protocol internal is reachable from the package root
+- [X] T020 [US1] Implement `telethon_secret_chat/crypto.py` §2.1–§2.6 — serialization, padding from `secrets`, `msg_key`, the vendored KDF, and the IGE frame via the PUBLIC `telethon.crypto.AES`. T014, T015 go green
+- [X] T021 [US1] Implement `telethon_secret_chat/framing.py` — §3.1–§3.3. T016 goes green
+- [X] T022 [US1] Implement `telethon_secret_chat/handshake.py` — §1.3–§1.6 request, accept, shared key, fingerprint, using `dh.py` for every parameter. T017 goes green
+- [X] T023 [US1] Implement `telethon_secret_chat/chat.py` — the `SecretChat` entity and the state machine from data-model.md §1, with `key` and `key_fingerprint` written as ONE atomic unit. T018 goes green
+- [X] T024 [US1] Implement `telethon_secret_chat/storage/file.py` — the single-file backend, owner-only permissions, atomic replace. T008's shared suite goes green for it
+- [X] T025 [US1] Implement `telethon_secret_chat/manager.py` — construction per `contracts/public-api.md` §1, `start`/`stop`, the update subscription, and `create`/`accept`/`close`/`list`/`status`. T019 goes green
+- [X] T026 [US1] Implement `send_message` and `read_history` in `telethon_secret_chat/manager.py`, resolving on Telegram's acceptance per the spec's Assumptions, and the `MessageReceived` / `ChatReady` / `ChatClosed` events
+- [X] T027 [US1] Export exactly the contract surface from `telethon_secret_chat/__init__.py` — and nothing else. A test asserts `__all__` matches the contract and that no protocol internal is reachable from the package root
 
 **Checkpoint**: 🎯 **MVP.** A text conversation works and survives a restart. Stop here and it is a usable product.
 
@@ -110,15 +110,15 @@ established on a bad prime cannot be repaired afterwards, so this precedes the h
 
 ### Tests for User Story 3 (write first, watch fail)
 
-- [ ] T028 [P] [US3] `tests/unit/test_sequence_parity.py` — §3.4: a message whose `seq_no` parity does not match the sender's role is rejected and the chat ends, per the reference
-- [ ] T029 [P] [US3] `tests/unit/test_replay_and_gap.py` — §3.5: `out_seq_no <= C` is DISCARDED and never delivered; `> C+1` is held as a gap, not delivered; the hole closing releases the held messages **in order**
-- [ ] T030 [P] [US3] `tests/unit/test_in_seq_no.py` — §3.6: the peer's echo of this side's counter must be monotonic and `<= D+1`; a violation ends the chat
-- [ ] T031 [US3] `tests/unit/test_resend.py` — §3.7: a gap produces a `Resend` for exactly the missing span; an incoming `Resend` is answered once per message, in order; a span outside retention raises `ResendUnsatisfiable` and ends the chat
+- [X] T028 [P] [US3] `tests/unit/test_sequence_parity.py` — §3.4: a message whose `seq_no` parity does not match the sender's role is rejected and the chat ends, per the reference
+- [X] T029 [P] [US3] `tests/unit/test_replay_and_gap.py` — §3.5: `out_seq_no <= C` is DISCARDED and never delivered; `> C+1` is held as a gap, not delivered; the hole closing releases the held messages **in order**
+- [X] T030 [P] [US3] `tests/unit/test_in_seq_no.py` — §3.6: the peer's echo of this side's counter must be monotonic and `<= D+1`; a violation ends the chat
+- [X] T031 [US3] `tests/unit/test_resend.py` — §3.7: a gap produces a `Resend` for exactly the missing span; an incoming `Resend` is answered once per message, in order; a span outside retention raises `ResendUnsatisfiable` and ends the chat
 
 ### Implementation for User Story 3
 
-- [ ] T032 [US3] Implement `telethon_secret_chat/sequence.py` — §3.4–§3.8 parity, replay, gap detection, the ordered gap queue, and outgoing retention with its stated bound. T028–T031 go green
-- [ ] T033 [US3] Wire the gap queue and retention through `telethon_secret_chat/storage/__init__.py` and `storage/file.py` so both survive a restart, extending `tests/unit/test_storage_contract.py`
+- [X] T032 [US3] Implement `telethon_secret_chat/sequence.py` — §3.4–§3.8 parity, replay, gap detection, the ordered gap queue, and outgoing retention with its stated bound. T028–T031 go green
+- [X] T033 [US3] Wire the gap queue and retention through `telethon_secret_chat/storage/__init__.py` and `storage/file.py` so both survive a restart, extending `tests/unit/test_storage_contract.py`
 
 **Checkpoint**: a lossy, reordering network no longer corrupts a conversation.
 
@@ -130,9 +130,9 @@ established on a bad prime cannot be repaired afterwards, so this precedes the h
 
 **Independent test**: exercise each against a real client and observe the far side.
 
-- [ ] T034 [P] [US4] `tests/unit/test_actions_encoding.py` — all thirteen `decryptedMessageAction*` from §5 round-trip, and an unknown action is reported rather than dropped
-- [ ] T035 [US4] Implement `telethon_secret_chat/actions.py` — §5, splitting Conversation actions (surfaced as `ServiceActionReceived`, may change stored `ttl`) from Protocol/Rekey actions (handled internally, still reported). T034 goes green
-- [ ] T036 [US4] Add `set_ttl` to `telethon_secret_chat/manager.py` and the TTL field to `telethon_secret_chat/chat.py`, noting at the site that the countdown start is UNVERIFIED in the reference and that this package stores and transmits without enforcing locally
+- [X] T034 [P] [US4] `tests/unit/test_actions_encoding.py` — all thirteen `decryptedMessageAction*` from §5 round-trip, and an unknown action is reported rather than dropped
+- [X] T035 [US4] Implement `telethon_secret_chat/actions.py` — §5, splitting Conversation actions (surfaced as `ServiceActionReceived`, may change stored `ttl`) from Protocol/Rekey actions (handled internally, still reported). T034 goes green
+- [X] T036 [US4] Add `set_ttl` to `telethon_secret_chat/manager.py` and the TTL field to `telethon_secret_chat/chat.py`, noting at the site that the countdown start is UNVERIFIED in the reference and that this package stores and transmits without enforcing locally
 
 ---
 
@@ -140,13 +140,23 @@ established on a bad prime cannot be repaired afterwards, so this precedes the h
 
 **Goal**: media crosses the chat and opens on the peer's real client.
 
-- [ ] T037 [P] [US5] `tests/unit/test_file_keys.py` — §6: a file whose key fingerprint does not match is refused **before any byte is written to disk**
-- [ ] T038 [US5] Implement `telethon_secret_chat/files.py` — §6 key/iv/fingerprint, encrypted upload and download. T037 goes green
-- [ ] T039 [US5] Add `send_file` and `save_file` to `telethon_secret_chat/manager.py` per `contracts/public-api.md` §2
+- [X] T037 [P] [US5] `tests/unit/test_file_keys.py` — §6: a file whose key fingerprint does not match is refused **before any byte is written to disk**
+- [X] T038 [US5] Implement `telethon_secret_chat/files.py` — §6 key/iv/fingerprint, encrypted upload and download. T037 goes green
+- [X] T039 [US5] Add `send_file` and `save_file` to `telethon_secret_chat/manager.py` per `contracts/public-api.md` §2
 
 ---
 
 ## Phase 8: Third-party vectors and interop 🔒 BLOCKED until Phase 4 is green
+
+> **STATUS 2026-09-19: still blocked, and not by Phase 4.** Phases 1-7, 9 and 10 are
+> green, so the Phase-4 precondition is met. What remains unmet is the material:
+> T040/T041 need ciphertext captured from a live chat with TDLib (research.md Q2 -
+> TDLib exposes no crypto primitive, so a vector cannot be synthesised), and
+> T042/T043 need a second live Telegram account. Neither can be invented, so all
+> four stay unchecked. **SC-001 and SC-002 are therefore NOT met**, and the
+> package must not be described as proved against a third-party implementation
+> until they are. The oracles currently standing in are Telethon's
+> `MTProtoState._calc_key` and `AES.encrypt_ige` (tests/vectors).
 
 **Purpose**: Principle I's strongest evidence. **research.md Q2: TDLib exposes no crypto
 primitive, so these cannot be synthesised — they are recorded from a real chat. Do not
@@ -161,19 +171,19 @@ attempt these before a chat works.**
 
 ## Phase 9: User Story 6 — Keys that do not last forever (Priority: P3)
 
-- [ ] T044 [P] [US6] `tests/unit/test_rekey.py` — §4: the 100-message / one-week trigger, the four-action exchange, and that a message sent MID-EXCHANGE is delivered rather than dropped or encrypted under a discarded key
-- [ ] T045 [US6] Implement `telethon_secret_chat/rekey.py` — §4, holding both keys during the exchange and persisting both. T044 goes green
-- [ ] T046 [US6] Extend `tests/unit/test_restart.py`: a restart DURING an exchange leaves the chat usable or stated-unusable, never silently on a half-swapped key
+- [X] T044 [P] [US6] `tests/unit/test_rekey.py` — §4: the 100-message / one-week trigger, the four-action exchange, and that a message sent MID-EXCHANGE is delivered rather than dropped or encrypted under a discarded key
+- [X] T045 [US6] Implement `telethon_secret_chat/rekey.py` — §4, holding both keys during the exchange and persisting both. T044 goes green
+- [X] T046 [US6] Extend `tests/unit/test_restart.py`: a restart DURING an exchange leaves the chat usable or stated-unusable, never silently on a half-swapped key
 
 ---
 
 ## Phase 10: Polish & Cross-Cutting Concerns
 
-- [ ] T047 [P] `tests/unit/test_telethon_canary.py` — asserts `TelegramClient._parse_message_text` exists, names the documented fallback in its failure message, and asserts `telethon.crypto.AES.encrypt_ige` is still public
-- [ ] T048 [P] Extend `tests/unit/test_errors_leak_nothing.py` to drive EVERY failure path added in Phases 3–9 and assert the same boundary (SC-005)
-- [ ] T049 [P] Add a `tests/unit/test_no_insecure_random.py` that fails if `import random` appears anywhere in the package
-- [ ] T050 Write the README usage section from `quickstart.md`, and record in `.ai/memory.md` which of the reference's UNVERIFIED items remain unverified
-- [ ] T051 Re-run `graphify .` and re-index CBM against `telethon_secret_chat/` now that there is real code to graph
+- [X] T047 [P] `tests/unit/test_telethon_canary.py` — asserts `TelegramClient._parse_message_text` exists, names the documented fallback in its failure message, and asserts `telethon.crypto.AES.encrypt_ige` is still public
+- [X] T048 [P] Extend `tests/unit/test_errors_leak_nothing.py` to drive EVERY failure path added in Phases 3–9 and assert the same boundary (SC-005)
+- [X] T049 [P] Add a `tests/unit/test_no_insecure_random.py` that fails if `import random` appears anywhere in the package
+- [X] T050 Write the README usage section from `quickstart.md`, and record in `.ai/memory.md` which of the reference's UNVERIFIED items remain unverified
+- [X] T051 Re-run `graphify .` and re-index CBM against `telethon_secret_chat/` now that there is real code to graph
 
 ---
 

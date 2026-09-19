@@ -1,0 +1,205 @@
+"""Encrypted files and their one-time keys - protocol-reference.md §6.
+
+A file in a secret chat is encrypted TWICE over, by two unrelated schemes, and
+keeping them apart is most of this module.
+
+- The file's bytes get a **one-time** key and IV (§6.1), "in no way related to the
+  chat's shared key", AES-IGE with no ``x`` and no ``msg_key``. The server stores
+  only ciphertext.
+- The key and IV then travel INSIDE an ordinary encrypted message (§6.3), while the
+  file's address travels outside it in cleartext to the server.
+
+§6.2's fingerprint is the join between the two, and it is a **different algorithm
+from §1.5's**: ``md5(key + iv)`` folded to 32 bits, not the last 64 bits of a SHA-1.
+Reusing §1.5's routine here produces a plausible number that no official client
+agrees with, so the two live in different modules with different names.
+
+§6 is the healthiest area of the archived package - §8.6 found the keys, the
+fingerprint and the fold all correct there. What it lacked was forwarding and
+big-file awareness; the ordering guarantee below (FR-012: nothing written before the
+fingerprint matches) is stated here rather than assumed.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import io
+import os
+import secrets
+from pathlib import Path
+
+from telethon.crypto import AES
+from telethon.tl import types
+
+from .errors import MessageRejected
+from .schema import secret_tl as tl
+
+__all__ = [
+    "send",
+    "receive",
+    "new_file_key",
+    "file_fingerprint",
+    "verify_file_fingerprint",
+    "encrypt_file",
+    "decrypt_file",
+    "save",
+]
+
+BLOCK = 16
+
+
+def new_file_key() -> tuple[bytes, bytes]:
+    """§6.1: "2 random 256-bit numbers ... which will serve as the AES key and
+    initialization vector used to encrypt the file".
+
+    Fresh per file, from the OS CSPRNG, and taking no argument at all - the surest
+    way to keep "in no way related to the chat's shared key" true is to give the
+    function no way to see one.
+    """
+    return os.urandom(32), os.urandom(32)
+
+
+def file_fingerprint(key: bytes, iv: bytes) -> int:
+    """§6.2: ``digest = md5(key + iv)``; ``substr(digest, 0, 4) XOR substr(digest, 4, 4)``.
+
+    MD5 and 32 bits, against §1.5's SHA-1 and 64. It rides outside the encrypted
+    message, in the ``encryptedFile`` the server returns, so a receiver can check
+    that the key it found INSIDE the decrypted message belongs to the file attached
+    OUTSIDE it. Read as a little-endian signed int32, the width of
+    ``encryptedFile.key_fingerprint``.
+    """
+    digest = hashlib.md5(key + iv).digest()
+    folded = bytes(a ^ b for a, b in zip(digest[0:4], digest[4:8]))
+    return int.from_bytes(folded, "little", signed=True)
+
+
+def verify_file_fingerprint(*, chat_id: int, key: bytes, iv: bytes, claimed: int) -> None:
+    """§6.3: "a mismatch is a rejection, not a warning".
+
+    Neither the key nor the IV appears in the error. They are one-time, but they are
+    still the material that opens this file (Principle IV).
+    """
+    if file_fingerprint(key, iv) != claimed:
+        raise MessageRejected(
+            chat_id=chat_id,
+            reason=(
+                "the file's key fingerprint does not match the key carried in the "
+                "message: the attached file does not belong to this message"
+            ),
+        )
+
+
+def encrypt_file(content: bytes, key: bytes, iv: bytes) -> bytes:
+    """§6.1: AES-256-IGE "in like manner" to §2.4, but with this file's own key.
+
+    Padded to a cipher block because IGE has no partial block. The true length
+    travels inside the message (``size`` in the media constructor), which is how the
+    padding comes off again.
+    """
+    padding = -len(content) % BLOCK
+    return AES.encrypt_ige(content + os.urandom(padding), key, iv)
+
+
+def decrypt_file(ciphertext: bytes, key: bytes, iv: bytes, size: int) -> bytes:
+    """The reverse, trimmed to the length the message declared."""
+    return AES.decrypt_ige(ciphertext, key, iv)[:size]
+
+
+def save(
+    path,
+    *,
+    ciphertext: bytes,
+    key: bytes,
+    iv: bytes,
+    size: int,
+    claimed_fingerprint: int,
+    chat_id: int,
+) -> Path:
+    """Write a received file, or refuse before anything reaches the disk.
+
+    FR-012 and US5 scenario 3: the fingerprint check runs FIRST, so a file whose key
+    does not belong to it is "refused rather than written to disk" - not written and
+    then deleted, which leaves the bytes in a directory and in a filesystem journal
+    for however long the failure takes to notice.
+    """
+    verify_file_fingerprint(chat_id=chat_id, key=key, iv=iv, claimed=claimed_fingerprint)
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(decrypt_file(ciphertext, key, iv, size))
+    return target
+
+
+# --- the two operations contracts/public-api.md §2 names ----------------------
+# They take the manager rather than living on it: §6 is one section and belongs in
+# one module, and the manager stays the orchestrator rather than the place protocol
+# rules accumulate.
+
+
+async def send(manager, chat, path, caption: str = "", mime_type=None) -> int:
+    """§6.3-§6.4: encrypt with a one-time key, upload the ciphertext, send the
+    address outside the message and the key inside it.
+
+    §6.4: "the bytes are IGE-encrypted client-side BEFORE upload.saveFilePart, so
+    the server stores ciphertext only".
+    """
+    source = Path(path)
+    # An unreadable file refuses here, before a key is generated - contracts §2.
+    content = source.read_bytes()
+    key, iv = new_file_key()
+
+    uploaded = await manager._client.upload_file(
+        io.BytesIO(encrypt_file(content, key, iv)), file_name=source.name
+    )
+    random_id = secrets.randbits(63)
+    message = tl.DecryptedMessage(
+        random_id=random_id,
+        ttl=chat.ttl,
+        message=caption,
+        media=tl.DecryptedMessageMediaDocument(
+            thumb=b"",
+            thumb_w=0,
+            thumb_h=0,
+            mime_type=mime_type or "application/octet-stream",
+            # `size:long`: the layer-143 shape (§6.3, §7.1). The `size:int`
+            # predecessor belongs to layers this package does not announce.
+            size=len(content),
+            key=key,
+            iv=iv,
+            attributes=[tl.DocumentAttributeFilename(file_name=source.name)],
+            caption=caption,
+        ),
+    )
+    await manager._send(
+        chat,
+        message,
+        file=types.InputEncryptedFileUploaded(
+            id=uploaded.id,
+            parts=uploaded.parts,
+            md5_checksum="",
+            key_fingerprint=file_fingerprint(key, iv),
+        ),
+    )
+    return random_id
+
+
+async def receive(manager, message, path) -> Path:
+    """§6.3: the key comes from INSIDE the decrypted message, the fingerprint from
+    OUTSIDE it. Comparing them is what says the two belong together - and it happens
+    before a byte is written (FR-012)."""
+    media, attached = message.media, message.file
+    if media is None or attached is None:
+        raise MessageRejected(chat_id=message.chat_id, reason="this message carries no file")
+    buffer = io.BytesIO()
+    await manager._client.download_file(
+        types.InputEncryptedFileLocation(id=attached.id, access_hash=attached.access_hash),
+        buffer,
+    )
+    return save(
+        path,
+        ciphertext=buffer.getvalue(),
+        key=media.key,
+        iv=media.iv,
+        size=media.size,
+        claimed_fingerprint=attached.key_fingerprint,
+        chat_id=message.chat_id,
+    )
