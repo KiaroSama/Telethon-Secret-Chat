@@ -107,6 +107,16 @@ class SecretChat:
         # per hole, and this is what makes it one.
         self.gap_requested = False
         self.layer = INITIAL_REMOTE_LAYER  # §7.2: starts at 46, only rises
+        # TDLib keeps two layers and this package had collapsed them. `layer`
+        # above is `config_state_.his_layer`, the peer's CAPABILITY, raised by a
+        # NotifyLayer or by any wrapper announcing higher, and what §7.4 clamps
+        # our outgoing layer to. This one is `seq_no_state_.his_layer`: the layer
+        # of the last ACCEPTED WRAPPER, which §3.6's third condition requires to
+        # be monotonic. A NotifyLayer never touches it, because a real client
+        # announces its full capability while still encoding at min(mine, his).
+        # 0 is TDLib's own initial value (`SecretChatActor.h:152`); the floor that
+        # matters is `framing.MIN_WRAPPER_LAYER`, enforced at decode.
+        self.wrapper_layer = 0
         self.ttl = 0  # §5.1: 0 disables
 
         now = time.time()
@@ -195,6 +205,7 @@ class SecretChat:
         "peer_in_seq_no",
         "gap_requested",
         "layer",
+        "wrapper_layer",
         "ttl",
         "created_at",
         "rekeyed_at",
