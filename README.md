@@ -36,8 +36,7 @@ protocol has been frozen since Layer 73.
 
 ## Correctness
 
-The rule this project is built on, stated in its
-[constitution](.specify/memory/constitution.md):
+The rule this project is built on:
 
 > Two instances of the same wrong code agree with each other perfectly.
 
@@ -55,12 +54,6 @@ while it is still present; the fixtures outlive it.
 ## Licence
 
 GPL-3.0-or-later. See [LICENSE](LICENSE).
-
-Prior work and its conditions are recorded in [NOTICE](NOTICE): painor's MIT package, from which
-this derives, and TDLib (Boost Software License 1.0), which serves as the reference
-implementation. Both licences are GPL-compatible and both notices are preserved.
-
-Not affiliated with, endorsed by, or supported by Telegram.
 
 ## Donate
 
