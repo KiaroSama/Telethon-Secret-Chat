@@ -75,7 +75,23 @@ source = [
     "telethon_secret_chat",
     "telethon_secret_chat.errors",
     "telethon_secret_chat.storage",
+    "telethon_secret_chat.dh",
+    "telethon_secret_chat.crypto",
+    "telethon_secret_chat.framing",
+    "telethon_secret_chat.handshake",
+    "telethon_secret_chat.sequence",
+    "telethon_secret_chat.actions",
+    "telethon_secret_chat.files",
+    "telethon_secret_chat.rekey",
+    "telethon_secret_chat.chat",
+    "telethon_secret_chat.manager",
 ]
+# schema/secret_tl.py is deliberately NOT listed. It is generated (see
+# tools/generate_schema.py), and ninety constructors' worth of emitted branches
+# would report a percentage for the generator's output rather than for anything a
+# human wrote. What covers it is tests/unit/test_schema_roundtrip.py, which checks
+# it against the published schema it was generated from.
+omit = ["telethon_secret_chat/schema/*"]
 
 [tool.coverage.report]
 show_missing = true
