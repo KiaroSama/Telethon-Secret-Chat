@@ -30,8 +30,8 @@ are in Phase 8 and **must not be pulled earlier** — until then the oracles are
 **Purpose**: the skeleton every later phase writes into.
 
 - [ ] T001 Create the package layout from plan.md in `telethon_secret_chat/` — empty modules `errors.py`, `dh.py`, `handshake.py`, `crypto.py`, `framing.py`, `sequence.py`, `rekey.py`, `actions.py`, `files.py`, `chat.py`, `manager.py`, and packages `storage/` and `schema/`, each with a docstring naming the protocol-reference section it implements
-- [ ] T002 [P] Create `tests/unit/`, `tests/vectors/`, `tests/interop/` with `__init__.py` and a `conftest.py` that makes `tests/interop` skip with a stated reason when `TSC_TEST_SESSION` or `TSC_TEST_PEER` is unset
-- [ ] T003 [P] Add the coverage source list to `pyproject.toml` — one entry per module, so a new file must be added deliberately and cannot arrive uncovered
+- [x] T002 [P] Create `tests/unit/`, `tests/vectors/`, `tests/interop/` with `__init__.py` and a `conftest.py` that makes `tests/interop` skip with a stated reason when `TSC_TEST_SESSION` or `TSC_TEST_PEER` is unset
+- [x] T003 [P] Add the coverage source list to `pyproject.toml` — one entry per module, so a new file must be added deliberately and cannot arrive uncovered
 - [ ] T004 Generate the secret-chat TL schema into `telethon_secret_chat/schema/secret_tl.py`, marked `# generated` at the top and exempted from the line ceiling in `.flake8`
 
 ---
@@ -40,10 +40,10 @@ are in Phase 8 and **must not be pulled earlier** — until then the oracles are
 
 **Purpose**: the two things every later task depends on. **No user story can start until these are done.**
 
-- [ ] T005 Write `tests/unit/test_errors_leak_nothing.py`: for every error type in the contract, assert `str(e)` and `repr(e)` contain the error name and chat id and NOT a key, plaintext, ciphertext or protocol-object repr. Watch it fail against no implementation
-- [ ] T006 Implement `telethon_secret_chat/errors.py` — `SecretChatError` and the six subtypes from `contracts/public-api.md` §4, each composing its message from a shape, never formatting a protocol object. T005 goes green
-- [ ] T007 [P] Implement `telethon_secret_chat/storage/__init__.py` — the `StorageBackend` interface from data-model.md §5, and `storage/memory.py`. `save` is atomic across key, fingerprint, pending key and counters **as one unit**; constructing a manager without a backend raises `StorageRequired`
-- [ ] T008 [P] Write `tests/unit/test_storage_contract.py` — a shared suite any backend must pass, including: a `save` interrupted between key and fingerprint leaves the PREVIOUS consistent record, never a mixed one
+- [x] T005 Write `tests/unit/test_errors_leak_nothing.py`: for every error type in the contract, assert `str(e)` and `repr(e)` contain the error name and chat id and NOT a key, plaintext, ciphertext or protocol-object repr. Watch it fail against no implementation
+- [x] T006 Implement `telethon_secret_chat/errors.py` — `SecretChatError` and the six subtypes from `contracts/public-api.md` §4, each composing its message from a shape, never formatting a protocol object. T005 goes green
+- [x] T007 [P] Implement `telethon_secret_chat/storage/__init__.py` — the `StorageBackend` interface from data-model.md §5, and `storage/memory.py`. `save` is atomic across key, fingerprint, pending key and counters **as one unit**; constructing a manager without a backend raises `StorageRequired`
+- [x] T008 [P] Write `tests/unit/test_storage_contract.py` — a shared suite any backend must pass, including: a `save` interrupted between key and fingerprint leaves the PREVIOUS consistent record, never a mixed one
 
 ---
 
