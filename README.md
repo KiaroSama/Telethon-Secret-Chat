@@ -1,4 +1,4 @@
-# Telethon-Secret-Chat
+# Telethon Secret Chat
 
 Telegram's **MTProto 2.0 end-to-end encryption** — secret chats — for
 [Telethon](https://github.com/LonamiWebs/Telethon).
@@ -97,6 +97,24 @@ export TSC_TEST_API_HASH="<its api_hash>"
 export TSC_TEST_MEDIA_DIR="<a directory of sample files>"
 uv run --locked pytest tests/interop -q -s
 ```
+
+On Windows, beside a `telegram-mcp` checkout, `scripts/run_interop.ps1` supplies the
+first three from that project's `.env` without them passing through your shell:
+
+```powershell
+.\scripts\run_interop.ps1 -Account kgb_verifier -Peer "@second-account"
+```
+
+Typing a StringSession at a prompt puts a full login into shell history, scrollback
+and any terminal logging you have on; this reads it into the one process that needs
+it and prints nothing. It also REFUSES while the telegram-mcp server is listening,
+because that server already holds the session and Telegram permanently invalidates an
+auth key used from two clients at once - stop it, run this, start it again.
+
+Accepting the chat is not one of the manual steps: the request reaches every device
+the peer has and the first to complete the key exchange wins, which is normally the
+phone. What still needs you is replying with the code the run prints, and opening the
+files it sends.
 
 ### What is not implemented
 
