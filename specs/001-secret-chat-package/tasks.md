@@ -148,6 +148,16 @@ established on a bad prime cannot be repaired afterwards, so this precedes the h
 
 ## Phase 8: Third-party vectors and interop 🔒 BLOCKED until Phase 4 is green
 
+> **STATUS 2026-09-19: still blocked, and not by Phase 4.** Phases 1-7, 9 and 10 are
+> green, so the Phase-4 precondition is met. What remains unmet is the material:
+> T040/T041 need ciphertext captured from a live chat with TDLib (research.md Q2 -
+> TDLib exposes no crypto primitive, so a vector cannot be synthesised), and
+> T042/T043 need a second live Telegram account. Neither can be invented, so all
+> four stay unchecked. **SC-001 and SC-002 are therefore NOT met**, and the
+> package must not be described as proved against a third-party implementation
+> until they are. The oracles currently standing in are Telethon's
+> `MTProtoState._calc_key` and `AES.encrypt_ige` (tests/vectors).
+
 **Purpose**: Principle I's strongest evidence. **research.md Q2: TDLib exposes no crypto
 primitive, so these cannot be synthesised — they are recorded from a real chat. Do not
 attempt these before a chat works.**
@@ -169,11 +179,11 @@ attempt these before a chat works.**
 
 ## Phase 10: Polish & Cross-Cutting Concerns
 
-- [ ] T047 [P] `tests/unit/test_telethon_canary.py` — asserts `TelegramClient._parse_message_text` exists, names the documented fallback in its failure message, and asserts `telethon.crypto.AES.encrypt_ige` is still public
-- [ ] T048 [P] Extend `tests/unit/test_errors_leak_nothing.py` to drive EVERY failure path added in Phases 3–9 and assert the same boundary (SC-005)
-- [ ] T049 [P] Add a `tests/unit/test_no_insecure_random.py` that fails if `import random` appears anywhere in the package
-- [ ] T050 Write the README usage section from `quickstart.md`, and record in `.ai/memory.md` which of the reference's UNVERIFIED items remain unverified
-- [ ] T051 Re-run `graphify .` and re-index CBM against `telethon_secret_chat/` now that there is real code to graph
+- [X] T047 [P] `tests/unit/test_telethon_canary.py` — asserts `TelegramClient._parse_message_text` exists, names the documented fallback in its failure message, and asserts `telethon.crypto.AES.encrypt_ige` is still public
+- [X] T048 [P] Extend `tests/unit/test_errors_leak_nothing.py` to drive EVERY failure path added in Phases 3–9 and assert the same boundary (SC-005)
+- [X] T049 [P] Add a `tests/unit/test_no_insecure_random.py` that fails if `import random` appears anywhere in the package
+- [X] T050 Write the README usage section from `quickstart.md`, and record in `.ai/memory.md` which of the reference's UNVERIFIED items remain unverified
+- [X] T051 Re-run `graphify .` and re-index CBM against `telethon_secret_chat/` now that there is real code to graph
 
 ---
 
