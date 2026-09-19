@@ -165,7 +165,7 @@ class FileStorage(StorageBackend):
 
     # Keys are bytes; JSON has no bytes. Hex rather than base64 so a human reading
     # the file cannot mistake it for text.
-    _BYTES_FIELDS = ("key", "pending_key")
+    _BYTES_FIELDS = ("key", "pending_key", "previous_key")
 
     def _encode(self, record: Record) -> Record:
         out = dict(record)
