@@ -84,7 +84,23 @@ async def await_event(
         if found is not None:
             return found
         await asyncio.sleep(POLL)
-    pytest.fail(f"{missing} (waited {deadline:.0f}s for {kind})")
+
+    # What DID arrive is the diagnosis. Waiting for `MessageReceived` and reporting
+    # only its absence hides the case that matters most: the message arrived and
+    # failed to decrypt, which emits `DecryptFailed` and is a completely different
+    # bug from nothing arriving at all. The live run that found the missing `await`
+    # in `_parse_text` then stalled here with no clue which of the two it was.
+    failures = recorder.of("DecryptFailed")
+    seen = ", ".join(sorted({type(e).__name__ for e in recorder.events})) or "nothing"
+    detail = ""
+    if failures:
+        detail = " DECRYPT FAILED instead: " + "; ".join(
+            str(getattr(f, "reason", "?")) for f in failures[:3]
+        )
+    pytest.fail(
+        f"{missing} (waited {deadline:.0f}s for {kind}). "
+        f"Events that did arrive: {seen}.{detail}"
+    )
 
 
 async def ready_chat(manager, peer, announce, label: str):
