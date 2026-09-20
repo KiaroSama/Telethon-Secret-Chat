@@ -234,9 +234,16 @@ class SecretChatManager:
     # Keeping them there rather than here is what stops §6 being half in a module
     # named for it and half in the orchestrator.
 
-    async def send_file(self, chat_id: int, path, *, caption: str = "", mime_type=None) -> int:
-        """§6.3-§6.4. The key travels inside the message, the address outside it."""
-        return await files.send(self, self._sendable(chat_id), path, caption, mime_type)
+    async def send_file(
+        self, chat_id: int, path, *, caption: str = "", mime_type=None, kind=None
+    ) -> int:
+        """§6.3-§6.4. The key travels inside the message, the address outside it.
+
+        ``kind`` is one of ``files.MEDIA_KINDS``; absent, it is inferred from the
+        file. A kind the file cannot be is refused before anything is uploaded, and
+        so is a caption on one of the two kinds that carry none.
+        """
+        return await files.send(self, self._sendable(chat_id), path, caption, mime_type, kind)
 
     async def save_file(self, message: MessageReceived, path) -> Path:
         """§6.3: check the fingerprint, THEN write. FR-012."""
