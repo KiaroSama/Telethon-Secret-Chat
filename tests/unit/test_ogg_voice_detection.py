@@ -89,3 +89,24 @@ def test_nothing_but_audio_is_read_at_all():
     assert files._infer_kind("image/jpeg", _ogg()) == "photo"
     assert files._infer_kind("video/mp4", _ogg()) == "video"
     assert files._infer_kind("image/gif", _ogg()) == "animation"
+
+
+# --- an mp3 is not a voice note ----------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "mime", ["audio/mpeg", "audio/mp4", "audio/flac", "audio/wav", "audio/aac"]
+)
+def test_no_compressed_music_format_may_be_asked_for_as_a_voice_note(mime):
+    """Mirrors telegram-mcp. A voice message is Telegram's own OGG/Opus
+    recording; the owner ruled on 2026-09-20 that an mp3 is not one, after the
+    real-client pass showed the other side accepting a 10 MB mp3 as a voice note
+    and starting the upload."""
+    with pytest.raises(ValueError):
+        files.resolve_kind("voice_note", file_name="track", mime_type=mime)
+
+
+@pytest.mark.parametrize("mime", ["audio/ogg", "audio/opus"])
+def test_telegrams_own_voice_container_may_still_be_either(mime):
+    assert files.resolve_kind("voice_note", file_name="n", mime_type=mime) == "voice_note"
+    assert files.resolve_kind("audio", file_name="n", mime_type=mime) == "audio"
