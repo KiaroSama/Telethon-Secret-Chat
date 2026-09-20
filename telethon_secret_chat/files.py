@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import mimetypes
 import os
 import secrets
 from pathlib import Path
@@ -43,9 +44,124 @@ __all__ = [
     "encrypt_file",
     "decrypt_file",
     "save",
+    "MEDIA_KINDS",
+    "CAPTIONLESS_KINDS",
+    "resolve_kind",
+    "attributes_for",
 ]
 
 BLOCK = 16
+
+# --- the eight kinds (§6.3's `attributes:Vector<DocumentAttribute>`) -----------
+# The vector is the only thing that tells a receiving client an `.ogg` is a voice
+# note rather than a file to download, and a filename alone says "file" about all
+# eight. The names are the ones the MCP tools already speak, so a consumer moving
+# off TDLib keeps the same vocabulary rather than translating between two.
+
+MEDIA_KINDS = (
+    "photo",
+    "video",
+    "document",
+    "audio",
+    "animation",
+    "sticker",
+    "video_note",
+    "voice_note",
+)
+
+#: The two with nowhere to put a caption. `decryptedMessageMediaDocument` has the
+#: field, but no client shows one on a sticker or a round video, so a caption
+#: offered with either is refused rather than sent somewhere it will not appear.
+CAPTIONLESS_KINDS = frozenset({"sticker", "video_note"})
+
+# What a file must already BE for each kind, matched on the mime family. `document`
+# is absent because it takes anything. Nothing here converts a file to fit a kind:
+# a mismatch is refused, since the alternative is transcoding media inside a
+# library whose one job is that the bytes reach the peer unaltered.
+_KIND_NEEDS = {
+    "photo": ("image/",),
+    "sticker": ("image/",),
+    "animation": ("image/gif", "video/"),
+    "video": ("video/",),
+    "video_note": ("video/",),
+    "audio": ("audio/",),
+    "voice_note": ("audio/",),
+}
+
+
+def guess_mime(file_name: str) -> str:
+    """The file's type from its name, or the type that means "unknown"."""
+    return mimetypes.guess_type(file_name)[0] or "application/octet-stream"
+
+
+def _infer_kind(mime_type: str) -> str:
+    """What an unasked-for file is.
+
+    Only the five kinds a type can be sure of. `sticker`, `video_note` and
+    `voice_note` are never inferred: a `.webp` is a sticker only if the sender meant
+    one, and an `.ogg` is a voice note only if it was recorded as one. Guessing
+    those turns an ordinary send into a kind the sender did not choose.
+    """
+    if mime_type == "image/gif":
+        return "animation"
+    for family, kind in (("image/", "photo"), ("video/", "video"), ("audio/", "audio")):
+        if mime_type.startswith(family):
+            return kind
+    return "document"
+
+
+def resolve_kind(kind, *, file_name: str, mime_type: str, caption: str = "") -> str:
+    """Settle the kind, or refuse - and refuse before the caller spends an upload.
+
+    ``None`` infers. A named kind is checked against what the file is, and an
+    unknown mime type is not proof of anything, so it passes: the check exists to
+    catch a file that demonstrably cannot be what was asked for, not to require a
+    recognised extension.
+    """
+    if kind is None:
+        kind = _infer_kind(mime_type)
+    elif kind not in MEDIA_KINDS:
+        raise ValueError(f"unknown media kind {kind!r}: expected one of {', '.join(MEDIA_KINDS)}")
+    needs = _KIND_NEEDS.get(kind, ())
+    if needs and mime_type != "application/octet-stream":
+        if not any(mime_type.startswith(family) for family in needs):
+            raise ValueError(
+                f"{file_name} cannot be sent as a {kind}: it is {mime_type}. "
+                "Send it as a document, or convert it first - this package will not."
+            )
+    if caption and kind in CAPTIONLESS_KINDS:
+        raise ValueError(
+            f"a {kind} carries no caption, and {file_name} was given one. "
+            "The protocol has no field a client would show it in; send the text "
+            "as its own message."
+        )
+    return kind
+
+
+def attributes_for(kind: str, file_name: str) -> list:
+    """The kind's own attributes, always alongside the filename.
+
+    The numbers - duration, width, height - are left at zero: reading them means
+    decoding the media, and this package holds ciphertext and a schema, not a codec.
+    A client shows the kind from the attribute's presence and its flags; the
+    dimensions refine the preview it draws.
+    """
+    attributes = [tl.DocumentAttributeFilename(file_name=file_name)]
+    if kind == "photo":
+        attributes.append(tl.DocumentAttributeImageSize(w=0, h=0))
+    elif kind in ("video", "video_note"):
+        attributes.append(
+            tl.DocumentAttributeVideo(round_message=kind == "video_note", duration=0, w=0, h=0)
+        )
+    elif kind in ("audio", "voice_note"):
+        attributes.append(tl.DocumentAttributeAudio(voice=kind == "voice_note", duration=0))
+    elif kind == "animation":
+        attributes.append(tl.DocumentAttributeAnimated())
+    elif kind == "sticker":
+        attributes.append(
+            tl.DocumentAttributeSticker(alt="", stickerset=tl.InputStickerSetEmpty())
+        )
+    return attributes
 
 
 def new_file_key() -> tuple[bytes, bytes]:
@@ -135,7 +251,7 @@ def save(
 # rules accumulate.
 
 
-async def send(manager, chat, path, caption: str = "", mime_type=None) -> int:
+async def send(manager, chat, path, caption: str = "", mime_type=None, kind=None) -> int:
     """§6.3-§6.4: encrypt with a one-time key, upload the ciphertext, send the
     address outside the message and the key inside it.
 
@@ -143,6 +259,10 @@ async def send(manager, chat, path, caption: str = "", mime_type=None) -> int:
     the server stores ciphertext only".
     """
     source = Path(path)
+    mime_type = mime_type or guess_mime(source.name)
+    # Before the read, the key and the upload: a kind the file cannot be costs
+    # nothing to refuse here and an encrypted round trip to refuse later.
+    kind = resolve_kind(kind, file_name=source.name, mime_type=mime_type, caption=caption)
     # An unreadable file refuses here, before a key is generated - contracts §2.
     content = source.read_bytes()
     key, iv = new_file_key()
@@ -159,13 +279,13 @@ async def send(manager, chat, path, caption: str = "", mime_type=None) -> int:
             thumb=b"",
             thumb_w=0,
             thumb_h=0,
-            mime_type=mime_type or "application/octet-stream",
+            mime_type=mime_type,
             # `size:long`: the layer-143 shape (§6.3, §7.1). The `size:int`
             # predecessor belongs to layers this package does not announce.
             size=len(content),
             key=key,
             iv=iv,
-            attributes=[tl.DocumentAttributeFilename(file_name=source.name)],
+            attributes=attributes_for(kind, source.name),
             caption=caption,
         ),
     )
