@@ -86,7 +86,11 @@ _KIND_NEEDS = {
     "video": ("video/",),
     "video_note": ("video/",),
     "audio": ("audio/",),
-    "voice_note": ("audio/",),
+    # A voice message is Telegram's own OGG/Opus recording, not any audio file.
+    # telegram-mcp learned this the hard way on 2026-09-20: its family table let
+    # a 10 MB mp3 be asked for as a voice note and the upload started. The two
+    # sides agree name for name, so they agree here too.
+    "voice_note": ("audio/ogg", "audio/opus", "audio/x-opus"),
 }
 
 
