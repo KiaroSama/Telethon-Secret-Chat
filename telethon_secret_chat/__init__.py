@@ -28,6 +28,7 @@ from .events import (
     MessageReceived,
     ServiceActionReceived,
 )
+from . import ogg_tags
 from .files import CAPTIONLESS_KINDS, MEDIA_KINDS
 from .manager import SecretChatManager
 from .storage import FileStorage, MemoryStorage, StorageBackend
@@ -45,6 +46,7 @@ __all__ = [
     "FileStorage",
     # the media kinds `send_file` accepts
     "MEDIA_KINDS",
+    "ogg_tags",
     "CAPTIONLESS_KINDS",
     # errors (contracts §4)
     "SecretChatError",
