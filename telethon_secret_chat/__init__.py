@@ -28,6 +28,13 @@ from .events import (
     MessageReceived,
     ServiceActionReceived,
 )
+
+# Imported for its side effect of binding `telethon_secret_chat.ogg_tags`,
+# deliberately NOT in __all__: telling a voice note from a track is how
+# `send_file` picks a default, not a promise this package makes to a
+# caller. `test_the_package_exports_exactly_the_contract` is what keeps
+# that line honest, and it caught this being widened by accident.
+from . import ogg_tags  # noqa: F401
 from .files import CAPTIONLESS_KINDS, MEDIA_KINDS
 from .manager import SecretChatManager
 from .storage import FileStorage, MemoryStorage, StorageBackend

@@ -32,6 +32,7 @@ from pathlib import Path
 from telethon.crypto import AES
 from telethon.tl import types
 
+from . import ogg_tags
 from .errors import MessageRejected
 from .schema import secret_tl as tl
 
@@ -89,28 +90,56 @@ _KIND_NEEDS = {
 }
 
 
+def _peek(source: Path) -> bytes:
+    """The head of the file, or nothing at all.
+
+    Read errors are swallowed on purpose: the kind refusal must stay the FIRST
+    thing that can fail, exactly as it is without this, so an unreadable file
+    still reports being unreadable at the read below rather than here. An empty
+    result simply means the caller decides on the name, as it always did.
+    """
+    try:
+        with source.open("rb") as handle:
+            return handle.read(ogg_tags.HEADER_BYTES)
+    except OSError:
+        return b""
+
+
 def guess_mime(file_name: str) -> str:
     """The file's type from its name, or the type that means "unknown"."""
     return mimetypes.guess_type(file_name)[0] or "application/octet-stream"
 
 
-def _infer_kind(mime_type: str) -> str:
+def _infer_kind(mime_type: str, header: bytes = b"") -> str:
     """What an unasked-for file is.
 
-    Only the five kinds a type can be sure of. `sticker`, `video_note` and
-    `voice_note` are never inferred: a `.webp` is a sticker only if the sender meant
-    one, and an `.ogg` is a voice note only if it was recorded as one. Guessing
-    those turns an ordinary send into a kind the sender did not choose.
+    `sticker` and `video_note` are never inferred: a `.webp` is a sticker only if
+    the sender meant one, and guessing turns an ordinary send into a kind the
+    sender did not choose.
+
+    `voice_note` used to be in that list, and this is where the two repositories
+    silently disagreed - telegram-mcp read an unnamed `.ogg` as a voice note and
+    this package read it as music. An `.ogg` holds both in the same container,
+    codec, channel count and sample rate, so neither default is right more than
+    half the time. Given the file's head, the comment block decides instead; given
+    nothing, the old answer stands. See `ogg_tags` and telegram-mcp's
+    `docs/adr/0004-an-ogg-is-a-voice-note-until-its-tags-say-otherwise.md`.
     """
     if mime_type == "image/gif":
         return "animation"
     for family, kind in (("image/", "photo"), ("video/", "video"), ("audio/", "audio")):
         if mime_type.startswith(family):
+            if kind == "audio" and header:
+                voice = ogg_tags.looks_like_voice(header)
+                if voice is not None:
+                    return "voice_note" if voice else "audio"
             return kind
     return "document"
 
 
-def resolve_kind(kind, *, file_name: str, mime_type: str, caption: str = "") -> str:
+def resolve_kind(
+    kind, *, file_name: str, mime_type: str, caption: str = "", header: bytes = b""
+) -> str:
     """Settle the kind, or refuse - and refuse before the caller spends an upload.
 
     ``None`` infers. A named kind is checked against what the file is, and an
@@ -119,7 +148,7 @@ def resolve_kind(kind, *, file_name: str, mime_type: str, caption: str = "") -> 
     recognised extension.
     """
     if kind is None:
-        kind = _infer_kind(mime_type)
+        kind = _infer_kind(mime_type, header)
     elif kind not in MEDIA_KINDS:
         raise ValueError(f"unknown media kind {kind!r}: expected one of {', '.join(MEDIA_KINDS)}")
     needs = _KIND_NEEDS.get(kind, ())
@@ -262,7 +291,13 @@ async def send(manager, chat, path, caption: str = "", mime_type=None, kind=None
     mime_type = mime_type or guess_mime(source.name)
     # Before the read, the key and the upload: a kind the file cannot be costs
     # nothing to refuse here and an encrypted round trip to refuse later.
-    kind = resolve_kind(kind, file_name=source.name, mime_type=mime_type, caption=caption)
+    kind = resolve_kind(
+        kind,
+        file_name=source.name,
+        mime_type=mime_type,
+        caption=caption,
+        header=_peek(source),
+    )
     # An unreadable file refuses here, before a key is generated - contracts §2.
     content = source.read_bytes()
     key, iv = new_file_key()
