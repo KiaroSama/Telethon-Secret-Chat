@@ -71,7 +71,7 @@ Failures the protocol says must end a chat also produce `ChatClosed`.
 | `create(user)` / `accept(chat_id)` / `close(chat_id)` | the chat's life |
 | `list()` / `status(chat_id)` | what exists, with fingerprint and TTL |
 | `send_message(chat_id, text)` / `read_history(chat_id, limit)` | text |
-| `send_file(chat_id, path)` / `save_file(message, path)` | media |
+| `send_file(chat_id, path, kind=None)` / `save_file(message, path)` | media, in any of the eight kinds |
 | `set_ttl`, `mark_read`, `delete_messages`, `screenshot`, `flush_history`, `set_typing` | the chat's controls |
 | `rekey(chat_id)` | a new key now, rather than on the documented trigger |
 

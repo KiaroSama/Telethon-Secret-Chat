@@ -28,6 +28,7 @@ from .events import (
     MessageReceived,
     ServiceActionReceived,
 )
+from .files import CAPTIONLESS_KINDS, MEDIA_KINDS
 from .manager import SecretChatManager
 from .storage import FileStorage, MemoryStorage, StorageBackend
 
@@ -42,6 +43,9 @@ __all__ = [
     "StorageBackend",
     "MemoryStorage",
     "FileStorage",
+    # the media kinds `send_file` accepts
+    "MEDIA_KINDS",
+    "CAPTIONLESS_KINDS",
     # errors (contracts §4)
     "SecretChatError",
     "ParameterRejected",
