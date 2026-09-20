@@ -28,6 +28,7 @@ from .events import (
     MessageReceived,
     ServiceActionReceived,
 )
+
 # Imported for its side effect of binding `telethon_secret_chat.ogg_tags`,
 # deliberately NOT in __all__: telling a voice note from a track is how
 # `send_file` picks a default, not a promise this package makes to a
