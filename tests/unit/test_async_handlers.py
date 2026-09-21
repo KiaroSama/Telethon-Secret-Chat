@@ -85,6 +85,6 @@ async def test_a_failing_async_handler_is_reported_rather_than_lost(manager, cap
         await asyncio.wait_for(started.wait(), timeout=2)
         await asyncio.sleep(0)
 
-    assert any("bad" in record.getMessage() for record in caplog.records), (
-        "the failing handler was not named in the log"
-    )
+    assert any(
+        "bad" in record.getMessage() for record in caplog.records
+    ), "the failing handler was not named in the log"
