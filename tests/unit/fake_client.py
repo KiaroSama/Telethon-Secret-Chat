@@ -75,7 +75,13 @@ class FakeClient:
                 g_a_or_b=request.g_b,
                 key_fingerprint=request.key_fingerprint,
             )
-        if isinstance(request, functions.messages.SendEncryptedRequest):
+        if isinstance(
+            request,
+            (
+                functions.messages.SendEncryptedRequest,
+                functions.messages.SendEncryptedServiceRequest,
+            ),
+        ):
             if self.hold:
                 self.held.append((request.peer.chat_id, request.data))
             elif self.peer is not None:
