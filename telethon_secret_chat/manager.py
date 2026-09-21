@@ -1,21 +1,11 @@
-"""The object an application owns - contracts/public-api.md §1-§3.
+"""Durable orchestration of Telethon secret-chat state and ordered delivery.
 
-An object the application CONSTRUCTS, not attributes patched onto its
-``TelegramClient``. contracts/public-api.md: "Patching makes the dependency
-invisible to a reader and unmockable to a test - and the archived base package did
-exactly that."
-
-The manager is the orchestrator and holds no protocol rules of its own. The rules
-live in the modules named for the sections they implement - ``dh`` for §1.2,
-``handshake`` for §1.3-§1.6, ``crypto`` for §2, ``framing`` for §3.1-§3.4,
-``sequence`` for §3.5-§3.8, ``actions`` for §5 - and this file wires them to
-Telethon and to the storage backend the application chose.
-
-Telethon touch points, all public except one, kept in one place so a canary test can
-pin them (FR-016, research.md Q3): ``client(...)`` for the TL requests,
-``client.add_event_handler``/``remove_event_handler`` for the update subscription,
-``client.get_input_entity``, and ``client._parse_message_text`` - private, with the
-documented fallback of accepting pre-parsed entities from the caller.
+Storage transactions are synchronous and never span a network await. Per-chat,
+reentrant coroutine locks serialize protocol transitions without locking other
+chats. Outgoing ciphertext and its sequence are committed together before the
+RPC; uncertain sends remain retryable with their original identity and bytes.
+The durable mailbox covers receive-to-dispatch. Applications own durable and
+idempotent processing of callbacks; scheduling a callback is not its completion.
 """
 
 from __future__ import annotations
@@ -25,6 +15,9 @@ import inspect
 import logging
 import secrets
 import time
+from contextlib import asynccontextmanager, contextmanager
+from copy import deepcopy
+from functools import wraps
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -34,12 +27,14 @@ from telethon.tl import functions, types
 from . import actions as actions_module
 from . import crypto, dh, files, framing, handshake, rekey as rekey_module, sequence
 from .chat import ChatState, SecretChat
-from .errors import SecretChatError, StorageRequired
+from .errors import ChatNotReady, ResendUnsatisfiable, SecretChatError, StorageRequired
 from .events import (
+    EVENT_TYPES,
     ChatClosedEvent,
     ChatReady,
     ChatRequested,
     DecryptFailed,
+    MessageAcknowledged,
     MessageReceived,
     ServiceActionReceived,
 )
@@ -47,470 +42,499 @@ from .schema import secret_tl as tl
 from .storage import StorageBackend
 
 __all__ = ["SecretChatManager"]
-
-# This package's own logger, never the host client's. research.md Q3: "Principle IV
-# requires this package to control what it emits, so borrowing the host's logger was
-# never right." §8.8 measured the archived package logging plaintext through the
-# borrowed one at DEBUG.
 log = logging.getLogger("telethon_secret_chat")
 
 
+def serialized(method):
+    @wraps(method)
+    async def run(self, subject, *args, **kwargs):
+        chat_id = (
+            subject
+            if isinstance(subject, int)
+            else getattr(subject, "chat_id", getattr(subject, "id", None))
+        )
+        async with self._chat_lock(chat_id):
+            return await method(self, subject, *args, **kwargs)
+
+    return run
+
+
 class SecretChatManager:
-    """contracts/public-api.md §1.
-
-    ``storage`` is required and has no default. FR-014: "a library that quietly
-    writes key material somewhere is a library that writes it somewhere the operator
-    did not protect."
-    """
-
     def __init__(self, client, storage: Optional[StorageBackend]):
         if storage is None:
             raise StorageRequired()
         self._client = client
         self._storage = storage
         self._chats: Dict[int, SecretChat] = {}
-        self._secrets: Dict[int, Dict[str, int]] = {}  # chat_id -> the DH scratch
         self._history: Dict[int, List[MessageReceived]] = {}
         self._handlers: Dict[str, List[Callable]] = {}
+        self._handler_tasks = set()
+        self._locks = {}
+        self._lock_owners = {}
+        self._inflight = set()
+        self._creating = 0
+        self._early_encryption = {}
+        self._delivering = set()
         self._running = False
-        # Bound once. `self._on_update` builds a NEW bound-method object on every
-        # attribute access, so subscribing with one and unsubscribing with another
-        # leaves the subscription in place on any client that compares by identity.
-        # Holding the reference makes `stop` work regardless of which comparison the
-        # client uses.
+        self._stopping = False
         self._subscription = self._on_update
 
-    # --- lifecycle ------------------------------------------------------------
+    @asynccontextmanager
+    async def _chat_lock(self, chat_id):
+        task = asyncio.current_task()
+        if self._lock_owners.get(chat_id) is task:
+            yield
+            return
+        lock = self._locks.setdefault(chat_id, asyncio.Lock())
+        async with lock:
+            self._lock_owners[chat_id] = task
+            try:
+                yield
+            finally:
+                self._lock_owners.pop(chat_id, None)
 
-    async def start(self) -> None:
-        """Subscribe to the encryption updates. Idempotent (contracts §1)."""
+    @contextmanager
+    def _atomic(self, chat):
+        previous = deepcopy(vars(chat))
+        try:
+            with self._storage.transaction():
+                yield
+                self._save(chat)
+        except BaseException:
+            vars(chat).clear()
+            vars(chat).update(previous)
+            raise
+
+    async def start(self):
         if self._running:
             return
+        loaded = {}
         for chat_id in self._storage.list():
             record = self._storage.load(chat_id)
             if record is not None:
-                self._chats[chat_id] = SecretChat.from_record(record)
+                loaded[chat_id] = SecretChat.from_record(record)
+        self._chats = loaded
         self._client.add_event_handler(self._subscription)
         self._running = True
+        self._stopping = False
+        for chat in self._chats.values():
+            if chat.state in (ChatState.REQUESTED, ChatState.PENDING) and not chat.handshake:
+                await self.close(chat.id, "legacy pending handshake has no recoverable secret")
+            elif chat.state in (ChatState.READY, ChatState.REKEYING):
+                try:
+                    await self.retry_pending(chat.id)
+                    await self._drain_deliveries(chat)
+                except Exception:
+                    log.warning("chat %s has durable work awaiting retry", chat.id)
+        log.info("secret-chat manager started with %s stored chats", len(self._chats))
 
-    async def stop(self) -> None:
-        """Unsubscribe and flush. Idempotent (contracts §1)."""
+    async def stop(self):
         if not self._running:
             return
         self._client.remove_event_handler(self._subscription)
+        self._stopping = True
+        tasks = [task for task in self._handler_tasks if task is not asyncio.current_task()]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
         for chat in self._chats.values():
-            self._save(chat)
+            async with self._chat_lock(chat.id):
+                self._save(chat)
         self._running = False
+        self._early_encryption.clear()
+        log.info("secret-chat manager stopped")
 
-    def on(self, event: str, handler: Callable) -> None:
-        """Register a handler for one of the seven event names of contracts §3."""
+    def on(self, event: str, handler: Callable):
+        event = "ChatClosedEvent" if event == "ChatClosed" else event
+        if event not in EVENT_TYPES or not callable(handler):
+            raise ValueError("register a known secret-chat event and a callable handler")
         self._handlers.setdefault(event, []).append(handler)
 
-    def _emit(self, event: Any) -> None:
-        """Hand one event to its handlers, awaiting the ones that need awaiting.
+    @staticmethod
+    def _handler_name(handler):
+        if inspect.isfunction(handler) or inspect.ismethod(handler):
+            return handler.__name__
+        return type(handler).__name__
 
-        An ``async def`` handler called synchronously returns a coroutine that
-        nobody runs: Python warns "coroutine ... was never awaited" into stderr and
-        the handler's whole body simply does not happen. That is the worst shape a
-        failure can take here, because the caller sees a registered handler and a
-        clean run - measured on a real chat, where an application accepting
-        invitations in an async handler left every one of them `pending` for ever.
-
-        And handlers ARE naturally async: the interesting ones accept a chat, answer
-        a message or write a file, and every one of those awaits. So a coroutine is
-        scheduled on the running loop rather than dropped.
-
-        Scheduled, not awaited: ``_emit`` is called from inside the update path, and
-        awaiting a handler there would let an application's slow or hanging handler
-        stall the decryption of every other chat. A handler that raises is logged
-        with its own name, never re-raised into the update loop.
-        """
-        for handler in self._handlers.get(type(event).__name__, []):
+    def _emit(self, event: Any):
+        for handler in tuple(self._handlers.get(type(event).__name__, [])):
             try:
                 result = handler(event)
             except Exception:
-                log.exception(
-                    "secret-chat handler %r failed", getattr(handler, "__name__", handler)
-                )
+                log.error("secret-chat handler %s failed", self._handler_name(handler))
                 continue
             if inspect.isawaitable(result):
-                asyncio.ensure_future(self._run_handler(handler, result))
+                task = asyncio.ensure_future(self._run_handler(handler, result))
+                self._handler_tasks.add(task)
 
-    @staticmethod
-    async def _run_handler(handler, awaitable) -> None:
-        """Await one scheduled handler, so a failure is reported rather than lost.
+                def done(task, result=result):
+                    self._handler_tasks.discard(task)
+                    if inspect.iscoroutine(result):
+                        result.close()  # Also close an awaitable cancelled before its wrapper starts.
+                    elif asyncio.isfuture(result) and not result.done():
+                        result.cancel()
 
-        Without this, a coroutine handed to ``ensure_future`` that raises reports
-        "Task exception was never retrieved" at garbage-collection time, minutes
-        later, with no clue which handler it was.
-        """
+                task.add_done_callback(done)
+
+    async def _run_handler(self, handler, awaitable):
         try:
             await awaitable
         except Exception:
-            log.exception("secret-chat handler %r failed", getattr(handler, "__name__", handler))
+            # Never log exception text, traceback, arguments, or callable repr.
+            log.error("secret-chat handler %s failed", self._handler_name(handler))
 
-    def _save(self, chat: SecretChat) -> None:
-        """data-model.md §5: "save is called on a meaningful state change, not on
-        every attribute write" - §8 measured the archived package saving inside
-        ``__setattr__``, a write amplifier and a partial-write hazard."""
+    def _save(self, chat):
         self._storage.save(chat.to_record())
 
-    # --- the nine operations (contracts §2) -----------------------------------
-
-    async def create(self, user) -> SecretChat:
-        """§1.3. Validates the server's parameters before anything is derived."""
+    async def create(self, user):
         g, p = await self._dh_config()
-        a = handshake.generate_secret()
-        g_a = handshake.public_value(g, a, p)
-        result = await self._client(
-            functions.messages.RequestEncryptionRequest(
-                user_id=await self._client.get_input_entity(user),
-                random_id=secrets.randbits(31),
-                g_a=g_a.to_bytes(256, "big"),
+        secret = handshake.generate_secret()
+        peer = await self._client.get_input_entity(user)
+        self._creating += 1
+        try:
+            result = await self._client(
+                functions.messages.RequestEncryptionRequest(
+                    user_id=peer,
+                    random_id=secrets.randbits(31),
+                    g_a=handshake.public_value(g, secret, p).to_bytes(256, "big"),
+                )
             )
-        )
+        finally:
+            self._creating -= 1
         chat = SecretChat(
             id=result.id,
             access_hash=result.access_hash,
-            peer_user_id=getattr(result, "participant_id", None) or int(user),
+            peer_user_id=getattr(result, "participant_id", None) or peer.user_id,
             is_outbound=True,
             admin_id=getattr(result, "admin_id", None),
             participant_id=getattr(result, "participant_id", None),
         )
         chat.dh_prime, chat.dh_g = p, g
-        self._chats[chat.id] = chat
-        self._secrets[chat.id] = {"secret": a, "p": p, "g": g}
+        chat.handshake = {"secret": secret, "p": p, "g": g}
         self._save(chat)
+        self._chats[chat.id] = chat
+        early = self._early_encryption.pop(chat.id, None)
+        if isinstance(result, types.EncryptedChat):
+            await self._on_encryption(result)
+        elif early is not None:
+            await self._on_encryption(early)
         return chat
 
-    async def accept(self, chat_id: int) -> SecretChat:
-        """§1.4. B computes the key immediately and publishes its fingerprint."""
+    @serialized
+    async def accept(self, chat_id):
         chat = self._require(chat_id)
-        pending = self._secrets.get(chat_id, {})
-        g_a = pending.get("g_a")
-        if g_a is None:
+        if chat.state in (ChatState.READY, ChatState.REKEYING):
+            return chat
+        if chat.state is not ChatState.PENDING:
+            chat.require_sendable()
+            raise ChatNotReady(chat_id=chat_id, state=chat.state.value)
+        pending = chat.handshake
+        if "g_a" not in pending:
             raise KeyError(f"no pending request for chat {chat_id}")
-        g, p = pending["g"], pending["p"]
-
-        b = handshake.generate_secret()
-        key = handshake.shared_key(peer_value=g_a, secret=b, p=p, chat_id=chat_id)
-        g_b = handshake.public_value(g, b, p)
-
-        chat.dh_prime, chat.dh_g = p, g
-        chat.adopt_key(key)
+        if "secret" not in pending:
+            with self._atomic(chat):
+                pending["secret"] = handshake.generate_secret()
+        key = handshake.shared_key(
+            peer_value=pending["g_a"], secret=pending["secret"], p=pending["p"], chat_id=chat_id
+        )
         await self._client(
             functions.messages.AcceptEncryptionRequest(
                 peer=types.InputEncryptedChat(chat_id=chat.id, access_hash=chat.access_hash),
-                g_b=g_b.to_bytes(256, "big"),
-                key_fingerprint=chat.key_fingerprint,
+                g_b=handshake.public_value(pending["g"], pending["secret"], pending["p"]).to_bytes(
+                    256, "big"
+                ),
+                key_fingerprint=crypto.key_fingerprint(key),
             )
         )
-        self._secrets[chat_id] = {"secret": b, "p": p, "g": g}
-        self._save(chat)
-        self._emit(ChatReady(chat.id, chat.peer_user_id, chat.key_fingerprint))
+        with self._atomic(chat):
+            chat.adopt_key(key)
+            chat.handshake = {}
+        self._emit(
+            ChatReady(chat.id, chat.peer_user_id, chat.key_fingerprint, chat.initial_key_hash)
+        )
         await self._notify_layer(chat)
         return chat
 
-    async def close(self, chat_id: int, reason: str = "closed by this application") -> None:
-        """Terminal. Closing an already-closed chat states it and does not raise."""
+    def _close_local(self, chat, reason):
+        with self._atomic(chat):
+            # Scrub legacy closed records too, while preserving their first reason.
+            reason = chat.closed_reason or reason
+            chat.state = ChatState.READY
+            chat.close(reason)
+            self._storage.delete(chat.id)
+        self._history.pop(chat.id, None)
+        self._emit(ChatClosedEvent(chat.id, reason))
+
+    @serialized
+    async def close(self, chat_id, reason="closed by this application"):
         chat = self._require(chat_id)
         if chat.state is ChatState.CLOSED:
             return
+        self._close_local(chat, reason)
         try:
             await self._client(
-                functions.messages.DiscardEncryptionRequest(chat_id=chat.id, delete_history=False)
+                functions.messages.DiscardEncryptionRequest(
+                    chat_id=chat.id,
+                    delete_history=False,
+                )
             )
         except Exception:
-            # The chat is over locally whatever the server says; a transport error
-            # here must not leave a chat that believes it is still usable.
-            log.debug("discardEncryption failed for chat %s; closing locally anyway", chat_id)
-        chat.close(reason)
-        self._save(chat)
-        self._emit(ChatClosedEvent(chat.id, reason))
+            log.debug("discardEncryption failed for chat %s; local closure is durable", chat_id)
 
-    def list(self) -> List[SecretChat]:
+    def list(self):
         return list(self._chats.values())
 
-    def status(self, chat_id: int) -> SecretChat:
+    def status(self, chat_id):
         return self._require(chat_id)
 
-    async def send_message(
-        self, chat_id: int, text: str, entities=None, reply_to: Optional[int] = None
-    ) -> int:
-        """contracts §2. Resolves when TELEGRAM accepts the ciphertext, not when the
-        peer acknowledges - acknowledgement arrives as ``MessageAcknowledged``.
-
-        ``reply_to`` is the ``random_id`` of the message being replied to - the
-        encrypted layer has no message ids, so a reply points at the random id the
-        sender chose (§7.1's ``reply_to_random_id``). It is NOT checked against this
-        side's history: the peer's own sent messages never pass through it, so a check
-        here would refuse every reply to something they said.
-        """
-        chat = self._require(chat_id)
-        chat.require_sendable()
-        random_id = secrets.randbits(63)
+    @serialized
+    async def send_message(self, chat_id, text, entities=None, reply_to=None):
+        chat = self._sendable(chat_id)
         if entities is None and text:
             text, entities = await self._parse_text(text)
-        # §4.1's trigger, checked on the path that counts messages. Before the send
-        # rather than after, so the message that crosses the threshold already goes
-        # out under whichever key the exchange settles on.
         await self._rekey_if_due(chat)
-        message = tl.DecryptedMessage(
-            random_id=random_id,
-            ttl=chat.ttl,
-            message=text,
-            entities=entities or None,
-            reply_to_random_id=reply_to,
+        random_id = secrets.randbits(63)
+        await self._send(
+            chat,
+            tl.DecryptedMessage(
+                random_id=random_id,
+                ttl=chat.ttl,
+                message=text,
+                entities=entities or None,
+                reply_to_random_id=reply_to,
+            ),
         )
-        await self._send(chat, message)
         return random_id
 
-    async def rekey(self, chat_id: int) -> None:
-        """§4. Ask for a new key now, rather than waiting for §4.1's trigger.
-
-        The spec's Assumptions: "the package rekeys automatically on the documented
-        trigger, and the application can ask for one. It is not left to the caller
-        to remember."
-        """
+    @serialized
+    async def rekey(self, chat_id):
         await rekey_module.start(self, self._sendable(chat_id))
 
-    async def _rekey_if_due(self, chat: SecretChat) -> None:
-        """§4.1's trigger, checked where messages are counted."""
+    async def _rekey_if_due(self, chat):
         if chat.state is ChatState.READY and rekey_module.should_rekey(chat, time.time()):
             await rekey_module.start(self, chat)
 
-    # --- files (§6, contracts §2) ---------------------------------------------
-    # The bodies live in `files.py`, which owns §6 end to end: the one-time keys,
-    # the MD5 fingerprint that is NOT §1.5's, and the ordering FR-012 requires.
-    # Keeping them there rather than here is what stops §6 being half in a module
-    # named for it and half in the orchestrator.
-
+    @serialized
     async def send_file(
-        self,
-        chat_id: int,
-        path,
-        *,
-        caption: str = "",
-        mime_type=None,
-        kind=None,
-        reply_to: Optional[int] = None,
-    ) -> int:
-        """§6.3-§6.4. The key travels inside the message, the address outside it.
-
-        ``kind`` is one of ``files.MEDIA_KINDS``; absent, it is inferred from the
-        file. A kind the file cannot be is refused before anything is uploaded, and
-        so is a caption on one of the two kinds that carry none.
-        """
+        self, chat_id, path, *, caption="", mime_type=None, kind=None, reply_to=None
+    ):
         return await files.send(
             self, self._sendable(chat_id), path, caption, mime_type, kind, reply_to
         )
 
-    async def save_file(self, message: MessageReceived, path) -> Path:
-        """§6.3: check the fingerprint, THEN write. FR-012."""
+    async def save_file(self, message, path) -> Path:
         return await files.receive(self, message, path)
 
-    # --- the service actions the consumer needs (§5, FR-010) ------------------
+    @serialized
+    async def set_ttl(self, chat_id, seconds):
+        chat = self._sendable(chat_id)
+        if type(seconds) is not int or not 0 <= seconds < 2**31:
+            raise ValueError("TTL must be a nonnegative signed 32-bit integer")
+        await self._send_action(
+            chat,
+            actions_module.set_message_ttl(seconds),
+            after_prepare=lambda: setattr(chat, "ttl", seconds),
+        )
 
-    async def set_ttl(self, chat_id: int, seconds: int) -> None:
-        """§5.1. Stored and transmitted; the countdown is not enforced locally.
-
-        §5 marks the exact moment a countdown starts UNVERIFIED for every media
-        kind, and the spec's Assumptions take the default of "stores and transmits
-        the TTL without enforcing it locally" rather than inventing a rule an
-        official client might not share.
-        """
-        chat = self._require(chat_id)
-        chat.require_sendable()
-        chat.ttl = seconds
-        await self._send_action(chat, actions_module.set_message_ttl(seconds))
-
-    async def mark_read(self, chat_id: int, random_ids) -> None:
-        """§5.2."""
+    async def mark_read(self, chat_id, random_ids):
         await self._send_action(self._sendable(chat_id), actions_module.read_messages(random_ids))
 
-    async def delete_messages(self, chat_id: int, random_ids) -> None:
-        """§5.3, with §3.8's rewrite of anything not yet acknowledged.
-
-        "securely destroy the contents of the message", "change the local copy of
-        the original message to decryptedMessageActionDeleteMessages with random_id
-        equal to its own random_id", then "create a new outgoing message deleting
-        the original message" - because a retained message that simply vanished
-        would make the peer's resend request unanswerable, and an unanswerable
-        resend ends the chat (§3.7).
-        """
+    @serialized
+    async def delete_messages(self, chat_id, random_ids):
         chat = self._sendable(chat_id)
-        self._rewrite_retained_as_deletes(chat, set(random_ids))
-        await self._send_action(chat, actions_module.delete_messages(random_ids))
+        ids = list(random_ids)
+        # Remove content BEFORE retrying an uncertain send; privacy cannot wait
+        # for the network to succeed. The retained self-delete preserves its slot.
+        with self._atomic(chat):
+            self._rewrite_retained_as_deletes(chat, set(ids))
+        self._remove_history(chat.id, set(ids))
+        await self._send_action(chat, actions_module.delete_messages(ids))
 
-    async def screenshot(self, chat_id: int, random_ids) -> None:
-        """§5.4."""
+    async def screenshot(self, chat_id, random_ids):
         await self._send_action(
             self._sendable(chat_id), actions_module.screenshot_messages(random_ids)
         )
 
-    async def flush_history(self, chat_id: int) -> None:
-        """§5.5."""
-        await self._send_action(self._sendable(chat_id), actions_module.flush_history())
+    @serialized
+    async def flush_history(self, chat_id):
+        chat = self._sendable(chat_id)
+        ids = {self._retained_random_id(item) for item in self._storage.retained_out(chat_id)}
+        with self._atomic(chat):
+            self._rewrite_retained_as_deletes(chat, ids)
+        self._history.pop(chat_id, None)
+        await self._send_action(chat, actions_module.flush_history())
 
-    async def set_typing(self, chat_id: int, action=None) -> None:
-        """§5.8."""
+    async def set_typing(self, chat_id, action=None):
         await self._send_action(self._sendable(chat_id), actions_module.typing(action))
 
-    def _sendable(self, chat_id: int) -> SecretChat:
+    def _sendable(self, chat_id):
         chat = self._require(chat_id)
         chat.require_sendable()
         return chat
 
-    async def _send_action(self, chat: SecretChat, action) -> None:
-        """Every outbound action goes through one place, so §3.1's "any service
-        messages in secret chats must also increment the seq_no" is structural
-        rather than remembered."""
+    async def _send_action(self, chat, action, *, after_prepare=None, encryption_key=None):
         await self._send(
             chat,
             tl.DecryptedMessageService(random_id=secrets.randbits(63), action=action),
+            after_prepare=after_prepare,
+            encryption_key=encryption_key,
         )
 
-    def _rewrite_retained_as_deletes(self, chat: SecretChat, random_ids: set) -> None:
-        """§3.8, on the retention queue.
+    @staticmethod
+    def _retained_random_id(item):
+        if "random_id" in item:
+            return item["random_id"]
+        return sequence.unpack(item).message.random_id
 
-        The retained copy keeps its ``out_seq_no`` - the hole it would leave is
-        exactly what §3.8 exists to prevent - and loses its content, so a later
-        resend replays a self-delete rather than the plaintext the user asked to
-        destroy.
-        """
-        remaining = self._storage.retained_out(chat.id)
-        self._storage.drop_out(chat.id, max((m["seq_no"] for m in remaining), default=0))
-        for item in remaining:
-            with BinaryReader(bytes.fromhex(item["body"])) as reader:
-                wrapper = tl.read_object(reader)
-            inner = wrapper.message
-            if getattr(inner, "random_id", None) in random_ids:
-                wrapper.message = tl.DecryptedMessageService(
-                    random_id=inner.random_id,
-                    action=actions_module.delete_messages([inner.random_id]),
-                )
-                item = {"seq_no": item["seq_no"], "body": bytes(wrapper).hex()}
+    def _rewrite_retained_as_deletes(self, chat, random_ids):
+        for item in self._storage.retained_out(chat.id):
+            if self._retained_random_id(item) not in random_ids:
+                continue
+            wrapper = sequence.unpack(item)
+            wrapper.message = tl.DecryptedMessageService(
+                random_id=wrapper.message.random_id,
+                action=actions_module.delete_messages([wrapper.message.random_id]),
+            )
+            item.update(
+                body=bytes(wrapper).hex(),
+                frame=crypto.encrypt_frame(chat.key, bytes(wrapper), chat.out_x).hex(),
+                method="service",
+                file=None,
+            )
             self._storage.queue_out(chat.id, item)
 
-    def read_history(self, chat_id: int, limit: int = 50) -> List[MessageReceived]:
+    def _remove_history(self, chat_id, random_ids):
+        self._history[chat_id] = [
+            item for item in self._history.get(chat_id, []) if item.random_id not in random_ids
+        ]
+
+    def read_history(self, chat_id, limit=50):
         self._require(chat_id)
-        return self._history.get(chat_id, [])[-limit:]
+        if type(limit) is not int or limit < 0:
+            raise ValueError("history limit must be a nonnegative integer")
+        return self._history.get(chat_id, [])[-limit:] if limit else []
 
-    # --- sending --------------------------------------------------------------
+    @serialized
+    async def _send(self, chat, message, file=None, *, after_prepare=None, encryption_key=None):
+        chat.require_sendable()
+        if self._stopping:
+            raise RuntimeError("the secret-chat manager is stopping")
+        await self.retry_pending(chat.id)
+        with self._atomic(chat):
+            wrapper = framing.wrap(
+                message,
+                layer=framing.outgoing_layer(chat.layer),
+                in_seq_no=framing.transform_in_seq_no(chat.in_seq_no, chat.is_outbound),
+                out_seq_no=framing.transform_out_seq_no(chat.out_seq_no, chat.is_outbound),
+            )
+            body = bytes(wrapper)
+            item = {
+                "seq_no": wrapper.out_seq_no,
+                "body": body.hex(),
+                "frame": crypto.encrypt_frame(encryption_key or chat.key, body, chat.out_x).hex(),
+                "random_id": message.random_id,
+                "pending": True,
+                "method": (
+                    "file"
+                    if file is not None
+                    else (
+                        "service"
+                        if isinstance(
+                            message, (tl.DecryptedMessageService, tl.DecryptedMessageService8)
+                        )
+                        else "message"
+                    )
+                ),
+                "file": bytes(file).hex() if file is not None else None,
+            }
+            chat.out_seq_no += 1
+            chat.messages_since_rekey += 1
+            self._storage.queue_out(chat.id, item)
+            if after_prepare is not None:
+                after_prepare()
+        await self._transmit(chat, item)
 
-    async def _send(self, chat: SecretChat, message, file=None) -> None:
-        """Wrap (§3.1), count (§3.4), encrypt (§2) and hand to Telegram.
+    @serialized
+    async def retry_pending(self, chat_id):
+        chat = self._sendable(chat_id)
+        for item in self._storage.retained_out(chat_id):
+            if item.get("pending") and (chat_id, item["seq_no"]) not in self._inflight:
+                await self._transmit(chat, item)
 
-        The counters are assigned here and nowhere else. §3.4: "assign in_seq_no and
-        out_seq_no to each message at the exact moment when the message is created,
-        and never change them in the future."
-        """
-        wrapped = framing.wrap(
-            message,
-            layer=framing.outgoing_layer(chat.layer),
-            in_seq_no=framing.transform_in_seq_no(chat.in_seq_no, chat.is_outbound),
-            out_seq_no=framing.transform_out_seq_no(chat.out_seq_no, chat.is_outbound),
-        )
-        frame = crypto.encrypt_frame(chat.key, bytes(wrapped), chat.out_x)
-        # §3.4: "incremented strictly by 1 after any message (service or not) is
-        # sent/received and processed" - service messages included, which is why
-        # every outgoing path goes through this one function.
-        chat.out_seq_no += 1
-        chat.messages_since_rekey += 1
-        self._storage.queue_out(
-            chat.id,
-            {"seq_no": wrapped.out_seq_no, "body": bytes(wrapped).hex()},
-        )
-        self._save(chat)
+    async def _transmit(self, chat, item):
         peer = types.InputEncryptedChat(chat_id=chat.id, access_hash=chat.access_hash)
-        if file is None:
-            request = functions.messages.SendEncryptedRequest(
-                peer=peer, random_id=secrets.randbits(63), data=frame
+        if "frame" not in item:
+            # Old stores never recorded the RPC identity, cipher, or file handle.
+            # Guessing would turn an acknowledged ciphertext into a different send.
+            failure = ResendUnsatisfiable(
+                chat_id=chat.id,
+                requested=(item["seq_no"], item["seq_no"]),
+                retained_from=item["seq_no"],
             )
+            failure.fatal = True
+            await self.close(chat.id, "legacy retained message has no original wire record")
+            raise failure
+        arguments = dict(peer=peer, random_id=item["random_id"], data=bytes.fromhex(item["frame"]))
+        if item.get("method") == "file":
+            with BinaryReader(bytes.fromhex(item["file"])) as reader:
+                arguments["file"] = reader.tgread_object()
+            request = functions.messages.SendEncryptedFileRequest(**arguments)
+        elif item.get("method") == "service":
+            request = functions.messages.SendEncryptedServiceRequest(**arguments)
         else:
-            # §6.4: a media message goes through a different method, carrying the
-            # file's address alongside the ciphertext rather than inside it.
-            request = functions.messages.SendEncryptedFileRequest(
-                peer=peer, random_id=secrets.randbits(63), data=frame, file=file
-            )
-        await self._client(request)
+            request = functions.messages.SendEncryptedRequest(**arguments)
+        identity = (chat.id, item["seq_no"])
+        self._inflight.add(identity)
+        try:
+            result = await self._client(request)
+            with self._storage.transaction():
+                # A nested receive may have acknowledged/deleted this record already.
+                retained = self._storage.retained_out(chat.id)
+                if any(
+                    record["seq_no"] == item["seq_no"] and record.get("body") == item.get("body")
+                    for record in retained
+                ):
+                    item = dict(item, pending=False)
+                    attached = getattr(result, "file", None)
+                    if isinstance(attached, types.EncryptedFile):
+                        item["file"] = bytes(
+                            types.InputEncryptedFile(
+                                id=attached.id,
+                                access_hash=attached.access_hash,
+                            )
+                        ).hex()
+                    self._storage.queue_out(chat.id, item)
+        finally:
+            self._inflight.discard(identity)
 
-    async def _answer_any_resend(self, chat: SecretChat, wrapper) -> None:
-        """§3.7's one exception to in-order interpretation.
+    async def _resend_retained(self, chat, retained):
+        await self._transmit(chat, retained)
 
-        "decryptedMessageActionResend must always be interpreted immediately upon
-        receipt in all cases, even if its out_seq_no>=C+1." Otherwise the rule is
-        circular: a request that arrives after the hole it is trying to close would
-        be queued BEHIND that hole, and the hole would never close.
+    async def _notify_layer(self, chat):
+        await self._send_action(chat, actions_module.notify_layer(framing.MAX_LAYER))
 
-        "Note that each decryptedMessageActionResend must only be handled once, it
-        must not be interpreted again when we interpret messages in the queue." The
-        action is rewritten to Noop in place, exactly as TDLib does it - and because
-        the rewrite happens before `sequence.accept`, the copy that goes into the
-        gap queue carries the Noop too.
-        """
-        inner = getattr(wrapper, "message", None)
-        if not isinstance(inner, (tl.DecryptedMessageService, tl.DecryptedMessageService8)):
-            return
-        action = inner.action
-        if not isinstance(action, tl.DecryptedMessageActionResend):
-            return
-        # Raises ResendUnsatisfiable - and closes the chat - when it cannot be
-        # served, which is what the protocol requires rather than silence.
-        answer = sequence.answer_resend(
-            chat, self._storage, action.start_seq_no, action.end_seq_no
-        )
-        inner.action = tl.DecryptedMessageActionNoop()
-        for retained in answer:
-            await self._resend_retained(chat, retained)
-
-    async def _resend_retained(self, chat: SecretChat, retained: dict) -> None:
-        """Put a retained message back on the wire unchanged.
-
-        The original bytes, so the original ``out_seq_no`` - which is the only thing
-        that can fill the peer's hole. Nothing is counted: §3.4 says the numbers are
-        assigned once "at the exact moment when the message is created" and are
-        never changed. §8.3 measured the archived package composing a NEW message
-        here, with a new counter, which leaves the peer's hole exactly where it was.
-        """
-        frame = crypto.encrypt_frame(chat.key, bytes.fromhex(retained["body"]), chat.out_x)
-        await self._client(
-            functions.messages.SendEncryptedRequest(
-                peer=types.InputEncryptedChat(chat_id=chat.id, access_hash=chat.access_hash),
-                random_id=secrets.randbits(63),
-                data=frame,
-            )
-        )
-
-    async def _notify_layer(self, chat: SecretChat) -> None:
-        """§7.3: "As soon as a new secret chat has been created, immediately after
-        the secret key has been successfully exchanged"."""
-        await self._send(
-            chat,
-            tl.DecryptedMessageService(
-                random_id=secrets.randbits(63),
-                action=actions_module.notify_layer(framing.MAX_LAYER),
-            ),
-        )
-
-    # --- receiving ------------------------------------------------------------
-
-    async def _on_update(self, update) -> None:
-        """The one subscription. Everything the server pushes about secret chats
-        arrives here, and nothing raises out of it - contracts §3."""
+    async def _on_update(self, update):
         try:
             if isinstance(update, types.UpdateEncryption):
                 await self._on_encryption(update.chat)
             elif isinstance(update, types.UpdateNewEncryptedMessage):
                 await self._on_encrypted_message(update.message)
         except SecretChatError as failure:
-            # A protocol refusal is the application's business, as an event.
-            chat_id = getattr(failure, "chat_id", None)
-            self._emit(DecryptFailed(chat_id or 0, getattr(failure, "reason", "refused")))
+            self._emit(DecryptFailed(failure.chat_id or 0, getattr(failure, "reason", "refused")))
+        except Exception:
+            log.error("secret-chat update failed; no received data or exception text is logged")
+            item = getattr(update, "message", getattr(update, "chat", None))
+            chat_id = getattr(item, "chat_id", getattr(item, "id", 0))
+            self._emit(
+                DecryptFailed(chat_id, "update processing failed; durable work may need retry")
+            )
 
-    async def _on_encryption(self, encrypted) -> None:
-        """The chat-state updates of §1.3-§1.4."""
+    @serialized
+    async def _on_encryption(self, encrypted):
         if isinstance(encrypted, types.EncryptedChatRequested):
+            if encrypted.id in self._chats:
+                return  # Duplicate requests cannot replace a keyed chat or a tombstone.
             g, p = await self._dh_config()
             g_a = dh.value_from_bytes(encrypted.g_a)
             dh.check_peer_value(g_a, p, chat_id=encrypted.id)
@@ -523,112 +547,135 @@ class SecretChatManager:
                 participant_id=encrypted.participant_id,
             )
             chat.dh_prime, chat.dh_g = p, g
-            self._chats[chat.id] = chat
-            self._secrets[chat.id] = {"g_a": g_a, "p": p, "g": g}
+            chat.handshake = {"g_a": g_a, "p": p, "g": g}
             self._save(chat)
+            self._chats[chat.id] = chat
             self._emit(ChatRequested(chat.id, encrypted.admin_id))
-
         elif isinstance(encrypted, types.EncryptedChat):
             chat = self._chats.get(encrypted.id)
-            if chat is None or chat.key is not None:
-                return  # not ours, or already established
-            pending = self._secrets[chat.id]
-            g_b = dh.value_from_bytes(encrypted.g_a_or_b)
-            key = handshake.shared_key(
-                peer_value=g_b, secret=pending["secret"], p=pending["p"], chat_id=chat.id
-            )
+            if chat is None:
+                if self._creating and len(self._early_encryption) < 100:
+                    self._early_encryption[encrypted.id] = encrypted
+                return
+            if chat.state is ChatState.CLOSED or chat.key is not None:
+                return
+            pending = chat.handshake
+            if "secret" not in pending:
+                await self.close(chat.id, "the initial exchange cannot be recovered")
+                return
             try:
-                # §1.4: on a mismatch "messages.discardEncryption must be executed
-                # and the user notified" - the chat is not usable and is not kept.
+                key = handshake.shared_key(
+                    peer_value=dh.value_from_bytes(encrypted.g_a_or_b),
+                    secret=pending["secret"],
+                    p=pending["p"],
+                    chat_id=chat.id,
+                )
                 handshake.verify_fingerprint(
                     chat_id=chat.id, key=key, claimed=encrypted.key_fingerprint
                 )
             except SecretChatError as failure:
                 await self.close(chat.id, failure.reason)
                 raise
-            chat.adopt_key(key)
-            self._save(chat)
-            self._emit(ChatReady(chat.id, chat.peer_user_id, chat.key_fingerprint))
+            with self._atomic(chat):
+                chat.adopt_key(key)
+                chat.handshake = {}
+            self._emit(
+                ChatReady(chat.id, chat.peer_user_id, chat.key_fingerprint, chat.initial_key_hash)
+            )
             await self._notify_layer(chat)
-
         elif isinstance(encrypted, types.EncryptedChatDiscarded):
             chat = self._chats.get(encrypted.id)
             if chat is not None and chat.state is not ChatState.CLOSED:
-                chat.close("the peer discarded the chat")
-                self._save(chat)
-                self._emit(ChatClosedEvent(chat.id, "the peer discarded the chat"))
+                self._close_local(chat, "the peer discarded the chat")
 
-    async def _on_encrypted_message(self, message) -> None:
-        """Decrypt (§2.7), check the counters (§3.4-§3.6), dispatch (§5).
-
-        Every refusal along the way becomes a ``DecryptFailed`` event and stops;
-        nothing partially-validated reaches the application (FR-006).
-        """
+    @serialized
+    async def _on_encrypted_message(self, message):
         chat = self._chats.get(message.chat_id)
-        if chat is None or chat.key is None:
-            self._emit(DecryptFailed(message.chat_id, "no key is held for this chat"))
+        if chat is None or chat.key is None or chat.state is ChatState.CLOSED:
+            self._emit(DecryptFailed(message.chat_id, "no usable key is held for this chat"))
             return
-        if chat.state is ChatState.CLOSED:
-            self._emit(DecryptFailed(chat.id, "the chat is closed"))
-            return
-        # §2.6 and §4.5: the fingerprint prefix says WHICH held key this frame was
-        # written under - the current one, the previous one still retained through a
-        # rekey, or the pending one when the peer has switched and its CommitKey has
-        # not arrived yet.
-        named = rekey_module.select_key(
-            chat, int.from_bytes(message.bytes[:8], "little", signed=True)
-        )
-        if named is None:
-            self._emit(DecryptFailed(chat.id, "no key this chat holds matches the frame"))
-            return
-        if named is chat.pending_key:
-            # §4.5: "a message encrypted by the new key, recognized by the value of
-            # key_fingerprint ... it assumes that A has started using the new key for
-            # encryption, and does the same" - the switch, without the CommitKey.
-            rekey_module.adopt_new_key(chat, named)
-            named = chat.key
-            if chat.state is ChatState.REKEYING:
-                chat.transition_to(ChatState.READY)
+        answer, acknowledgements, switched = [], [], False
         try:
-            body = crypto.decrypt_frame(
-                chat.key if named is chat.key else named, message.bytes, chat.in_x, chat_id=chat.id
+            named = rekey_module.select_key(
+                chat, int.from_bytes(message.bytes[:8], "little", signed=True)
             )
+            if named is None:
+                self._emit(DecryptFailed(chat.id, "no key this chat holds matches the frame"))
+                return
+            # A fingerprint is routing metadata, never proof that the sender knows a key.
+            body = crypto.decrypt_frame(named, message.bytes, chat.in_x, chat_id=chat.id)
             wrapper = framing.unwrap(body, chat_id=chat.id)
-            await self._answer_any_resend(chat, wrapper)
-            accepted = sequence.accept(chat, wrapper, self._storage)
-        except SecretChatError as refusal:
-            # Includes the failures §3.4 and §3.6 say must END the chat: `sequence`
-            # closes it and raises, and the application learns both facts as events.
-            self._emit(DecryptFailed(chat.id, getattr(refusal, "reason", "refused")))
-            if chat.state is ChatState.CLOSED:
-                self._emit(ChatClosedEvent(chat.id, chat.closed_reason or "refused"))
-            self._save(chat)
+            with self._atomic(chat):
+                if not sequence.preflight(chat, wrapper, self._storage):
+                    return
+                inner = wrapper.message
+                action = getattr(inner, "action", None)
+                if isinstance(action, tl.DecryptedMessageActionResend):
+                    answer = sequence.answer_resend(
+                        chat, self._storage, action.start_seq_no, action.end_seq_no
+                    )
+                    inner.action = tl.DecryptedMessageActionNoop()
+                previous_ack = chat.peer_in_seq_no
+                accepted = sequence.accept(chat, wrapper, self._storage, envelope=message)
+                if named is chat.pending_key:
+                    rekey_module.adopt_new_key(chat, named)
+                    chat.state = ChatState.READY
+                    chat.new_key_confirmed = True
+                    switched = True
+                elif named is chat.key and chat.previous_key is not None:
+                    chat.new_key_confirmed = True
+                chat.messages_since_rekey += 1
+                if chat.peer_in_seq_no > previous_ack:
+                    ceiling = framing.transform_out_seq_no(
+                        chat.peer_in_seq_no - 1, chat.is_outbound
+                    )
+                    for item in self._storage.retained_out(chat.id):
+                        if item["seq_no"] <= ceiling:
+                            acknowledgements.append(
+                                MessageAcknowledged(
+                                    chat.id,
+                                    item["seq_no"],
+                                    [self._retained_random_id(item)],
+                                )
+                            )
+                sequence.forget_acknowledged(chat, self._storage, chat.peer_in_seq_no)
+                chat.pending_deliveries.extend(sequence.pack(item) for item in accepted.ready)
+        except SecretChatError as failure:
+            if getattr(failure, "fatal", False):
+                await self.close(chat.id, failure.reason)
+            self._emit(DecryptFailed(chat.id, getattr(failure, "reason", "refused")))
             return
-
-        # §3.6's echo says what the peer has taken in, so retention can shrink.
-        sequence.forget_acknowledged(chat, self._storage, chat.peer_in_seq_no)
-        # §4.8: with no gap open, nothing written before the switch can still be in
-        # flight, so the old key has no remaining use and is dropped.
-        rekey_module.retire_previous_key_if_settled(chat)
-        for item in accepted.ready:
-            await self._deliver(chat, item, message)
-        self._save(chat)
+        for event in acknowledgements:
+            self._emit(event)
+        for retained in answer:
+            await self._resend_retained(chat, retained)
+        await self._drain_deliveries(chat)
+        if chat.state is ChatState.CLOSED:
+            return
+        with self._atomic(chat):
+            rekey_module.retire_previous_key_if_settled(chat)
         if accepted.resend is not None:
-            # §3.7: ask for exactly the missing span, once per hole.
-            await self._send(
-                chat,
-                tl.DecryptedMessageService(
-                    random_id=secrets.randbits(63),
-                    action=actions_module.resend(*accepted.resend),
-                ),
-            )
+            await self._send_action(chat, actions_module.resend(*accepted.resend))
+        if switched:
+            await self._send_action(chat, tl.DecryptedMessageActionNoop())
 
-    async def _deliver(self, chat: SecretChat, wrapper, envelope) -> None:
-        """One accepted message, in conversation order."""
+    @serialized
+    async def _drain_deliveries(self, chat):
+        if chat.id in self._delivering:
+            return
+        self._delivering.add(chat.id)
+        try:
+            while chat.pending_deliveries and chat.state is not ChatState.CLOSED:
+                item = chat.pending_deliveries[0]
+                await self._deliver(chat, sequence.unpack(item), None)
+                with self._atomic(chat):
+                    if chat.pending_deliveries and chat.pending_deliveries[0] == item:
+                        chat.pending_deliveries.pop(0)
+        finally:
+            self._delivering.discard(chat.id)
+
+    async def _deliver(self, chat, wrapper, envelope):
         inner = wrapper.message
-        # The layer was raised in `sequence.accept`, beside the §3.6 check that
-        # forbids lowering it - the two are one rule and drift if they are apart.
-
         if isinstance(inner, (tl.DecryptedMessageService, tl.DecryptedMessageService8)):
             outcome = await actions_module.handle(self, chat, inner.action)
             self._emit(
@@ -637,7 +684,10 @@ class SecretChatManager:
                 )
             )
             return
-
+        attached = getattr(wrapper, "_tsc_file", None)
+        if attached:
+            with BinaryReader(bytes.fromhex(attached)) as reader:
+                attached = reader.tgread_object()
         event = MessageReceived(
             chat_id=chat.id,
             random_id=getattr(inner, "random_id", 0),
@@ -646,21 +696,15 @@ class SecretChatManager:
             entities=getattr(inner, "entities", None),
             ttl=getattr(inner, "ttl", 0) or 0,
             media=getattr(inner, "media", None),
-            file=getattr(envelope, "file", None),
+            file=attached,
             reply_to=getattr(inner, "reply_to_random_id", None),
         )
-        self._history.setdefault(chat.id, []).append(event)
+        history = self._history.setdefault(chat.id, [])
+        if not any(previous.random_id == event.random_id for previous in history):
+            history.append(event)
         self._emit(event)
 
-    # --- helpers --------------------------------------------------------------
-
     async def _dh_config(self):
-        """§1.1, with every §1.2 check applied to what comes back.
-
-        ``random_length=0``: §1.1 warns that "using the server's random sequence in
-        its raw form may be unsafe, it must be combined with a client sequence", and
-        asking for none removes the question.
-        """
         config = await self._client(
             functions.messages.GetDhConfigRequest(version=0, random_length=0)
         )
@@ -668,31 +712,17 @@ class SecretChatManager:
         dh.check_config(g=config.g, p=p)
         return config.g, p
 
-    async def _parse_text(self, text: str):
-        """``client._parse_message_text`` - the ONE private Telethon attribute this
-        package uses (research.md Q3).
-
-        ASYNC, and that is not cosmetic: Telethon's ``_parse_message_text`` is a
-        coroutine function. Returning its result unawaited handed the caller a
-        coroutine to unpack - `TypeError: cannot unpack non-iterable coroutine
-        object` on the first formatted message - while the fallback path returned a
-        plain tuple, so the return type depended on which branch ran. Found by the
-        live interop run; every unit test missed it because the fake client has no
-        such attribute, so only the fallback was ever exercised.
-
-        Documented fallback, named here so it is not re-derived under pressure: if
-        it disappears, send the text unparsed and let the caller pass ``entities``.
-        tests/unit/test_telethon_canary.py is what fails when that day comes.
-        """
+    async def _parse_text(self, text):
         parse = getattr(self._client, "_parse_message_text", None)
         if parse is None:
             return text, None
         try:
             return await parse(text, None)
         except Exception:
+            log.debug("text parser failed; using caller text without generated entities")
             return text, None
 
-    def _require(self, chat_id: int) -> SecretChat:
+    def _require(self, chat_id):
         chat = self._chats.get(chat_id)
         if chat is None:
             raise KeyError(f"no secret chat {chat_id} in this manager")
