@@ -284,7 +284,9 @@ def save(
 # rules accumulate.
 
 
-async def send(manager, chat, path, caption: str = "", mime_type=None, kind=None) -> int:
+async def send(
+    manager, chat, path, caption: str = "", mime_type=None, kind=None, reply_to=None
+) -> int:
     """§6.3-§6.4: encrypt with a one-time key, upload the ciphertext, send the
     address outside the message and the key inside it.
 
@@ -314,6 +316,7 @@ async def send(manager, chat, path, caption: str = "", mime_type=None, kind=None
         random_id=random_id,
         ttl=chat.ttl,
         message=caption,
+        reply_to_random_id=reply_to,
         media=tl.DecryptedMessageMediaDocument(
             thumb=b"",
             thumb_w=0,

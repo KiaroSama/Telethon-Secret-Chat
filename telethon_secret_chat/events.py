@@ -78,6 +78,9 @@ class MessageReceived:
     ttl: int = 0
     media: Optional[Any] = None
     file: Optional[Any] = None
+    #: The ``random_id`` this message replies to, or ``None``. The encrypted layer
+    #: has no message ids, so a reply points at the random id its sender chose.
+    reply_to: Optional[int] = None
 
     def __repr__(self) -> str:
         return (
