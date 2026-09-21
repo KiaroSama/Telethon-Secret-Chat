@@ -193,9 +193,18 @@ class SecretChatManager:
     def status(self, chat_id: int) -> SecretChat:
         return self._require(chat_id)
 
-    async def send_message(self, chat_id: int, text: str, entities=None) -> int:
+    async def send_message(
+        self, chat_id: int, text: str, entities=None, reply_to: Optional[int] = None
+    ) -> int:
         """contracts §2. Resolves when TELEGRAM accepts the ciphertext, not when the
-        peer acknowledges - acknowledgement arrives as ``MessageAcknowledged``."""
+        peer acknowledges - acknowledgement arrives as ``MessageAcknowledged``.
+
+        ``reply_to`` is the ``random_id`` of the message being replied to - the
+        encrypted layer has no message ids, so a reply points at the random id the
+        sender chose (§7.1's ``reply_to_random_id``). It is NOT checked against this
+        side's history: the peer's own sent messages never pass through it, so a check
+        here would refuse every reply to something they said.
+        """
         chat = self._require(chat_id)
         chat.require_sendable()
         random_id = secrets.randbits(63)
@@ -210,6 +219,7 @@ class SecretChatManager:
             ttl=chat.ttl,
             message=text,
             entities=entities or None,
+            reply_to_random_id=reply_to,
         )
         await self._send(chat, message)
         return random_id
@@ -235,7 +245,14 @@ class SecretChatManager:
     # named for it and half in the orchestrator.
 
     async def send_file(
-        self, chat_id: int, path, *, caption: str = "", mime_type=None, kind=None
+        self,
+        chat_id: int,
+        path,
+        *,
+        caption: str = "",
+        mime_type=None,
+        kind=None,
+        reply_to: Optional[int] = None,
     ) -> int:
         """§6.3-§6.4. The key travels inside the message, the address outside it.
 
@@ -243,7 +260,9 @@ class SecretChatManager:
         file. A kind the file cannot be is refused before anything is uploaded, and
         so is a caption on one of the two kinds that carry none.
         """
-        return await files.send(self, self._sendable(chat_id), path, caption, mime_type, kind)
+        return await files.send(
+            self, self._sendable(chat_id), path, caption, mime_type, kind, reply_to
+        )
 
     async def save_file(self, message: MessageReceived, path) -> Path:
         """§6.3: check the fingerprint, THEN write. FR-012."""
@@ -587,6 +606,7 @@ class SecretChatManager:
             ttl=getattr(inner, "ttl", 0) or 0,
             media=getattr(inner, "media", None),
             file=getattr(envelope, "file", None),
+            reply_to=getattr(inner, "reply_to_random_id", None),
         )
         self._history.setdefault(chat.id, []).append(event)
         self._emit(event)
