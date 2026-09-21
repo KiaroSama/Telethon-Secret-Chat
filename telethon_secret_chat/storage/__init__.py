@@ -1,28 +1,25 @@
-"""Where a secret chat survives a restart, and the one rule a backend must obey.
+"""Atomic persistence for a chat, its outgoing retention, and its incoming gaps.
 
-A chat's key, its fingerprint, the second key during a rekey (§4.8) and both
-sequence counters (§3.5, §3.6) are ONE fact. §1.5 derives the fingerprint from the
-key, so a record holding key A with fingerprint B decrypts nothing - and from the
-outside that is indistinguishable from a peer problem, which is what makes it
-expensive. A backend that writes them in separate steps can be interrupted between
-them and leave exactly that record.
+A counter committed without its message is just as corrupt as a key committed
+without its fingerprint. ``transaction`` therefore covers ALL storage operations,
+not only ``save``. It is synchronous: never hold a transaction across an await.
+Custom backends must implement this contract; silently emulating it with several
+independent writes cannot provide crash consistency.
 
-So the interface is shaped around a single ``save`` of the whole record, and
-``_commit`` is the one place a backend makes its write visible. The shared contract
-suite interrupts ``_commit`` and asserts the PREVIOUS record survived intact.
-
-There is deliberately no default backend. FR-014: a library that picks where to
-write key material picks a location the operator never protected.
-
-data-model.md §5 is the specification this implements.
+FileStorage is one-process storage, not an inter-process/session lock. On Windows
+its directory must have an owner-only ACL configured by the application.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
+import threading
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -30,230 +27,209 @@ __all__ = ["StorageBackend", "MemoryStorage", "FileStorage"]
 
 Record = Dict[str, Any]
 Message = Dict[str, Any]
+log = logging.getLogger("telethon_secret_chat.storage")
 
 
 class StorageBackend(ABC):
-    """What an application must provide for chats to survive a restart.
-
-    Small on purpose: the fewer operations, the fewer ways to implement it wrongly.
-    Subclasses implement ``_commit`` and the queue primitives; the atomicity
-    guarantee lives in ``save`` here so every backend inherits the same shape.
-    """
-
-    # --- the chat record ------------------------------------------------------
+    """Storage operations return detached copies, never mutable internal state."""
 
     def save(self, record: Record) -> None:
-        """Persist a chat as ONE unit.
+        self._commit(int(record["id"]), deepcopy(record))
 
-        The whole record, never a field at a time. §8 of the protocol reference
-        records the archived package saving inside ``__setattr__`` - a write per
-        attribute, which both multiplies writes and widens the window in which a
-        partially-updated record can be observed.
+    @abstractmethod
+    def transaction(self):
+        """Synchronous context manager: all changes commit together or roll back.
+
+        Nested scopes must be supported. A failed outer commit restores both the
+        durable state and the backend's in-memory view. No network or await may
+        occur inside the scope. Custom backends should use their native database
+        transaction rather than attempt compensating writes after a failure.
         """
-        self._commit(int(record["id"]), dict(record))
 
     @abstractmethod
     def _commit(self, chat_id: int, record: Record) -> None:
-        """Make one complete record visible, atomically. The seam the contract
-        suite interrupts."""
+        """Make one complete record visible, within the current transaction."""
 
     @abstractmethod
     def load(self, chat_id: int) -> Optional[Record]:
-        """The full record, or ``None``. Never a partial one."""
+        """The full detached record, or None."""
 
     @abstractmethod
     def delete(self, chat_id: int) -> None:
-        """Remove the chat and both its queues."""
+        """Remove the chat and both queues atomically."""
 
     @abstractmethod
     def list(self) -> List[int]:
-        """Every chat id held here."""
-
-    # --- outgoing retention (§3.7) -------------------------------------------
+        """Every chat ID held here."""
 
     @abstractmethod
     def queue_out(self, chat_id: int, message: Message) -> None:
-        """Retain a sent message so a resend request can be answered."""
+        """Upsert one retained outgoing record by its assigned sequence number."""
 
     @abstractmethod
     def drop_out(self, chat_id: int, up_to_seq: int) -> None:
-        """Forget messages the peer has acknowledged, inclusive."""
+        """Forget acknowledged outgoing records, inclusive."""
 
     @abstractmethod
     def retained_out(self, chat_id: int) -> List[Message]:
-        """What can still be resent, in order."""
-
-    # --- the gap queue (§3.7) -------------------------------------------------
+        """Detached retained outgoing records in sequence order."""
 
     @abstractmethod
     def queue_in(self, chat_id: int, message: Message) -> None:
-        """Hold a message that arrived ahead of a hole.
-
-        This queue holds PLAINTEXT, which makes it the place Principle IV is most
-        easily broken. It is never logged and never included in an error.
-        """
+        """Retain the first copy of a gap message; duplicates must not grow storage."""
 
     @abstractmethod
     def take_in(self, chat_id: int) -> List[Message]:
-        """Take everything held, in conversation order, and empty the queue."""
+        """Drain the gap queue in order, within the current transaction."""
 
 
 class MemoryStorage(StorageBackend):
-    """For tests, and for an application that genuinely wants chats to die with the
-    process. Never the default - nothing is."""
+    """Explicit volatile storage with the same transaction contract as FileStorage."""
 
     def __init__(self) -> None:
-        self._chats: Dict[int, Record] = {}
-        self._out: Dict[int, List[Message]] = {}
-        self._in: Dict[int, List[Message]] = {}
+        self._state: Dict[str, Any] = {"chats": {}, "out": {}, "in": {}}
+        self._lock = threading.RLock()
+        self._depth = 0
+
+    @contextmanager
+    def transaction(self):
+        with self._lock:
+            previous = deepcopy(self._state)
+            self._depth += 1
+            try:
+                yield self
+                if self._depth == 1 and self._state != previous:
+                    self._write()
+            except BaseException:
+                self._state = previous
+                raise
+            finally:
+                self._depth -= 1
+
+    def _write(self) -> None:
+        """Volatile storage has no durable commit step."""
 
     def _commit(self, chat_id: int, record: Record) -> None:
-        # One rebind of one name: nothing can observe a half-updated record, because
-        # the dict entry either points at the old record or the new one.
-        self._chats[chat_id] = record
+        with self.transaction():
+            self._state["chats"][str(chat_id)] = deepcopy(record)
 
     def load(self, chat_id: int) -> Optional[Record]:
-        record = self._chats.get(chat_id)
-        # A copy, so a caller mutating what it loaded cannot reach into the store.
-        return dict(record) if record is not None else None
+        with self._lock:
+            return deepcopy(self._state["chats"].get(str(chat_id)))
 
     def delete(self, chat_id: int) -> None:
-        self._chats.pop(chat_id, None)
-        self._out.pop(chat_id, None)
-        self._in.pop(chat_id, None)
+        with self.transaction():
+            for group in ("chats", "out", "in"):
+                self._state[group].pop(str(chat_id), None)
 
     def list(self) -> List[int]:
-        return list(self._chats)
+        with self._lock:
+            return [int(k) for k in self._state["chats"]]
 
     def queue_out(self, chat_id: int, message: Message) -> None:
-        self._out.setdefault(chat_id, []).append(dict(message))
+        with self.transaction():
+            held = self._state["out"].setdefault(str(chat_id), [])
+            for index, item in enumerate(held):
+                if item["seq_no"] == message["seq_no"]:
+                    held[index] = deepcopy(message)
+                    break
+            else:
+                held.append(deepcopy(message))
 
     def drop_out(self, chat_id: int, up_to_seq: int) -> None:
-        kept = [m for m in self._out.get(chat_id, []) if m["seq_no"] > up_to_seq]
-        self._out[chat_id] = kept
+        with self.transaction():
+            held = self._state["out"].get(str(chat_id), [])
+            self._state["out"][str(chat_id)] = [
+                m for m in held if m["seq_no"] > up_to_seq
+            ]
 
     def retained_out(self, chat_id: int) -> List[Message]:
-        return sorted(self._out.get(chat_id, []), key=lambda m: m["seq_no"])
+        with self._lock:
+            held = self._state["out"].get(str(chat_id), [])
+            return deepcopy(sorted(held, key=lambda m: m["seq_no"]))
 
     def queue_in(self, chat_id: int, message: Message) -> None:
-        self._in.setdefault(chat_id, []).append(dict(message))
+        with self.transaction():
+            held = self._state["in"].setdefault(str(chat_id), [])
+            if not any(m["seq_no"] == message["seq_no"] for m in held):
+                held.append(deepcopy(message))
 
     def take_in(self, chat_id: int) -> List[Message]:
-        held = sorted(self._in.pop(chat_id, []), key=lambda m: m["seq_no"])
-        return held
+        with self.transaction():
+            held = self._state["in"].pop(str(chat_id), [])
+            return deepcopy(sorted(held, key=lambda m: m["seq_no"]))
 
 
-class FileStorage(StorageBackend):
-    """One file, one process, owner-only.
+class FileStorage(MemoryStorage):
+    """Whole-state replace, with rollback for EVERY mutation and durable file data.
 
-    Not safe for two processes - and that is stated rather than defended against,
-    because exclusivity is a property of the Telegram session, not of this file.
-    An application running two instances on one session has a larger problem than
-    this backend can solve.
-
-    Written by replace, never in place: a crash during a write leaves the previous
-    file, which is the whole atomicity guarantee.
+    Existing JSON stores remain readable. Keys are tagged byte strings; the store
+    is not encrypted at rest. Protect the containing directory and backups.
     """
 
     def __init__(self, path):
+        super().__init__()
         self.path = Path(path)
-        self._state: Dict[str, Any] = {"chats": {}, "out": {}, "in": {}}
+        if self.path.is_symlink():
+            raise ValueError("the secret-chat store must not be a symbolic link")
         if self.path.exists():
-            self._state = json.loads(self.path.read_text(encoding="utf-8"))
+            try:
+                state = json.loads(self.path.read_text(encoding="utf-8"), object_hook=self._decode)
+                if not isinstance(state, dict) or any(
+                    not isinstance(state.get(group), dict) for group in ("chats", "out", "in")
+                ):
+                    raise ValueError
+                self._state = state
+            except (ValueError, TypeError, UnicodeError):
+                raise ValueError("the secret-chat store is not a valid storage document") from None
+            self._restrict(self.path)
         else:
             self._write()
 
-    # Keys are bytes; JSON has no bytes. Hex rather than base64 so a human reading
-    # the file cannot mistake it for text.
-    _BYTES_FIELDS = ("key", "pending_key", "previous_key")
+    @staticmethod
+    def _encode(value):
+        if isinstance(value, (bytes, bytearray)):
+            return {"__bytes__": bytes(value).hex()}
+        raise TypeError("the storage record contains an unsupported value type")
 
-    def _encode(self, record: Record) -> Record:
-        out = dict(record)
-        for field in self._BYTES_FIELDS:
-            if isinstance(out.get(field), (bytes, bytearray)):
-                out[field] = {"__bytes__": bytes(out[field]).hex()}
-        return out
-
-    def _decode(self, record: Record) -> Record:
-        out = dict(record)
-        for field in self._BYTES_FIELDS:
-            value = out.get(field)
-            if isinstance(value, dict) and "__bytes__" in value:
-                out[field] = bytes.fromhex(value["__bytes__"])
-        return out
+    @staticmethod
+    def _decode(value):
+        if set(value) == {"__bytes__"}:
+            return bytes.fromhex(value["__bytes__"])
+        return value
 
     def _write(self) -> None:
-        """Replace the file. The temp file is created beside the target so the
-        replace is on one filesystem and therefore atomic."""
         directory = self.path.parent
-        directory.mkdir(parents=True, exist_ok=True)
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         handle, temporary = tempfile.mkstemp(dir=str(directory), suffix=".tmp")
         try:
-            with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as fh:
-                json.dump(self._state, fh, indent=1, sort_keys=True)
+            # mkstemp is owner-only on POSIX. Apply the restriction before data.
             self._restrict(Path(temporary))
+            with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as fh:
+                handle = None
+                json.dump(self._state, fh, default=self._encode, indent=1, sort_keys=True)
+                fh.flush()
+                os.fsync(fh.fileno())
             os.replace(temporary, self.path)
         except BaseException:
+            if handle is not None:
+                os.close(handle)
             Path(temporary).unlink(missing_ok=True)
             raise
+        # A directory fsync failure occurs AFTER replace has committed. It cannot
+        # be reported as a rollback: that would put memory behind the durable file.
+        if os.name != "nt":
+            descriptor = None
+            try:
+                descriptor = os.open(directory, os.O_RDONLY)
+                os.fsync(descriptor)
+            except OSError:
+                log.warning("storage committed, but directory durability could not be confirmed")
+            finally:
+                if descriptor is not None:
+                    os.close(descriptor)
 
     @staticmethod
     def _restrict(path: Path) -> None:
-        """Owner-only, before the file carries anything.
-
-        On POSIX the mode says it. On Windows ``chmod`` toggles the read-only
-        attribute and cannot clear the read bit, so the mode is not the guarantee
-        there - the file inherits the directory's ACL, and an application storing
-        keys on Windows is responsible for that directory.
-        """
         if os.name != "nt":
             os.chmod(path, 0o600)
-
-    def _commit(self, chat_id: int, record: Record) -> None:
-        # The whole state is rebuilt and replaced, so an interrupted write leaves
-        # the previous file untouched - key, fingerprint and counters together.
-        previous = self._state["chats"].get(str(chat_id))
-        self._state["chats"][str(chat_id)] = self._encode(record)
-        try:
-            self._write()
-        except BaseException:
-            # In-memory state must not drift ahead of the file it failed to reach.
-            if previous is None:
-                self._state["chats"].pop(str(chat_id), None)
-            else:
-                self._state["chats"][str(chat_id)] = previous
-            raise
-
-    def load(self, chat_id: int) -> Optional[Record]:
-        record = self._state["chats"].get(str(chat_id))
-        return self._decode(record) if record is not None else None
-
-    def delete(self, chat_id: int) -> None:
-        self._state["chats"].pop(str(chat_id), None)
-        self._state["out"].pop(str(chat_id), None)
-        self._state["in"].pop(str(chat_id), None)
-        self._write()
-
-    def list(self) -> List[int]:
-        return [int(k) for k in self._state["chats"]]
-
-    def queue_out(self, chat_id: int, message: Message) -> None:
-        self._state["out"].setdefault(str(chat_id), []).append(dict(message))
-        self._write()
-
-    def drop_out(self, chat_id: int, up_to_seq: int) -> None:
-        held = self._state["out"].get(str(chat_id), [])
-        self._state["out"][str(chat_id)] = [m for m in held if m["seq_no"] > up_to_seq]
-        self._write()
-
-    def retained_out(self, chat_id: int) -> List[Message]:
-        return sorted(self._state["out"].get(str(chat_id), []), key=lambda m: m["seq_no"])
-
-    def queue_in(self, chat_id: int, message: Message) -> None:
-        self._state["in"].setdefault(str(chat_id), []).append(dict(message))
-        self._write()
-
-    def take_in(self, chat_id: int) -> List[Message]:
-        held = sorted(self._state["in"].pop(str(chat_id), []), key=lambda m: m["seq_no"])
-        self._write()
-        return held
