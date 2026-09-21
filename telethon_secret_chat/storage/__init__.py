@@ -78,6 +78,14 @@ class StorageBackend(ABC):
     def queue_in(self, chat_id: int, message: Message) -> None:
         """Retain the first copy of a gap message; duplicates must not grow storage."""
 
+    def peek_in(self, chat_id: int) -> List[Message]:
+        """Inspect gaps without consuming them; native backends should optimize this."""
+        with self.transaction():
+            items = self.take_in(chat_id)
+            for item in items:
+                self.queue_in(chat_id, item)
+        return items
+
     @abstractmethod
     def take_in(self, chat_id: int) -> List[Message]:
         """Drain the gap queue in order, within the current transaction."""
@@ -139,9 +147,7 @@ class MemoryStorage(StorageBackend):
     def drop_out(self, chat_id: int, up_to_seq: int) -> None:
         with self.transaction():
             held = self._state["out"].get(str(chat_id), [])
-            self._state["out"][str(chat_id)] = [
-                m for m in held if m["seq_no"] > up_to_seq
-            ]
+            self._state["out"][str(chat_id)] = [m for m in held if m["seq_no"] > up_to_seq]
 
     def retained_out(self, chat_id: int) -> List[Message]:
         with self._lock:
@@ -153,6 +159,11 @@ class MemoryStorage(StorageBackend):
             held = self._state["in"].setdefault(str(chat_id), [])
             if not any(m["seq_no"] == message["seq_no"] for m in held):
                 held.append(deepcopy(message))
+
+    def peek_in(self, chat_id: int) -> List[Message]:
+        with self._lock:
+            held = self._state["in"].get(str(chat_id), [])
+            return deepcopy(sorted(held, key=lambda m: m["seq_no"]))
 
     def take_in(self, chat_id: int) -> List[Message]:
         with self.transaction():

@@ -27,12 +27,13 @@ import io
 import mimetypes
 import os
 import secrets
+import tempfile
 from pathlib import Path
 
 from telethon.crypto import AES
 from telethon.tl import types
 
-from . import ogg_tags
+from . import framing, ogg_tags
 from .errors import MessageRejected
 from .schema import secret_tl as tl
 
@@ -157,7 +158,10 @@ def resolve_kind(
         raise ValueError(f"unknown media kind {kind!r}: expected one of {', '.join(MEDIA_KINDS)}")
     needs = _KIND_NEEDS.get(kind, ())
     if needs and mime_type != "application/octet-stream":
-        if not any(mime_type.startswith(family) for family in needs):
+        if not any(
+            mime_type.startswith(family) if family.endswith("/") else mime_type == family
+            for family in needs
+        ):
             raise ValueError(
                 f"{file_name} cannot be sent as a {kind}: it is {mime_type}. "
                 "Send it as a document, or convert it first - this package will not."
@@ -245,12 +249,20 @@ def encrypt_file(content: bytes, key: bytes, iv: bytes) -> bytes:
     travels inside the message (``size`` in the media constructor), which is how the
     padding comes off again.
     """
+    if len(key) != 32 or len(iv) != 32:
+        raise ValueError("file key and IV must each contain exactly 32 bytes")
     padding = -len(content) % BLOCK
     return AES.encrypt_ige(content + os.urandom(padding), key, iv)
 
 
 def decrypt_file(ciphertext: bytes, key: bytes, iv: bytes, size: int) -> bytes:
     """The reverse, trimmed to the length the message declared."""
+    if len(key) != 32 or len(iv) != 32:
+        raise ValueError("file key and IV must each contain exactly 32 bytes")
+    if type(size) is not int or size < 0:
+        raise ValueError("file size must be a nonnegative integer")
+    if len(ciphertext) % BLOCK or not 0 <= len(ciphertext) - size < BLOCK:
+        raise ValueError("ciphertext length does not match the declared file size")
     return AES.decrypt_ige(ciphertext, key, iv)[:size]
 
 
@@ -272,9 +284,22 @@ def save(
     for however long the failure takes to notice.
     """
     verify_file_fingerprint(chat_id=chat_id, key=key, iv=iv, claimed=claimed_fingerprint)
+    plaintext = decrypt_file(ciphertext, key, iv, size)
     target = Path(path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(decrypt_file(ciphertext, key, iv, size))
+    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    descriptor, temporary = tempfile.mkstemp(dir=str(target.parent), suffix=".tmp")
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            descriptor = None
+            handle.write(plaintext)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, target)
+    except BaseException:
+        if descriptor is not None:
+            os.close(descriptor)
+        Path(temporary).unlink(missing_ok=True)
+        raise
     return target
 
 
@@ -306,24 +331,34 @@ async def send(
     )
     # An unreadable file refuses here, before a key is generated - contracts §2.
     content = source.read_bytes()
+    if framing.outgoing_layer(chat.layer) < 143 and len(content) >= 2**31:
+        raise ValueError("the negotiated layer cannot encode this file size")
     key, iv = new_file_key()
 
     uploaded = await manager._client.upload_file(
         io.BytesIO(encrypt_file(content, key, iv)), file_name=source.name
     )
+    chat.require_sendable()
+    await manager._rekey_if_due(chat)
     random_id = secrets.randbits(63)
+    media_type = (
+        tl.DecryptedMessageMediaDocument
+        if framing.outgoing_layer(chat.layer) >= 143
+        else tl.DecryptedMessageMediaDocument_7afe8ae2
+    )
+    if media_type is tl.DecryptedMessageMediaDocument_7afe8ae2 and len(content) >= 2**31:
+        raise ValueError("the negotiated layer cannot encode this file size")
     message = tl.DecryptedMessage(
         random_id=random_id,
         ttl=chat.ttl,
         message=caption,
         reply_to_random_id=reply_to,
-        media=tl.DecryptedMessageMediaDocument(
+        media=media_type(
             thumb=b"",
             thumb_w=0,
             thumb_h=0,
             mime_type=mime_type,
-            # `size:long`: the layer-143 shape (§6.3, §7.1). The `size:int`
-            # predecessor belongs to layers this package does not announce.
+            # Use size:long only when the peer supports the layer-143 shape.
             size=len(content),
             key=key,
             iv=iv,
@@ -334,11 +369,19 @@ async def send(
     await manager._send(
         chat,
         message,
-        file=types.InputEncryptedFileUploaded(
-            id=uploaded.id,
-            parts=uploaded.parts,
-            md5_checksum="",
-            key_fingerprint=file_fingerprint(key, iv),
+        file=(
+            types.InputEncryptedFileBigUploaded(
+                id=uploaded.id,
+                parts=uploaded.parts,
+                key_fingerprint=file_fingerprint(key, iv),
+            )
+            if isinstance(uploaded, types.InputFileBig)
+            else types.InputEncryptedFileUploaded(
+                id=uploaded.id,
+                parts=uploaded.parts,
+                md5_checksum=uploaded.md5_checksum,
+                key_fingerprint=file_fingerprint(key, iv),
+            )
         ),
     )
     return random_id
@@ -349,12 +392,28 @@ async def receive(manager, message, path) -> Path:
     OUTSIDE it. Comparing them is what says the two belong together - and it happens
     before a byte is written (FR-012)."""
     media, attached = message.media, message.file
-    if media is None or attached is None:
+    if (
+        media is None
+        or attached is None
+        or not all(hasattr(media, name) for name in ("key", "iv", "size"))
+        or not isinstance(attached, types.EncryptedFile)
+    ):
         raise MessageRejected(chat_id=message.chat_id, reason="this message carries no file")
+    verify_file_fingerprint(
+        chat_id=message.chat_id, key=media.key, iv=media.iv, claimed=attached.key_fingerprint
+    )
+    if (
+        len(media.key) != 32
+        or len(media.iv) != 32
+        or type(media.size) is not int
+        or media.size < 0
+    ):
+        raise MessageRejected(chat_id=message.chat_id, reason="invalid encrypted-file metadata")
     buffer = io.BytesIO()
     await manager._client.download_file(
         types.InputEncryptedFileLocation(id=attached.id, access_hash=attached.access_hash),
         buffer,
+        dc_id=attached.dc_id,
     )
     return save(
         path,

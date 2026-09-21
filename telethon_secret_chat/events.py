@@ -39,12 +39,16 @@ class ChatRequested:
 
 @dataclass
 class ChatReady:
-    """Established. The fingerprint is included so the application can show the user
-    the same value the peer's client shows (§1.5, FR-003)."""
+    """Established. The 64-bit fingerprint is a wire implementation check only.
+
+    key_hash is the 36-byte input to Telegram's official key visualization, not
+    the wire fingerprint. It is absent for legacy stores that lost the initial key.
+    """
 
     chat_id: int
     peer_user_id: int
     key_fingerprint: int
+    key_hash: Optional[bytes] = field(default=None, repr=False)
 
 
 @dataclass
@@ -114,7 +118,7 @@ class ServiceActionReceived:
 
     chat_id: int
     action_name: str
-    action: Any
+    action: Any = field(repr=False)
     applied: bool = False
 
 

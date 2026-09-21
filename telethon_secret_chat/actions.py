@@ -87,11 +87,32 @@ async def handle(manager, chat, action) -> Outcome:
         # transmitted, not enforced locally: §5 marks the moment a countdown starts
         # UNVERIFIED for every media type, and the spec's Assumptions take the
         # default of storing and transmitting rather than inventing one.
+        if action.ttl_seconds < 0:
+            await manager.close(chat.id, "negative message lifetime received")
+            return Outcome(applied=False)
         chat.ttl = action.ttl_seconds
         return Outcome(applied=True)
 
+    if isinstance(action, tl.DecryptedMessageActionDeleteMessages):
+        manager._remove_history(chat.id, set(action.random_ids))
+        with manager._atomic(chat):
+            manager._rewrite_retained_as_deletes(chat, set(action.random_ids))
+        return Outcome(applied=True)
+
+    if isinstance(action, tl.DecryptedMessageActionFlushHistory):
+        manager._history.pop(chat.id, None)
+        with manager._atomic(chat):
+            manager._rewrite_retained_as_deletes(
+                chat,
+                {
+                    manager._retained_random_id(item)
+                    for item in manager._storage.retained_out(chat.id)
+                },
+            )
+        return Outcome(applied=True)
+
     if isinstance(action, tl.DecryptedMessageActionResend):
-        # §3.7 answers this one BEFORE the sequence checks, in `manager`, because it
+        # The manager authenticates and deduplicates this before acting immediately: it
         # "must always be interpreted immediately upon receipt in all cases". By the
         # time it reaches here it has been rewritten to Noop, so arriving here means
         # something replayed it - and "each decryptedMessageActionResend must only be

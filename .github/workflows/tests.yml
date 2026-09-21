@@ -84,7 +84,7 @@ jobs:
         run: |
           $target = Join-Path $env:RUNNER_TEMP 'Secret Chat Space Path'
           New-Item -ItemType Directory -Path $target -Force | Out-Null
-          Copy-Item -Path telethon_secret_chat, tests -Destination $target -Recurse
+          Copy-Item -Path telethon_secret_chat, tests, pyproject.toml -Destination $target -Recurse
           $python = Join-Path $PWD '.venv/Scripts/python.exe'
           Push-Location $target
           try { & $python -m pytest tests/unit/test_telethon_canary.py -q } finally { Pop-Location }
@@ -104,6 +104,10 @@ jobs:
         with:
           pattern: cases-*
           path: records
+      - name: Require every test job, including launcher and space-path checks
+        env:
+          TEST_RESULT: ${{ needs.test.result }}
+        run: test "$TEST_RESULT" = success
       - name: Require every leg, identical cases, and only explicit live skips
         run: >-
           python tools/check_test_matrix.py records
