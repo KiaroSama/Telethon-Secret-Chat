@@ -2,159 +2,115 @@ name: Tests & Coverage
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# A push that supersedes an in-flight run cancels it. Crypto suites are not
-# free, and a queue of stale runs is a queue nobody reads.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  # Pinned so a uv release cannot change what CI resolved without a commit
-  # saying so. The resolver is a dependency of every result below.
   UV_VERSION: "0.12.8"
 
 jobs:
   lock:
-    name: Lockfile Matches The Manifest
+    name: Lockfile and Generated Schema
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v10.1.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v10.1.0
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
-          cache-dependency-glob: "uv.lock"
-
-      # `--locked` fails rather than silently re-resolving. Without it a drifted
-      # lock is repaired in place and CI tests a dependency set that no commit
-      # ever recorded.
-      - name: Refuse a lock that no longer matches pyproject
-        run: uv lock --locked
-
-      # Belt and braces: prove the step above changed nothing on disk.
-      - name: Prove no step rewrote the lock
-        run: git diff --exit-code -- uv.lock
+      - run: uv lock --locked
+      - run: uv run --locked python tools/generate_schema.py
+      - run: git diff --exit-code -- uv.lock telethon_secret_chat/schema/secret_tl.py
 
   test:
-    name: Pytest With Coverage (${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    name: Pytest (${{ matrix.os }}, ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
-      # One red interpreter must not hide the others: a KDF that works on 3.11
-      # and not on 3.14 is exactly the failure this matrix exists to surface.
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12", "3.13", "3.14"]
+        os: [ubuntu-latest]
+        python: ["3.11", "3.12", "3.13", "3.14"]
+        include:
+          - os: windows-latest
+            python: "3.13"
+    defaults:
+      run:
+        shell: pwsh
     steps:
       - uses: actions/checkout@v7
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v7
         with:
-          python-version: ${{ matrix.python-version }}
-
-      # Without this uv picks its own interpreter and the leg tests a version it
-      # is not named after - green on a matrix that never ran what it claims.
-      - name: Point uv at the interpreter this leg installed
-        run: echo "UV_PYTHON=${{ env.pythonLocation }}/bin/python" >> "$GITHUB_ENV"
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v10.1.0
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Bind uv to the installed interpreter
+        run: |
+          $python = (Get-Command python).Source
+          "UV_PYTHON=$python" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - uses: astral-sh/setup-uv@v10.1.0
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
-          cache-dependency-glob: "uv.lock"
-
-      - name: Prove this leg is running the interpreter it is named after
-        run: |
-          uv run --locked python -c "import sys; v='%d.%d' % sys.version_info[:2]; \
-            assert v == '${{ matrix.python-version }}', f'leg says ${{ matrix.python-version }}, runs {v}'; \
-            print('interpreter', v)"
-
-      - name: Run tests with coverage
-        run: |
-          uv run --locked pytest -q \
-            --cov --cov-report=term-missing --cov-report=xml \
-            --junitxml=cases-${{ matrix.python-version }}.xml
-
-      # The count each leg COLLECTED, recorded as an artifact. A suite that
-      # silently stops being collected on one interpreter is invisible in a green
-      # matrix; the gate below is what makes the legs answer for each other.
-      - name: Record what this leg actually ran
-        if: always()
-        run: |
-          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
-          import xml.etree.ElementTree as ET, pathlib
-          p = pathlib.Path("cases-${{ matrix.python-version }}.xml")
-          if not p.exists():
-              print("no junit xml - the run did not reach collection"); raise SystemExit
-          r = ET.parse(p).getroot()
-          s = r if r.tag == "testsuite" else r.find("testsuite")
-          print(f"py${{ matrix.python-version }}: collected {s.get('tests')} case(s)")
-          PY
-
-      - name: Upload this leg's case record
+          cache-dependency-glob: uv.lock
+      - name: Verify the selected interpreter
+        run: uv run --locked python -c "import sys; assert '.'.join(map(str, sys.version_info[:2])) == '${{ matrix.python }}'"
+      - name: Execute tests, not only collection
+        run: uv run --locked python -m pytest -q --cov --cov-fail-under=90 --cov-report=term-missing --cov-report=xml --junitxml=junit.xml
+      - name: Upload exact case evidence
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: cases-py${{ matrix.python-version }}
-          path: cases-${{ matrix.python-version }}.xml
-          if-no-files-found: warn
+          name: cases-${{ matrix.os }}-py${{ matrix.python }}
+          path: junit.xml
+          if-no-files-found: error
+      - name: Test the Windows launcher with synthetic credentials and no network
+        if: runner.os == 'Windows'
+        run: ./tests/powershell/test_interop_launcher.ps1
+      - name: Exercise Python module invocation from a path with spaces
+        if: runner.os == 'Windows'
+        run: |
+          $target = Join-Path $env:RUNNER_TEMP 'Secret Chat Space Path'
+          New-Item -ItemType Directory -Path $target -Force | Out-Null
+          Copy-Item -Path telethon_secret_chat, tests, pyproject.toml -Destination $target -Recurse
+          $python = Join-Path $PWD '.venv/Scripts/python.exe'
+          Push-Location $target
+          try { & $python -m pytest tests/unit/test_telethon_canary.py -q } finally { Pop-Location }
+          exit $LASTEXITCODE
 
   agree:
-    name: Every Leg Collected The Same Cases
+    name: Complete Matrix Evidence
     needs: test
+    if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@v8
         with:
-          pattern: cases-py*
+          pattern: cases-*
           path: records
-
-      # Cross-leg agreement catches a suite LOST on one interpreter, because the
-      # legs then disagree. It cannot catch a suite deleted everywhere at once -
-      # that is what a tracked suite count is for, added when there are suites to
-      # count.
-      #
-      # The skip gate below catches what agreement cannot: a suite that every leg
-      # collected and no leg RAN. One misscoped `pytest_collection_modifyitems` in
-      # tests/interop/conftest.py - a session hook, handed every item in the
-      # repository rather than the ones beside it - skipped the whole suite on one
-      # unset environment variable. Every leg agreed, every leg was green, and
-      # nothing had executed. Counting cases is not counting evidence.
-      - name: Refuse a matrix whose legs disagree, or that ran nothing
-        run: |
-          python - <<'PY'
-          import xml.etree.ElementTree as ET, pathlib, sys
-          counts, skipped = {}, {}
-          for p in sorted(pathlib.Path("records").rglob("*.xml")):
-              r = ET.parse(p).getroot()
-              s = r if r.tag == "testsuite" else r.find("testsuite")
-              counts[p.parent.name] = int(s.get("tests"))
-              skipped[p.parent.name] = int(s.get("skipped") or 0)
-          print("collected per leg:", counts)
-          print("skipped per leg:  ", skipped)
-          if not counts:
-              sys.exit("no case records were uploaded - no leg reached collection")
-          if len(set(counts.values())) != 1:
-              sys.exit(f"legs disagree on how many cases exist: {counts}")
-          ran = {leg: counts[leg] - skipped[leg] for leg in counts}
-          empty = [leg for leg, n in ran.items() if n == 0]
-          if empty:
-              sys.exit(f"these legs collected cases and executed none: {empty} - "
-                       "a fully skipped suite is not a passing suite")
-          print(f"all {len(counts)} leg(s) agree: {next(iter(counts.values()))} case(s), "
-                f"executed per leg: {ran}")
-          PY
+      - name: Require every test job, including launcher and space-path checks
+        env:
+          TEST_RESULT: ${{ needs.test.result }}
+        run: test "$TEST_RESULT" = success
+      - name: Require every leg, identical cases, and only explicit live skips
+        run: >-
+          python tools/check_test_matrix.py records
+          cases-ubuntu-latest-py3.11 cases-ubuntu-latest-py3.12
+          cases-ubuntu-latest-py3.13 cases-ubuntu-latest-py3.14
+          cases-windows-latest-py3.13
