@@ -129,7 +129,9 @@ class SecretChatManager:
             try:
                 result = handler(event)
             except Exception:
-                log.exception("secret-chat handler %r failed", getattr(handler, "__name__", handler))
+                log.exception(
+                    "secret-chat handler %r failed", getattr(handler, "__name__", handler)
+                )
                 continue
             if inspect.isawaitable(result):
                 asyncio.ensure_future(self._run_handler(handler, result))
