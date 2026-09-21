@@ -20,6 +20,8 @@ documented fallback of accepting pre-parsed entities from the caller.
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 import logging
 import secrets
 import time
@@ -105,8 +107,47 @@ class SecretChatManager:
         self._handlers.setdefault(event, []).append(handler)
 
     def _emit(self, event: Any) -> None:
+        """Hand one event to its handlers, awaiting the ones that need awaiting.
+
+        An ``async def`` handler called synchronously returns a coroutine that
+        nobody runs: Python warns "coroutine ... was never awaited" into stderr and
+        the handler's whole body simply does not happen. That is the worst shape a
+        failure can take here, because the caller sees a registered handler and a
+        clean run - measured on a real chat, where an application accepting
+        invitations in an async handler left every one of them `pending` for ever.
+
+        And handlers ARE naturally async: the interesting ones accept a chat, answer
+        a message or write a file, and every one of those awaits. So a coroutine is
+        scheduled on the running loop rather than dropped.
+
+        Scheduled, not awaited: ``_emit`` is called from inside the update path, and
+        awaiting a handler there would let an application's slow or hanging handler
+        stall the decryption of every other chat. A handler that raises is logged
+        with its own name, never re-raised into the update loop.
+        """
         for handler in self._handlers.get(type(event).__name__, []):
-            handler(event)
+            try:
+                result = handler(event)
+            except Exception:
+                log.exception(
+                    "secret-chat handler %r failed", getattr(handler, "__name__", handler)
+                )
+                continue
+            if inspect.isawaitable(result):
+                asyncio.ensure_future(self._run_handler(handler, result))
+
+    @staticmethod
+    async def _run_handler(handler, awaitable) -> None:
+        """Await one scheduled handler, so a failure is reported rather than lost.
+
+        Without this, a coroutine handed to ``ensure_future`` that raises reports
+        "Task exception was never retrieved" at garbage-collection time, minutes
+        later, with no clue which handler it was.
+        """
+        try:
+            await awaitable
+        except Exception:
+            log.exception("secret-chat handler %r failed", getattr(handler, "__name__", handler))
 
     def _save(self, chat: SecretChat) -> None:
         """data-model.md §5: "save is called on a meaningful state change, not on
