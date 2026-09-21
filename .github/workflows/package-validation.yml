@@ -1,0 +1,60 @@
+name: Package Validation
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  wheel:
+    name: Installed Wheel and Offline Test Inputs
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - uses: astral-sh/setup-uv@v10.1.0
+        with:
+          version: '0.12.8'
+          enable-cache: true
+      - name: Build and install outside the checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv build --wheel
+          python -m venv "$RUNNER_TEMP/wheel-smoke"
+          "$RUNNER_TEMP/wheel-smoke/bin/python" -m pip install dist/*.whl
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/wheel-smoke/bin/python" -c "from telethon_secret_chat import SecretChatManager, FileStorage; from telethon_secret_chat.schema import secret_tl; print('installed-wheel imports succeeded')"
+      - name: Collect reproducible offline test inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/offline-inputs/wheels"
+          git archive --format=tar HEAD > "$RUNNER_TEMP/offline-inputs/source.tar"
+          git rev-parse HEAD > "$RUNNER_TEMP/offline-inputs/commit.txt"
+          uv export --locked --all-groups --no-emit-project --no-hashes --format requirements-txt > "$RUNNER_TEMP/offline-inputs/requirements.txt"
+          python -m pip wheel -r "$RUNNER_TEMP/offline-inputs/requirements.txt" --wheel-dir "$RUNNER_TEMP/offline-inputs/wheels"
+          cp dist/*.whl "$RUNNER_TEMP/offline-inputs/wheels/"
+          cd "$RUNNER_TEMP/offline-inputs"
+          sha256sum source.tar requirements.txt wheels/* > SHA256SUMS
+      - name: Upload source and dependency wheels, never local sessions
+        uses: actions/upload-artifact@v7
+        with:
+          name: offline-test-inputs-py311
+          path: ${{ runner.temp }}/offline-inputs/
+          if-no-files-found: error
+          retention-days: 7

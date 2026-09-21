@@ -41,34 +41,49 @@ MUSIC_TAGS = (
 
 
 def looks_like_voice(header: bytes):
-    """``True`` voice note, ``False`` music, ``None`` when the bytes do not say.
+    """Return True for voice, False for music, or None for an incomplete header.
 
-    ``None`` means this reader learned nothing, not "probably music": the caller
-    falls back to whatever it would have done without a reader at all.
+    Parse bounded, length-prefixed comments, not tag-looking text in a vendor or
+    another field's value. A comment packet spanning an unavailable page cannot
+    establish that music tags are absent; uncertainty preserves the caller's
+    existing fallback. No codec is decoded and no explicit kind is overridden.
     """
-    if not header.startswith(b"OggS") or len(header) <= 4:
+    if not isinstance(header, bytes) or not header.startswith(b"OggS"):
         return None
-    if b"OpusTags" not in header and b"\x03vorbis" not in header:
+    header = header[:HEADER_BYTES]
+    positions = [(header.find(magic), magic) for magic in (b"OpusTags", b"\x03vorbis")]
+    positions = [(position, magic) for position, magic in positions if position >= 0]
+    if not positions:
         return None
-    return not _has_music_tag(header)
+    start, magic = min(positions)
+    cursor = start + len(magic)
 
+    def uint32():
+        nonlocal cursor
+        if cursor + 4 > len(header):
+            raise ValueError
+        value = int.from_bytes(header[cursor : cursor + 4], "little")
+        cursor += 4
+        return value
 
-def _has_music_tag(header: bytes) -> bool:
-    """A music tag NAME, at the start of a comment, not anywhere in the bytes.
+    def field():
+        nonlocal cursor
+        length = uint32()
+        if length > len(header) - cursor:
+            raise ValueError
+        value = header[cursor : cursor + length]
+        cursor += length
+        return value
 
-    A Vorbis comment is ``NAME=value``, so the name is what precedes the first
-    `=`, and the byte before the name is framing rather than a letter. Searching
-    loose for `b"TITLE"` matches an encoder whose version string contains the
-    word, and demotes a real recording for no reason.
-    """
-    upper = header.upper()
-    for tag in MUSIC_TAGS:
-        start = 0
-        while True:
-            found = upper.find(tag + b"=", start)
-            if found == -1:
-                break
-            if found == 0 or not upper[found - 1 : found].isalpha():
-                return True
-            start = found + 1
-    return False
+    try:
+        field()  # The vendor string is not a user comment.
+        count = uint32()
+        if count > (len(header) - cursor) // 4:
+            return None
+        music = False
+        for _ in range(count):
+            name, separator, _ = field().partition(b"=")
+            music |= bool(separator and name.upper() in MUSIC_TAGS)
+        return not music
+    except ValueError:
+        return None

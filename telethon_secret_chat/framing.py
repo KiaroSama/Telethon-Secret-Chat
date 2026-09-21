@@ -84,6 +84,8 @@ def unwrap(body: bytes, *, chat_id: int | None = None) -> tl.DecryptedMessageLay
     try:
         with BinaryReader(body) as reader:
             decoded = tl.read_object(reader)
+            if reader.tell_position() != len(body):
+                raise ValueError("trailing bytes after the wrapper")
     except tl.UnknownConstructor:
         raise MessageRejected(
             chat_id=chat_id,
@@ -104,6 +106,16 @@ def unwrap(body: bytes, *, chat_id: int | None = None) -> tl.DecryptedMessageLay
             chat_id=chat_id,
             reason="the message announces a layer below the documented minimum",
         )
+    allowed = (
+        tl.DecryptedMessage,
+        tl.DecryptedMessage_1f814f1f,
+        tl.DecryptedMessage_204d3878,
+        tl.DecryptedMessage_36b091de,
+        tl.DecryptedMessageService,
+        tl.DecryptedMessageService8,
+    )
+    if not isinstance(decoded.message, allowed):
+        raise MessageRejected(chat_id=chat_id, reason="the wrapper does not contain a message")
     return decoded
 
 

@@ -118,6 +118,11 @@ class SecretChat:
         # matters is `framing.MIN_WRAPPER_LAYER`, enforced at decode.
         self.wrapper_layer = 0
         self.ttl = 0  # §5.1: 0 disables
+        self.handshake = {}  # Persisted initial-exchange scratch; never rendered.
+        self.pending_deliveries = []  # Durable receive-to-dispatch mailbox.
+        self.gap_end = None
+        self.new_key_confirmed = False
+        self.initial_key_hash = None  # Official 36-byte visual authentication hash.
 
         now = time.time()
         self.created_at = now
@@ -141,6 +146,11 @@ class SecretChat:
         share an ``aes_key``."""
         return 8 if self.is_outbound else 0
 
+    @property
+    def key_hash(self):
+        """The original 36-byte visual-verification hash, or None for legacy chats."""
+        return self.initial_key_hash
+
     # --- the state machine ----------------------------------------------------
 
     def transition_to(self, target: ChatState) -> None:
@@ -157,6 +167,12 @@ class SecretChat:
             return
         self.state = ChatState.CLOSED
         self.closed_reason = reason
+        self.key = self.key_fingerprint = None
+        self.pending_key = self.previous_key = None
+        self.exchange_id = self.exchange_secret = self.rekey_role = None
+        self.handshake = {}
+        self.pending_deliveries = []
+        self.initial_key_hash = None
 
     def require_sendable(self) -> None:
         """contracts/public-api.md §2: ``send_message`` refuses outside ready and
@@ -179,6 +195,14 @@ class SecretChat:
         """
         if len(key) != KEY_LENGTH:
             raise ValueError(f"a shared key is exactly {KEY_LENGTH} bytes: §1.4 pads it to that")
+        if self.state is ChatState.CLOSED:
+            raise ChatClosed(chat_id=self.id, reason=self.closed_reason or "already closed")
+        if self.key is None and self.initial_key_hash is None:
+            import hashlib
+
+            self.initial_key_hash = (
+                hashlib.sha1(key).digest()[:16] + hashlib.sha256(key).digest()[:20]
+            )
         self.key = key
         self.key_fingerprint = key_fingerprint(key)
         if self.state in (ChatState.REQUESTED, ChatState.PENDING):
@@ -213,6 +237,11 @@ class SecretChat:
         "admin_id",
         "participant_id",
         "closed_reason",
+        "handshake",
+        "pending_deliveries",
+        "gap_end",
+        "new_key_confirmed",
+        "initial_key_hash",
     )
 
     def to_record(self) -> Dict[str, Any]:

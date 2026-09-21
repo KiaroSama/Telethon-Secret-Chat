@@ -1,18 +1,4 @@
-"""Sequence numbers, replay, gaps and resend - protocol-reference.md §3.4-§3.8.
-
-The eight checks §3.5 and §3.6 make mandatory, of which §8.3 measured the archived
-package performing **none** - the whole area sat under a literal ``# TODO add
-checks``. Each documented rule here ends, in the source, with "the client is
-required to immediately abort the secret chat", so a failure closes the chat rather
-than dropping a message. There are exactly two exceptions, both documented: a replay
-is dropped, and a gap is held.
-
-The order inside ``accept`` is the order the reference states the rules in, and one
-point of it matters in particular: §3.6's checks run BEFORE a message is queued for
-a gap. A message held behind a hole is a message whose fields were already
-validated; queueing one that violates §3.6 would defer an abort the documentation
-calls immediate until the hole happened to close.
-"""
+"""Validate sequence state in message order, retaining bounded gaps and envelopes."""
 
 from __future__ import annotations
 
@@ -25,164 +11,146 @@ from .errors import MessageRejected, ResendUnsatisfiable
 from .schema import secret_tl as tl
 
 __all__ = ["accept", "answer_resend", "forget_acknowledged", "Accepted", "MAX_RESEND_COUNT"]
-
-# §3.7: TDLib's ``static constexpr int32 MAX_RESEND_COUNT = 1000;`` and the "Can't
-# resend too many messages" refusal above it. The spec's Assumptions: "adopt the
-# reference implementation's span cap rather than inventing a number".
 MAX_RESEND_COUNT = 1000
 
 
 class Accepted(NamedTuple):
-    """What one arriving message produced.
-
-    ``ready`` is empty for a replay (dropped) and for a message held behind a gap;
-    it holds several when a hole closes and releases what was queued behind it.
-    ``resend`` is the transformed span to ask for, or ``None`` - one request per
-    hole, never one per out-of-order message.
-    """
-
     ready: List[object]
     resend: Optional[Tuple[int, int]] = None
+    duplicate: bool = False
 
 
-def _abort(chat, reason: str) -> None:
-    """Every §3.4/§3.6 violation ends here. "the client is required to immediately
-    abort the secret chat" - so the chat is closed BEFORE the error is raised, and a
-    caller that swallows the exception still finds a closed chat."""
+def _abort(chat, reason):
     chat.close(reason)
-    raise MessageRejected(chat_id=chat.id, reason=reason)
+    failure = MessageRejected(chat_id=chat.id, reason=reason)
+    failure.fatal = True
+    raise failure
 
 
-def accept(chat, wrapper, storage) -> Accepted:
-    """One decoded wrapper in; the messages ready to deliver, in order, out.
+def _queued(chat, storage):
+    return storage.peek_in(chat.id)
 
-    §3.4 parity, then §3.6's echo, then §3.5's continuity, then the gap queue.
-    """
-    # --- §3.4, parity ---------------------------------------------------------
-    # The peer's transform is the mirror of ours: if we originated, the peer is the
-    # recipient, so its in_seq_no carries x=1 and its out_seq_no carries x=0.
+
+def preflight(chat, wrapper, storage):
+    """Validate before service-action side effects; return False for any replay."""
     expected_in = 1 if chat.is_outbound else 0
     expected_out = 0 if chat.is_outbound else 1
+    if wrapper.in_seq_no < 0 or wrapper.out_seq_no < 0:
+        _abort(chat, "sequence numbers must be nonnegative")
     if wrapper.in_seq_no % 2 != expected_in or wrapper.out_seq_no % 2 != expected_out:
-        # "This is done to prevent a possible attacker from mirroring the messages."
         _abort(chat, "the sequence numbers do not have the parity this side must receive")
+    raw_out = wrapper.out_seq_no // 2
+    if raw_out < chat.in_seq_no:
+        return False
+    queued = _queued(chat, storage)
+    if any(item["seq_no"] == raw_out for item in queued):
+        return False
+    _check_order(chat, wrapper)
+    if raw_out - chat.in_seq_no > MAX_RESEND_COUNT or (
+        raw_out > chat.in_seq_no and len(queued) >= MAX_RESEND_COUNT
+    ):
+        _abort(chat, "the incoming gap exceeds the supported recovery window")
+    return True
 
-    peer_out = wrapper.out_seq_no // 2
+
+def _check_order(chat, wrapper):
     peer_in = wrapper.in_seq_no // 2
-
-    # --- §3.6, our own counter coming back ------------------------------------
     if peer_in < chat.peer_in_seq_no:
         _abort(chat, "the peer's echo of this side's counter went backwards")
-    # "if D is the out_seq_no of last message we sent, the received in_seq_no should
-    # not be greater than D + 1". We have sent `out_seq_no` messages, so the last
-    # one's raw counter is `out_seq_no - 1` and the ceiling is `out_seq_no` itself.
     if peer_in > chat.out_seq_no:
         _abort(chat, "the peer claims to have seen a message this side has not sent")
-    # TDLib's third condition, with no documentation counterpart (§3.6, marked
-    # UNVERIFIED there): a peer may not walk backwards the layer it ENCODES IN.
-    # Against `chat.wrapper_layer`, never `chat.layer` - `chat.layer` is also raised
-    # by a NotifyLayer, and a peer announcing 143 there still encodes its first
-    # messages at 73 while it believes we are at 46. Comparing against the
-    # capability closed a chat with the owner's own Telegram Desktop on 2026-09-20.
     if wrapper.layer < chat.wrapper_layer:
         _abort(chat, "the peer encoded below the layer it had already used")
 
-    # §7.2: "must always be updated immediately after receiving any packet
-    # containing information of an upper layer" - immediately, so here rather than
-    # at delivery: a message held behind a gap has still been RECEIVED.
+
+def pack(wrapper):
+    return {
+        "seq_no": wrapper.out_seq_no // 2,
+        "body": bytes(wrapper).hex(),
+        "file": getattr(wrapper, "_tsc_file", None),
+    }
+
+
+def unpack(record):
+    with BinaryReader(bytes.fromhex(record["body"])) as reader:
+        wrapper = tl.read_object(reader)
+    wrapper._tsc_file = record.get("file")
+    return wrapper
+
+
+def accept(chat, wrapper, storage, envelope=None) -> Accepted:
+    if not preflight(chat, wrapper, storage):
+        return Accepted([], duplicate=True)
+    attachment = getattr(envelope, "file", None)
+    wrapper._tsc_file = bytes(attachment).hex() if attachment is not None else None
+    raw_out = wrapper.out_seq_no // 2
     chat.layer = framing.raise_remote_layer(chat.layer, wrapper.layer)
-    # `seq_no_state_.his_layer = new_his_layer` - a plain assignment in TDLib
-    # (`SecretChatActor.cpp:1124-1126`), which the check above has already made
-    # non-decreasing.
-    chat.wrapper_layer = wrapper.layer
-    chat.peer_in_seq_no = peer_in
+    if raw_out > chat.in_seq_no:
+        storage.queue_in(chat.id, pack(wrapper))
+        if chat.gap_requested:
+            return Accepted([])
+        chat.gap_requested = True
+        chat.gap_end = raw_out
+        parity = wrapper.out_seq_no % 2
+        return Accepted([], (2 * chat.in_seq_no + parity, wrapper.out_seq_no - 2))
 
-    # --- §3.5, the peer's counter ---------------------------------------------
-    if peer_out < chat.in_seq_no:
-        # "the local client must drop the message (repeated message). The client
-        # should not check the contents of the message because the original message
-        # could have been deleted." Dropped - a replay does not end a chat.
-        return Accepted(ready=[])
+    ready = []
 
-    if peer_out > chat.in_seq_no:
-        # A gap. "Note that in_seq_no is not increased upon receipt of such a
-        # message; it is advanced only after all preceding gaps are filled."
-        storage.queue_in(chat.id, {"seq_no": peer_out, "body": bytes(wrapper).hex()})
-        resend = None
-        if not chat.gap_requested:
-            # §3.7: "adding 2 to the out_seq_no of the last message before the hole"
-            # and "subtracting 2 from the out_seq_no of the received message". The
-            # span travels transformed, so the arithmetic stays on the wire values.
-            last_before_hole = 2 * (chat.in_seq_no - 1) + wrapper.out_seq_no % 2
-            resend = (last_before_hole + 2, wrapper.out_seq_no - 2)
-            chat.gap_requested = True
-        return Accepted(ready=[], resend=resend)
+    def advance(item):
+        # An out-of-order packet was not a chronological predecessor when queued.
+        _check_order(chat, item)
+        chat.peer_in_seq_no = item.in_seq_no // 2
+        chat.wrapper_layer = item.layer
+        chat.in_seq_no += 1
+        ready.append(item)
 
-    # --- in sequence: deliver it, then drain whatever was waiting on it --------
-    chat.in_seq_no += 1
-    ready = [wrapper]
-
-    # §3.7: "interpret recovered messages in seq_no order first, then drain the
-    # queue in seq_no order". `take_in` returns them sorted and empties the queue.
-    still_waiting = []
-    for item in storage.take_in(chat.id):
-        if item["seq_no"] == chat.in_seq_no:
-            with BinaryReader(bytes.fromhex(item["body"])) as reader:
-                ready.append(tl.read_object(reader))
-            chat.in_seq_no += 1
-        elif item["seq_no"] > chat.in_seq_no:
-            still_waiting.append(item)
-        # Anything below is a duplicate of something already delivered: dropped.
-    for item in still_waiting:
-        storage.queue_in(chat.id, item)
-    if not still_waiting:
+    advance(wrapper)
+    waiting = []
+    for record in storage.take_in(chat.id):
+        if record["seq_no"] == chat.in_seq_no:
+            advance(unpack(record))
+        elif record["seq_no"] > chat.in_seq_no:
+            waiting.append(record)
+    for record in waiting:
+        storage.queue_in(chat.id, record)
+    resend = None
+    if not waiting:
         chat.gap_requested = False
-
-    return Accepted(ready=ready)
+        chat.gap_end = None
+    elif chat.gap_end is None or chat.in_seq_no >= chat.gap_end:
+        # The first hole closed, but a distinct later hole remains.
+        chat.gap_end = waiting[0]["seq_no"]
+        parity = wrapper.out_seq_no % 2
+        resend = (2 * chat.in_seq_no + parity, 2 * (chat.gap_end - 1) + parity)
+        chat.gap_requested = True
+    return Accepted(ready, resend)
 
 
 def answer_resend(chat, storage, start_seq_no: int, end_seq_no: int) -> List[dict]:
-    """§3.7: re-send a span the peer is missing, or end the chat.
-
-    ``start_seq_no`` and ``end_seq_no`` arrive TRANSFORMED and the retention queue
-    holds the same transformed values, so nothing is converted here - which is the
-    point. §8.3 measured the archived package answering a resend by composing a NEW
-    message with a NEW ``out_seq_no``, which cannot fill the peer's hole however
-    correct its contents are.
-    """
-    if end_seq_no < start_seq_no:
+    parity = 1 if chat.is_outbound else 0
+    if (
+        start_seq_no < 0
+        or end_seq_no < start_seq_no
+        or start_seq_no % 2 != parity
+        or end_seq_no % 2 != parity
+        or (end_seq_no - start_seq_no) // 2 + 1 > MAX_RESEND_COUNT
+    ):
         _unsatisfiable(chat, (start_seq_no, end_seq_no), -1)
-    if (end_seq_no - start_seq_no) // 2 + 1 > MAX_RESEND_COUNT:
-        # TDLib: "Can't resend too many messages".
-        _unsatisfiable(chat, (start_seq_no, end_seq_no), -1)
-
-    held = {m["seq_no"]: m for m in storage.retained_out(chat.id)}
-    wanted = list(range(start_seq_no, end_seq_no + 1, 2))
-    if [seq for seq in wanted if seq not in held]:
+    held = {item["seq_no"]: item for item in storage.retained_out(chat.id)}
+    wanted = range(start_seq_no, end_seq_no + 1, 2)
+    if any(number not in held for number in wanted):
         _unsatisfiable(chat, (start_seq_no, end_seq_no), min(held) if held else -1)
-    return [held[seq] for seq in wanted]
+    return [held[number] for number in wanted]
 
 
-def _unsatisfiable(chat, span, retained_from: int) -> None:
-    """The protocol's answer to a resend it cannot serve is to end the chat, so the
-    chat is closed before the error leaves.
-
-    The span is safe to name - sequence numbers are positions, not content - and the
-    retained BODIES are plaintext, so none of them appears.
-    """
+def _unsatisfiable(chat, span, retained_from):
     chat.close("a resend request could not be satisfied")
-    raise ResendUnsatisfiable(chat_id=chat.id, requested=span, retained_from=retained_from)
+    failure = ResendUnsatisfiable(chat_id=chat.id, requested=span, retained_from=retained_from)
+    failure.fatal = True
+    raise failure
 
 
-def forget_acknowledged(chat, storage, peer_in_seq_no_raw: int) -> None:
-    """Drop retained messages the peer's echo says it has processed.
-
-    §3.6's ``in_seq_no`` is the peer's count of messages taken in, so everything
-    strictly below it can no longer be the subject of a resend. Its own function
-    because §3.7's retention and §3.6's echo are otherwise two numbers that look
-    unrelated.
-    """
-    if peer_in_seq_no_raw <= 0:
-        return
-    highest_acknowledged = 2 * (peer_in_seq_no_raw - 1) + (1 if chat.is_outbound else 0)
-    storage.drop_out(chat.id, highest_acknowledged)
+def forget_acknowledged(chat, storage, peer_in_seq_no_raw):
+    if peer_in_seq_no_raw > 0:
+        highest = 2 * (peer_in_seq_no_raw - 1) + (1 if chat.is_outbound else 0)
+        storage.drop_out(chat.id, highest)
