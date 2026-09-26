@@ -7,7 +7,8 @@ Output: ``telethon_secret_chat/schema/secret_tl.py`` - generated, and the one fi
         exempt from the 800-line ceiling.
 
 Run it with ``uv run --locked python tools/generate_schema.py`` after re-fetching
- the schema. It is a build tool, not part of the shipped package.
+ the schema; ``--check`` writes nothing and exits 1 if the tracked module drifted.
+ It is a build tool, not part of the shipped package.
 
 Why generate rather than hand-write: a constructor id is the CRC32 of a
  declaration, and a digit wrong in one of ninety of them is a message the peer
@@ -33,10 +34,13 @@ NAMING. A TL name is reused across layers with a different id each time
 
 from __future__ import annotations
 
-import re
+import argparse
 import logging
+import os
+import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import List, NamedTuple, Optional
 
@@ -370,18 +374,53 @@ class SecretTLObject:
 '''
 
 
-def main() -> int:
+def render(ctors: List[Ctor]) -> bytes:
+    """The formatted module, produced beside TARGET and never written over it.
+
+    Formatted here rather than left to a human: CI runs `black --check .` over
+    everything, so a generated file that is not already black-clean turns
+    "regenerate the schema" into a two-step ritual someone will half-remember. The
+    temporary file sits in TARGET's directory so black reads the project's config.
+    """
+    handle, name = tempfile.mkstemp(dir=TARGET.parent, prefix=".secret_tl-", suffix=".py")
+    temporary = Path(name)
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as out:
+            out.write(emit(ctors))
+        subprocess.run([sys.executable, "-m", "black", "-q", str(temporary)], check=True)
+        return temporary.read_bytes()
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--check", action="store_true", help="write nothing; exit 1 if the module has drifted"
+    )
+    args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
     logging.debug("Reading the tracked schema input")
     ctors = parse(SCHEMA.read_text(encoding="utf-8"))
     if not ctors:
         logging.error("No constructors parsed; the tracked schema may be incomplete")
         return 1
-    TARGET.write_text(emit(ctors), encoding="utf-8", newline="\n")
-    # Formatted here rather than left to a human: CI runs `black --check .` over
-    # everything, so a generated file that is not already black-clean turns
-    # "regenerate the schema" into a two-step ritual someone will half-remember.
-    subprocess.run([sys.executable, "-m", "black", "-q", str(TARGET)], check=True)
+    generated = render(ctors)
+    if args.check:
+        if not TARGET.exists() or TARGET.read_bytes() != generated:
+            logging.error("%s is not what the schema generates; regenerate it", TARGET.name)
+            return 1
+        logging.info("%s matches the schema (%d constructors)", TARGET.name, len(ctors))
+        return 0
+    # Replaced only once formatting has succeeded, so a failure leaves the old module.
+    handle, name = tempfile.mkstemp(dir=TARGET.parent, prefix=".secret_tl-", suffix=".tmp")
+    try:
+        with os.fdopen(handle, "wb") as out:
+            out.write(generated)
+        os.replace(name, TARGET)
+    except BaseException:
+        Path(name).unlink(missing_ok=True)
+        raise
     logging.info("Generated %s with %d constructors", TARGET.relative_to(ROOT), len(ctors))
     return 0
 

@@ -31,7 +31,7 @@ jobs:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
       - run: uv lock --locked
-      - run: uv run --locked python tools/generate_schema.py
+      - run: uv run --locked python tools/generate_schema.py --check
       - run: git diff --exit-code -- uv.lock telethon_secret_chat/schema/secret_tl.py
 
   test:
