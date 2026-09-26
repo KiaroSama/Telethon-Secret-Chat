@@ -1,5 +1,25 @@
 # Telethon Secret Chat
 
+[![Tests & Coverage](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/tests.yml)
+[![Lint & Format](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/python-lint-format.yml/badge.svg?branch=main)](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/python-lint-format.yml)
+[![Package Validation](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/package-validation.yml/badge.svg?branch=main)](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/package-validation.yml)
+[![CodeQL](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/codeql.yml)
+[![License: GPL-3.0-or-later](https://img.shields.io/github/license/KiaroSama/Telethon-Secret-Chat)](LICENSE)
+[![Version 0.0.1](https://img.shields.io/badge/version-0.0.1-lightgrey)](pyproject.toml)
+[![Python 3.11 | 3.12 | 3.13 | 3.14](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-3776AB?logo=python&logoColor=white)](pyproject.toml)
+[![Platform: Linux | Windows](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey)](.github/workflows/tests.yml)
+
+[![Built with Telethon 1.45+](https://img.shields.io/badge/built%20with-Telethon%201.45%2B-26A5E4?logo=telegram&logoColor=white)](https://codeberg.org/Lonami/Telethon)
+[![Protocol: MTProto 2.0](https://img.shields.io/badge/protocol-MTProto%202.0-26A5E4)](docs/protocol-reference.md)
+[![Managed with uv](https://img.shields.io/badge/managed%20with-uv-DE5FE9)](uv.lock)
+[![Code style: Black](https://img.shields.io/badge/code%20style-black-000000)](https://github.com/psf/black)
+[![Dependabot](https://img.shields.io/badge/dependabot-uv%20%7C%20actions-025E8C?logo=dependabot)](.github/dependabot.yml)
+[![Top language](https://img.shields.io/github/languages/top/KiaroSama/Telethon-Secret-Chat)](https://github.com/KiaroSama/Telethon-Secret-Chat)
+[![Code size](https://img.shields.io/github/languages/code-size/KiaroSama/Telethon-Secret-Chat)](https://github.com/KiaroSama/Telethon-Secret-Chat)
+[![Last commit](https://img.shields.io/github/last-commit/KiaroSama/Telethon-Secret-Chat/main)](https://github.com/KiaroSama/Telethon-Secret-Chat/commits/main)
+[![Open issues](https://img.shields.io/github/issues/KiaroSama/Telethon-Secret-Chat)](https://github.com/KiaroSama/Telethon-Secret-Chat/issues)
+[![Support donations](https://img.shields.io/badge/Support-donations-d04a9a)](#donate)
+
 Telegram's **MTProto 2.0 end-to-end encryption** — secret chats — for
 [Telethon](https://github.com/LonamiWebs/Telethon).
 
