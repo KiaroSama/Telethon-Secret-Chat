@@ -42,7 +42,7 @@ try {
         throw 'Invalid media directory'
     }
     $target = if ($Only) { $Only.Replace('\', '/') } else { 'tests/interop' }
-    if ($target -notmatch '^tests/interop(?:/test_live_(?:roundtrip|media)\.py(?:::[A-Za-z_][A-Za-z0-9_]*)?)?$') {
+    if ($target -notmatch '^tests/interop(?:/test_live_(?:roundtrip|media|rekey)\.py(?:::[A-Za-z_][A-Za-z0-9_]*)?)?$') {
         $failure = 'Only must select this repository''s live interop tier, not arbitrary pytest arguments.'
         throw 'Invalid selector'
     }
