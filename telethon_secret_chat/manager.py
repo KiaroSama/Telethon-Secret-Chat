@@ -11,7 +11,6 @@ idempotent processing of callbacks; scheduling a callback is not its completion.
 from __future__ import annotations
 
 import asyncio
-import inspect
 import logging
 import secrets
 import time
@@ -19,7 +18,7 @@ from contextlib import asynccontextmanager, contextmanager
 from copy import deepcopy
 from functools import wraps
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from telethon.extensions import BinaryReader
 from telethon.tl import functions, types
@@ -27,9 +26,9 @@ from telethon.tl import functions, types
 from . import actions as actions_module
 from . import crypto, dh, files, framing, handshake, rekey as rekey_module, sequence
 from .chat import ChatState, SecretChat
+from .dispatch import EventDispatch
 from .errors import ChatNotReady, ResendUnsatisfiable, SecretChatError, StorageRequired
 from .events import (
-    EVENT_TYPES,
     ChatClosedEvent,
     ChatReady,
     ChatRequested,
@@ -59,7 +58,7 @@ def serialized(method):
     return run
 
 
-class SecretChatManager:
+class SecretChatManager(EventDispatch):
     def __init__(self, client, storage: Optional[StorageBackend]):
         if storage is None:
             raise StorageRequired()
@@ -112,7 +111,8 @@ class SecretChatManager:
         for chat_id in self._storage.list():
             record = self._storage.load(chat_id)
             if record is not None:
-                loaded[chat_id] = SecretChat.from_record(record)
+                # All or nothing: one corrupt record installs no chat (spec 002 FR-001).
+                loaded[chat_id] = SecretChat.from_record(record, stored_id=chat_id)
         self._chats = loaded
         self._client.add_event_handler(self._subscription)
         self._running = True
@@ -133,56 +133,13 @@ class SecretChatManager:
             return
         self._client.remove_event_handler(self._subscription)
         self._stopping = True
-        tasks = [task for task in self._handler_tasks if task is not asyncio.current_task()]
-        for task in tasks:
-            task.cancel()
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+        await self._cancel_handler_tasks()
         for chat in self._chats.values():
             async with self._chat_lock(chat.id):
                 self._save(chat)
         self._running = False
         self._early_encryption.clear()
         log.info("secret-chat manager stopped")
-
-    def on(self, event: str, handler: Callable):
-        event = "ChatClosedEvent" if event == "ChatClosed" else event
-        if event not in EVENT_TYPES or not callable(handler):
-            raise ValueError("register a known secret-chat event and a callable handler")
-        self._handlers.setdefault(event, []).append(handler)
-
-    @staticmethod
-    def _handler_name(handler):
-        if inspect.isfunction(handler) or inspect.ismethod(handler):
-            return handler.__name__
-        return type(handler).__name__
-
-    def _emit(self, event: Any):
-        for handler in tuple(self._handlers.get(type(event).__name__, [])):
-            try:
-                result = handler(event)
-            except Exception:
-                log.error("secret-chat handler %s failed", self._handler_name(handler))
-                continue
-            if inspect.isawaitable(result):
-                task = asyncio.ensure_future(self._run_handler(handler, result))
-                self._handler_tasks.add(task)
-
-                def done(task, result=result):
-                    self._handler_tasks.discard(task)
-                    if inspect.iscoroutine(result):
-                        result.close()  # Also close an awaitable cancelled before its wrapper starts.
-                    elif asyncio.isfuture(result) and not result.done():
-                        result.cancel()
-
-                task.add_done_callback(done)
-
-    async def _run_handler(self, handler, awaitable):
-        try:
-            await awaitable
-        except Exception:
-            # Never log exception text, traceback, arguments, or callable repr.
-            log.error("secret-chat handler %s failed", self._handler_name(handler))
 
     def _save(self, chat):
         self._storage.save(chat.to_record())
@@ -212,7 +169,13 @@ class SecretChatManager:
         )
         chat.dh_prime, chat.dh_g = p, g
         chat.handshake = {"secret": secret, "p": p, "g": g}
-        self._save(chat)
+        try:
+            self._save(chat)
+        except BaseException:
+            # Without its stored secret the chat can never be keyed; leaving it on
+            # the server shows the peer a request that cannot complete.
+            await self._discard_remote(chat.id)
+            raise
         self._chats[chat.id] = chat
         early = self._early_encryption.pop(chat.id, None)
         if isinstance(result, types.EncryptedChat):
@@ -272,15 +235,16 @@ class SecretChatManager:
         if chat.state is ChatState.CLOSED:
             return
         self._close_local(chat, reason)
+        await self._discard_remote(chat.id)
+
+    async def _discard_remote(self, chat_id):
+        """Best effort: the local state is already what counts."""
         try:
             await self._client(
-                functions.messages.DiscardEncryptionRequest(
-                    chat_id=chat.id,
-                    delete_history=False,
-                )
+                functions.messages.DiscardEncryptionRequest(chat_id=chat_id, delete_history=False)
             )
         except Exception:
-            log.debug("discardEncryption failed for chat %s; local closure is durable", chat_id)
+            log.debug("discardEncryption failed for chat %s", chat_id)
 
     def list(self):
         return list(self._chats.values())
@@ -374,6 +338,10 @@ class SecretChatManager:
         return chat
 
     async def _send_action(self, chat, action, *, after_prepare=None, encryption_key=None):
+        # PFS counts every encrypted use, so service-only traffic reaches the
+        # trigger too; the exchange's own actions never do (they would recurse).
+        if not isinstance(action, rekey_module.PROTOCOL_ACTIONS):
+            await self._rekey_if_due(chat)
         await self._send(
             chat,
             tl.DecryptedMessageService(random_id=secrets.randbits(63), action=action),

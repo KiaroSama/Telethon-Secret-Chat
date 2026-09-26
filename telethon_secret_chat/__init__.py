@@ -18,6 +18,7 @@ from .errors import (
     ResendUnsatisfiable,
     SecretChatError,
     StorageRequired,
+    StoreCorrupt,
 )
 from .events import (
     ChatClosedEvent,
@@ -61,6 +62,7 @@ __all__ = [
     "StorageRequired",
     "LayerUnsupported",
     "ResendUnsatisfiable",
+    "StoreCorrupt",
     # events (contracts §3)
     "ChatRequested",
     "ChatReady",

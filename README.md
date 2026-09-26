@@ -49,14 +49,16 @@ manager = SecretChatManager(client, storage=FileStorage("secret-chats.db"))
 await manager.start()
 
 chat = await manager.create(peer)
-# Show chat.key_fingerprint to the user - the peer's client shows the same value.
+# To verify, show chat.key_hash (36 bytes, the input to Telegram's key
+# visualization) - that is what the peer's official client draws. The 64-bit
+# key_fingerprint is a protocol sanity check and no client displays it.
 await manager.send_message(chat.id, "hello")
 ```
 
 Events are registered by name and carry a shape, never a value:
 
 ```python
-manager.on("ChatReady", lambda e: print("fingerprint", e.key_fingerprint))
+manager.on("ChatReady", lambda e: show_key_visualization(e.key_hash))
 manager.on("MessageReceived", lambda e: print(e.text))
 manager.on("DecryptFailed", lambda e: log.warning("refused: %s", e.reason))
 ```
@@ -74,6 +76,19 @@ Failures the protocol says must end a chat also produce `ChatClosed`.
 | `send_file(chat_id, path, kind=None)` / `save_file(message, path)` | media, in any of the eight kinds |
 | `set_ttl`, `mark_read`, `delete_messages`, `screenshot`, `flush_history`, `set_typing` | the chat's controls |
 | `rekey(chat_id)` | a new key now, rather than on the documented trigger |
+
+`start()` validates every stored chat before installing any. A damaged record (a key
+that is not 256 bytes, a fingerprint that no longer matches its key, an unknown
+state) raises `StoreCorrupt` naming the chat, and no chat is started.
+
+`set_ttl` sends the timer to the peer, whose client enforces it. This package does
+**not** delete anything locally when a TTL expires; an application that keeps
+history must apply the timer itself.
+
+A received file is written only after its key fingerprint matches the key carried
+in the message. That fingerprint binds the file's key and IV to this message; it
+is **not** an authentication tag over the file's bytes, and a saved file is not
+proven intact by having been saved.
 
 `send_message` and `send_file` resolve when **Telegram accepts the ciphertext**, not
 when the peer acknowledges; acknowledgement arrives as an event.

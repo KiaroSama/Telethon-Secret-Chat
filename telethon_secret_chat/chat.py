@@ -21,7 +21,7 @@ from enum import Enum
 from typing import Any, Dict, Optional
 
 from .crypto import KEY_LENGTH, key_fingerprint
-from .errors import ChatClosed, ChatNotReady
+from .errors import ChatClosed, ChatNotReady, StoreCorrupt
 from .framing import INITIAL_REMOTE_LAYER
 
 __all__ = ["ChatState", "SecretChat"]
@@ -252,7 +252,15 @@ class SecretChat:
         return record
 
     @classmethod
-    def from_record(cls, record: Dict[str, Any]) -> "SecretChat":
+    def from_record(cls, record: Dict[str, Any], *, stored_id=None) -> "SecretChat":
+        """Rebuild a chat, refusing a record that could only fail later.
+
+        A truncated key or a fingerprint that no longer matches its key decrypts
+        nothing and looks from outside exactly like a peer problem, so it is refused
+        here, where the operator can still act. ``StoreCorrupt`` names the rule that
+        failed and never the value.
+        """
+        _validate(record, stored_id)
         chat = cls(
             id=record["id"],
             access_hash=record["access_hash"],
@@ -280,3 +288,33 @@ class SecretChat:
         )
 
     __str__ = __repr__
+
+
+_COUNTERS = ("in_seq_no", "out_seq_no", "peer_in_seq_no", "messages_since_rekey")
+
+
+def _validate(record: Dict[str, Any], stored_id) -> None:
+    chat_id = record.get("id") if isinstance(record, dict) else None
+
+    def refuse(reason: str):
+        raise StoreCorrupt(chat_id=chat_id if type(chat_id) is int else stored_id, reason=reason)
+
+    if not isinstance(record, dict) or type(chat_id) is not int:
+        refuse("a record has no integer chat id")
+    if stored_id is not None and chat_id != int(stored_id):
+        refuse("a record is filed under a different chat id")
+    if record.get("state") not in {state.value for state in ChatState}:
+        refuse("a record carries an unknown state")
+    for name in _COUNTERS:
+        value = record.get(name, 0)
+        if type(value) is not int or value < 0:
+            refuse(f"{name} is not a nonnegative integer")
+    for name in ("key", "pending_key", "previous_key"):
+        value = record.get(name)
+        if value is not None and (not isinstance(value, bytes) or len(value) != KEY_LENGTH):
+            refuse(f"{name} is not a {KEY_LENGTH}-byte key")
+    key = record.get("key")
+    if key is not None and record.get("key_fingerprint") != key_fingerprint(key):
+        refuse("the stored fingerprint does not match the stored key")
+    if key is None and record["state"] in (ChatState.READY.value, ChatState.REKEYING.value):
+        refuse("an established chat has no key")
