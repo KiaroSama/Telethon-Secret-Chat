@@ -163,6 +163,8 @@ class ResendUnsatisfiable(SecretChatError):
 
     def __init__(self, *, chat_id: int, requested: Tuple[int, int], retained_from: int):
         self.requested = requested
+        # The close reason the manager records; every refusal that ends a chat has one.
+        self.reason = "a resend request could not be satisfied"
         self.retained_from = retained_from
         start, end = requested
         super().__init__(

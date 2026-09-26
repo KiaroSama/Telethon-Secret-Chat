@@ -18,13 +18,17 @@ abort the secret chat."
 §8.3 measured all of it as absent.
 """
 
+from types import SimpleNamespace
+
 import pytest
 
-from telethon_secret_chat import sequence
+from telethon_secret_chat import SecretChatManager, sequence
 from telethon_secret_chat.chat import ChatState, SecretChat
 from telethon_secret_chat.errors import MessageRejected
 from telethon_secret_chat.schema import secret_tl as tl
 from telethon_secret_chat.storage import MemoryStorage
+
+from .fake_client import FakeClient, establish
 
 KEY = bytes((i * 5 + 3) % 256 for i in range(256))
 
@@ -200,3 +204,119 @@ def test_the_echo_is_checked_before_the_message_is_queued():
         sequence.accept(chat, peer_message(4, raw_in=9), store)
     assert chat.state is ChatState.CLOSED
     assert store.take_in(chat.id) == []
+
+
+# --- deep-debug 2026-09-26: a resend request that never left ------------------
+
+
+class _FlakyClient(FakeClient):
+    refuse_sends = False
+
+    async def __call__(self, request):
+        if self.refuse_sends and "SendEncrypted" in type(request).__name__:
+            raise OSError("synthetic network failure")
+        return await super().__call__(request)
+
+
+async def test_a_resend_request_lost_before_it_was_queued_is_asked_again():
+    """DD-04. §3.7 sends ONE request per hole, so the hole was marked requested in
+    the same commit that queued the gap message - before the request itself was
+    written. A failure in between (here: retrying an older unsent message) lost the
+    request while the mark stayed, so every later message just joined the queue and
+    the hole was never asked for again."""
+    wire = SimpleNamespace(a=_FlakyClient(user_id=1000), b=FakeClient(user_id=2000))
+    wire.a.peer, wire.b.peer = wire.b, wire.a
+    a = SecretChatManager(wire.a, storage=MemoryStorage())
+    b = SecretChatManager(wire.b, storage=MemoryStorage())
+    await a.start()
+    await b.start()
+    try:
+        chat_a, chat_b = await establish(a, b, wire)
+        got = []
+        a.on("MessageReceived", lambda event: got.append(event.text))
+
+        wire.a.refuse_sends = True
+        with pytest.raises(OSError):
+            await a.send_message(chat_a.id, "left pending by a failed send")
+        wire.b.hold = True
+        await b.send_message(chat_b.id, "m0")
+        wire.b.held.clear()  # lost in transit: this is the hole
+        wire.b.hold = False
+        await b.send_message(chat_b.id, "m1")  # A sees the hole; its request fails
+
+        wire.a.refuse_sends = False
+        await b.send_message(chat_b.id, "m2")
+
+        assert got == ["m0", "m1", "m2"], "the hole was never requested again"
+    finally:
+        await a.stop()
+        await b.stop()
+
+
+async def test_a_retried_resend_request_skips_what_arrived_in_the_meantime():
+    """DD-09, found by review of DD-04. The span is decided when the hole opens. If
+    part of the hole arrives on its own before a retry succeeds, and this side's
+    echo has meanwhile told the peer to forget it, asking for the old span again is
+    unsatisfiable and the peer ends the chat. The retry asks only for what is still
+    missing."""
+    wire = SimpleNamespace(a=_FlakyClient(user_id=1000), b=FakeClient(user_id=2000))
+    wire.a.peer, wire.b.peer = wire.b, wire.a
+    a = SecretChatManager(wire.a, storage=MemoryStorage())
+    b = SecretChatManager(wire.b, storage=MemoryStorage())
+    await a.start()
+    await b.start()
+    try:
+        chat_a, chat_b = await establish(a, b, wire)
+        got = []
+        a.on("MessageReceived", lambda event: got.append(event.text))
+
+        wire.a.refuse_sends = True
+        with pytest.raises(OSError):
+            await a.send_message(chat_a.id, "left pending by a failed send")
+        wire.b.hold = True
+        await b.send_message(chat_b.id, "m0")
+        await b.send_message(chat_b.id, "m1")
+        late_m0, _lost_m1 = wire.b.held
+        wire.b.held, wire.b.hold = [], False
+        await b.send_message(chat_b.id, "m2")  # the hole is m0..m1; its request fails
+        await wire.a.deliver(*late_m0)  # m0 turns up by itself; the retry fails too
+
+        wire.a.refuse_sends = False
+        await a.send_message(chat_a.id, "x")  # its echo lets the peer forget m0
+        await b.send_message(chat_b.id, "m3")
+
+        assert got == ["m0", "m1", "m2", "m3"]
+        assert b.status(chat_b.id).state is ChatState.READY, "the peer ended the chat"
+    finally:
+        await a.stop()
+        await b.stop()
+
+
+async def test_an_unsatisfiable_resend_request_ends_the_chat():
+    """DD-10, pre-existing, found by the same review. ``sequence`` closes the chat
+    and raises ``ResendUnsatisfiable``; the manager then closed it again with
+    ``failure.reason``, which that error did not have. The AttributeError left the
+    chat open on the peer's side and reported only a generic failure."""
+    wire = SimpleNamespace(a=FakeClient(user_id=1000), b=FakeClient(user_id=2000))
+    wire.a.peer, wire.b.peer = wire.b, wire.a
+    a = SecretChatManager(wire.a, storage=MemoryStorage())
+    b = SecretChatManager(wire.b, storage=MemoryStorage())
+    await a.start()
+    await b.start()
+    try:
+        chat_a, chat_b = await establish(a, b, wire)
+        closed = []
+        b.on("ChatClosed", closed.append)
+        # B is the recipient, so its own out_seq_no is even (§3.4). It never sent 200.
+        await a._send(
+            a.status(chat_a.id),
+            tl.DecryptedMessageService(
+                random_id=1,
+                action=tl.DecryptedMessageActionResend(start_seq_no=200, end_seq_no=200),
+            ),
+        )
+        assert b.status(chat_b.id).state is ChatState.CLOSED
+        assert [event.reason for event in closed] == ["a resend request could not be satisfied"]
+    finally:
+        await a.stop()
+        await b.stop()

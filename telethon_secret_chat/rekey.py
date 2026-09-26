@@ -39,7 +39,6 @@ __all__ = [
     "should_rekey",
     "new_exchange_id",
     "resolve_collision",
-    "sends_abort_on_collision",
     "may_abort",
     "select_key",
     "adopt_new_key",
@@ -115,12 +114,6 @@ def resolve_collision(mine: int, theirs: int) -> str:
     # Probability 2^-64: "abort both instances without sending an explicit
     # decryptedMessageActionAbortKey. The other side will do the same."
     return "abort_both"
-
-
-def sends_abort_on_collision() -> bool:
-    """§4.7 says no, for both outcomes. A function rather than a comment so the
-    claim is testable."""
-    return False
 
 
 def may_abort(chat) -> bool:
@@ -222,7 +215,8 @@ async def handle(manager, chat, action):
 
     if isinstance(action, tl.DecryptedMessageActionRequestKey):
         await _on_request(manager, chat, action)
-        return Outcome(applied=True)
+        # An unsafe request closes the chat instead of being applied.
+        return Outcome(applied=chat.state.value != "closed")
     if isinstance(action, tl.DecryptedMessageActionAcceptKey):
         await _on_accept(manager, chat, action)
         return Outcome(applied=True)
@@ -255,7 +249,14 @@ async def _on_request(manager, chat, action) -> None:
 
     g_a = dh.value_from_bytes(action.g_a)
     b = handshake.generate_secret()
-    key = handshake.shared_key(peer_value=g_a, secret=b, p=chat.dh_prime, chat_id=chat.id)
+    try:
+        key = handshake.shared_key(peer_value=g_a, secret=b, p=chat.dh_prime, chat_id=chat.id)
+    except ParameterRejected as failure:
+        # TDLib treats this as fatal (`on_inbound_action(RequestKey)` -> `cancel_chat`).
+        # Raising instead left the action at the head of the delivery mailbox, and
+        # every later message queued behind it undelivered.
+        await manager.close(chat.id, failure.reason)
+        return
     g_b = handshake.public_value(chat.dh_g, b, chat.dh_prime)
 
     def prepared():

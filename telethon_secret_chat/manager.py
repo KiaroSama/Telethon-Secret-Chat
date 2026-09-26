@@ -27,7 +27,7 @@ from . import actions as actions_module
 from . import crypto, dh, files, framing, handshake, rekey as rekey_module, sequence
 from .chat import ChatState, SecretChat
 from .dispatch import EventDispatch
-from .errors import ChatNotReady, ResendUnsatisfiable, SecretChatError, StorageRequired
+from .errors import ChatNotReady, SecretChatError, StorageRequired
 from .events import (
     ChatClosedEvent,
     ChatReady,
@@ -37,6 +37,7 @@ from .events import (
     MessageReceived,
     ServiceActionReceived,
 )
+from .outbox import RetainedOutbox
 from .schema import secret_tl as tl
 from .storage import StorageBackend
 
@@ -58,7 +59,7 @@ def serialized(method):
     return run
 
 
-class SecretChatManager(EventDispatch):
+class SecretChatManager(EventDispatch, RetainedOutbox):
     def __init__(self, client, storage: Optional[StorageBackend]):
         if storage is None:
             raise StorageRequired()
@@ -120,10 +121,14 @@ class SecretChatManager(EventDispatch):
         for chat in self._chats.values():
             if chat.state in (ChatState.REQUESTED, ChatState.PENDING) and not chat.handshake:
                 await self.close(chat.id, "legacy pending handshake has no recoverable secret")
+            elif chat.state is ChatState.PENDING:
+                self._emit(ChatRequested(chat.id, chat.peer_user_id))
             elif chat.state in (ChatState.READY, ChatState.REKEYING):
                 try:
                     await self.retry_pending(chat.id)
                     await self._drain_deliveries(chat)
+                    async with self._chat_lock(chat.id):
+                        await self._request_due_resend(chat)
                 except Exception:
                     log.warning("chat %s has durable work awaiting retry", chat.id)
         log.info("secret-chat manager started with %s stored chats", len(self._chats))
@@ -301,6 +306,7 @@ class SecretChatManager(EventDispatch):
             after_prepare=lambda: setattr(chat, "ttl", seconds),
         )
 
+    @serialized
     async def mark_read(self, chat_id, random_ids):
         await self._send_action(self._sendable(chat_id), actions_module.read_messages(random_ids))
 
@@ -315,6 +321,7 @@ class SecretChatManager(EventDispatch):
         self._remove_history(chat.id, set(ids))
         await self._send_action(chat, actions_module.delete_messages(ids))
 
+    @serialized
     async def screenshot(self, chat_id, random_ids):
         await self._send_action(
             self._sendable(chat_id), actions_module.screenshot_messages(random_ids)
@@ -329,6 +336,7 @@ class SecretChatManager(EventDispatch):
         self._history.pop(chat_id, None)
         await self._send_action(chat, actions_module.flush_history())
 
+    @serialized
     async def set_typing(self, chat_id, action=None):
         await self._send_action(self._sendable(chat_id), actions_module.typing(action))
 
@@ -348,29 +356,6 @@ class SecretChatManager(EventDispatch):
             after_prepare=after_prepare,
             encryption_key=encryption_key,
         )
-
-    @staticmethod
-    def _retained_random_id(item):
-        if "random_id" in item:
-            return item["random_id"]
-        return sequence.unpack(item).message.random_id
-
-    def _rewrite_retained_as_deletes(self, chat, random_ids):
-        for item in self._storage.retained_out(chat.id):
-            if self._retained_random_id(item) not in random_ids:
-                continue
-            wrapper = sequence.unpack(item)
-            wrapper.message = tl.DecryptedMessageService(
-                random_id=wrapper.message.random_id,
-                action=actions_module.delete_messages([wrapper.message.random_id]),
-            )
-            item.update(
-                body=bytes(wrapper).hex(),
-                frame=crypto.encrypt_frame(chat.key, bytes(wrapper), chat.out_x).hex(),
-                method="service",
-                file=None,
-            )
-            self._storage.queue_out(chat.id, item)
 
     def _remove_history(self, chat_id, random_ids):
         self._history[chat_id] = [
@@ -429,55 +414,6 @@ class SecretChatManager(EventDispatch):
         for item in self._storage.retained_out(chat_id):
             if item.get("pending") and (chat_id, item["seq_no"]) not in self._inflight:
                 await self._transmit(chat, item)
-
-    async def _transmit(self, chat, item):
-        peer = types.InputEncryptedChat(chat_id=chat.id, access_hash=chat.access_hash)
-        if "frame" not in item:
-            # Old stores never recorded the RPC identity, cipher, or file handle.
-            # Guessing would turn an acknowledged ciphertext into a different send.
-            failure = ResendUnsatisfiable(
-                chat_id=chat.id,
-                requested=(item["seq_no"], item["seq_no"]),
-                retained_from=item["seq_no"],
-            )
-            failure.fatal = True
-            await self.close(chat.id, "legacy retained message has no original wire record")
-            raise failure
-        arguments = dict(peer=peer, random_id=item["random_id"], data=bytes.fromhex(item["frame"]))
-        if item.get("method") == "file":
-            with BinaryReader(bytes.fromhex(item["file"])) as reader:
-                arguments["file"] = reader.tgread_object()
-            request = functions.messages.SendEncryptedFileRequest(**arguments)
-        elif item.get("method") == "service":
-            request = functions.messages.SendEncryptedServiceRequest(**arguments)
-        else:
-            request = functions.messages.SendEncryptedRequest(**arguments)
-        identity = (chat.id, item["seq_no"])
-        self._inflight.add(identity)
-        try:
-            result = await self._client(request)
-            with self._storage.transaction():
-                # A nested receive may have acknowledged/deleted this record already.
-                retained = self._storage.retained_out(chat.id)
-                if any(
-                    record["seq_no"] == item["seq_no"] and record.get("body") == item.get("body")
-                    for record in retained
-                ):
-                    item = dict(item, pending=False)
-                    attached = getattr(result, "file", None)
-                    if isinstance(attached, types.EncryptedFile):
-                        item["file"] = bytes(
-                            types.InputEncryptedFile(
-                                id=attached.id,
-                                access_hash=attached.access_hash,
-                            )
-                        ).hex()
-                    self._storage.queue_out(chat.id, item)
-        finally:
-            self._inflight.discard(identity)
-
-    async def _resend_retained(self, chat, retained):
-        await self._transmit(chat, retained)
 
     async def _notify_layer(self, chat):
         await self._send_action(chat, actions_module.notify_layer(framing.MAX_LAYER))
@@ -616,14 +552,13 @@ class SecretChatManager(EventDispatch):
         for event in acknowledgements:
             self._emit(event)
         for retained in answer:
-            await self._resend_retained(chat, retained)
+            await self._transmit(chat, retained)
         await self._drain_deliveries(chat)
         if chat.state is ChatState.CLOSED:
             return
         with self._atomic(chat):
             rekey_module.retire_previous_key_if_settled(chat)
-        if accepted.resend is not None:
-            await self._send_action(chat, actions_module.resend(*accepted.resend))
+        await self._request_due_resend(chat)
         if switched:
             await self._send_action(chat, tl.DecryptedMessageActionNoop())
 
@@ -636,6 +571,8 @@ class SecretChatManager(EventDispatch):
             while chat.pending_deliveries and chat.state is not ChatState.CLOSED:
                 item = chat.pending_deliveries[0]
                 await self._deliver(chat, sequence.unpack(item), None)
+                if chat.state is ChatState.CLOSED:
+                    break  # Closing scrubbed the record and the mailbox; do not write it back.
                 with self._atomic(chat):
                     if chat.pending_deliveries and chat.pending_deliveries[0] == item:
                         chat.pending_deliveries.pop(0)

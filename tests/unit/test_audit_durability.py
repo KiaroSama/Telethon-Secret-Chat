@@ -561,7 +561,7 @@ async def test_legacy_resend_without_original_wire_metadata_fails_closed():
     item = {"seq_no": 1, "body": bytes(wrapper).hex()}
     manager._storage.queue_out(chat.id, item)
     with pytest.raises(ResendUnsatisfiable):
-        await manager._resend_retained(chat, item)
+        await manager._transmit(chat, item)
     assert chat.state is ChatState.CLOSED
     assert not any(isinstance(request, SEND_TYPES) for request in manager._client.sent)
     assert manager._storage.retained_out(chat.id) == []
@@ -629,3 +629,33 @@ def test_gap_inspection_returns_detached_sorted_data_without_a_write(monkeypatch
     assert [item["seq_no"] for item in read] == [1, 2]
     read[0]["ids"].append(999)
     assert store.peek_in(7)[0]["ids"] == [1]
+
+
+async def test_a_pending_request_stored_across_a_restart_is_announced_again():
+    """DD-06. The handshake survives a restart (PR #15), but ``ChatRequested`` was
+    emitted only when the update first arrived. An application that accepts from
+    that event - telegram-mcp does - never heard about the stored request again,
+    so the chat sat ``pending`` until the peer gave up."""
+    client, store = FakeClient(), MemoryStorage()
+    manager = SecretChatManager(client, storage=store)
+    await manager.start()
+    await manager._on_encryption(
+        types.EncryptedChatRequested(
+            id=7,
+            access_hash=8,
+            date=0,
+            admin_id=1000,
+            participant_id=2000,
+            g_a=pow(2, handshake.generate_secret(), SAFE_PRIME).to_bytes(256, "big"),
+        )
+    )
+    await manager.stop()
+
+    resumed = SecretChatManager(client, storage=store)
+    seen = []
+    resumed.on("ChatRequested", seen.append)
+    await resumed.start()
+    try:
+        assert [(event.chat_id, event.peer_user_id) for event in seen] == [(7, 1000)]
+    finally:
+        await resumed.stop()

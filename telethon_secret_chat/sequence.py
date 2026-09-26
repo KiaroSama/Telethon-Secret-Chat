@@ -27,10 +27,6 @@ def _abort(chat, reason):
     raise failure
 
 
-def _queued(chat, storage):
-    return storage.peek_in(chat.id)
-
-
 def preflight(chat, wrapper, storage):
     """Validate before service-action side effects; return False for any replay."""
     expected_in = 1 if chat.is_outbound else 0
@@ -42,7 +38,7 @@ def preflight(chat, wrapper, storage):
     raw_out = wrapper.out_seq_no // 2
     if raw_out < chat.in_seq_no:
         return False
-    queued = _queued(chat, storage)
+    queued = storage.peek_in(chat.id)
     if any(item["seq_no"] == raw_out for item in queued):
         return False
     _check_order(chat, wrapper)
@@ -92,7 +88,8 @@ def accept(chat, wrapper, storage, envelope=None) -> Accepted:
         chat.gap_requested = True
         chat.gap_end = raw_out
         parity = wrapper.out_seq_no % 2
-        return Accepted([], (2 * chat.in_seq_no + parity, wrapper.out_seq_no - 2))
+        chat.resend_due = [2 * chat.in_seq_no + parity, wrapper.out_seq_no - 2]
+        return Accepted([], tuple(chat.resend_due))
 
     ready = []
 
@@ -117,11 +114,13 @@ def accept(chat, wrapper, storage, envelope=None) -> Accepted:
     if not waiting:
         chat.gap_requested = False
         chat.gap_end = None
+        chat.resend_due = None
     elif chat.gap_end is None or chat.in_seq_no >= chat.gap_end:
         # The first hole closed, but a distinct later hole remains.
         chat.gap_end = waiting[0]["seq_no"]
         parity = wrapper.out_seq_no % 2
         resend = (2 * chat.in_seq_no + parity, 2 * (chat.gap_end - 1) + parity)
+        chat.resend_due = list(resend)
         chat.gap_requested = True
     return Accepted(ready, resend)
 
