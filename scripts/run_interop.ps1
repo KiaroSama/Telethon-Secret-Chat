@@ -95,7 +95,7 @@ try {
     $cases = @($xml.SelectNodes('//testcase'))
     if (-not $cases.Count) { throw 'No executed cases' }
     foreach ($case in $cases) {
-        if ($case.classname -notmatch '^tests\.interop\.test_live_(roundtrip|media)$' -or
+        if ($case.classname -notmatch '^tests\.interop\.test_live_(roundtrip|media|rekey)$' -or
             $case.SelectSingleNode('skipped|failure|error')) { throw 'Invalid test evidence' }
     }
     Write-InteropLog INFO ("The selected {0} live case(s) passed; record this exact selection and media coverage." -f $cases.Count)
