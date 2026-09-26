@@ -48,6 +48,7 @@ __all__ = [
     "start",
     "handle",
     "MESSAGE_TRIGGER",
+    "PROTOCOL_ACTIONS",
     "AGE_TRIGGER",
 ]
 
@@ -57,6 +58,17 @@ __all__ = [
 # last_timestamp + 60 * 60 * 24 * 7 < Time::now()`.
 MESSAGE_TRIGGER = 100
 AGE_TRIGGER = 7 * 24 * 60 * 60
+
+#: The exchange's own messages. They never evaluate the trigger: a RequestKey is
+#: itself sent as a service action, and letting it re-check would start a second
+#: exchange from inside the first.
+PROTOCOL_ACTIONS = (
+    tl.DecryptedMessageActionRequestKey,
+    tl.DecryptedMessageActionAcceptKey,
+    tl.DecryptedMessageActionCommitKey,
+    tl.DecryptedMessageActionAbortKey,
+    tl.DecryptedMessageActionNoop,
+)
 
 
 def should_rekey(chat, now: float) -> bool:

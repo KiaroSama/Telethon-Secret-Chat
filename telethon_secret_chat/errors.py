@@ -29,6 +29,7 @@ __all__ = [
     "StorageRequired",
     "LayerUnsupported",
     "ResendUnsatisfiable",
+    "StoreCorrupt",
 ]
 
 
@@ -170,3 +171,17 @@ class ResendUnsatisfiable(SecretChatError):
             "answer a resend it cannot satisfy",
             chat_id=chat_id,
         )
+
+
+class StoreCorrupt(SecretChatError):
+    """A stored record failed validation at ``start()``, so nothing was installed.
+
+    A truncated key or a fingerprint that no longer matches its key does not crash;
+    it fails later, on the first message, looking exactly like a peer problem.
+    Refusing the whole start is the one point where an operator can still act.
+    ``reason`` names the rule that failed, never the value that failed it.
+    """
+
+    def __init__(self, *, chat_id: Optional[int], reason: str):
+        self.reason = reason
+        super().__init__(f"the secret-chat store is corrupt: {reason}", chat_id=chat_id)
