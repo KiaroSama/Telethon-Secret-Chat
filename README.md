@@ -132,6 +132,15 @@ it and prints nothing. It also REFUSES while the telegram-mcp server is listenin
 because that server already holds the session and Telegram permanently invalidates an
 auth key used from two clients at once - stop it, run this, start it again.
 
+Each run also writes its own log to `logs/run_interop_YYYY-MM-DD_HH-mm-ss_UTC.log` under
+the repository root: UTF-8, one file per run (a run in the same second gets a `_2`
+suffix, so nothing is overwritten), one `[YYYY-MM-DD HH:mm:ss UTC] [LEVEL] [run_interop]
+message` line per event, and the exit code on the last line. Levels are `INFO`,
+`WARNING` and `ERROR`, plus `DEBUG` with `-Debug`. No session string, API hash or peer
+appears in it, so the file can be attached to a support request as it is. `*.log` is
+git-ignored and nothing deletes old logs; remove them when you no longer need them. If
+the file cannot be created, the run says so and logs to the console only.
+
 Accepting the chat is not one of the manual steps: the request reaches every device
 the peer has and the first to complete the key exchange wins, which is normally the
 phone. What still needs you is replying with the code the run prints, and opening the
