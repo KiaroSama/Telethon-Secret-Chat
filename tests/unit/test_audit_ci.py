@@ -62,3 +62,12 @@ def test_false_green_evidence_is_rejected(tmp_path, scenario):
         record(tmp_path, "unexpected")
     with pytest.raises(ValueError):
         gate.check_matrix(tmp_path, ["a", "b"])
+
+
+def test_the_summary_counts_the_live_cases_it_skipped(tmp_path, caplog):
+    """DD-05. The warning said "five" after a sixth live case was added."""
+    for leg in ("a", "b"):
+        record(tmp_path, leg)
+    with caplog.at_level("WARNING"):
+        gate.check_matrix(tmp_path, ["a", "b"])
+    assert f"The {len(gate.LIVE_SKIPS)} live Telegram cases" in caplog.text
