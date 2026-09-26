@@ -138,7 +138,7 @@ async def test_rpc_retry_reuses_ciphertext_sequence_and_random_id():
     manager, chat = ready_manager()
     await manager.send_message(chat.id, "retained")
     original = manager._client.sent[-1]
-    await manager._resend_retained(chat, manager._storage.retained_out(chat.id)[-1])
+    await manager._transmit(chat, manager._storage.retained_out(chat.id)[-1])
     replay = manager._client.sent[-1]
     assert replay.data == original.data
     assert replay.random_id == original.random_id
@@ -275,7 +275,7 @@ async def test_file_resend_keeps_media_rpc_and_attachment(pair, tmp_path):
     path.write_bytes(b"retained media")
     await a.send_file(ca.id, path)
     original = wire.a.sent[-1]
-    await a._resend_retained(ca, a._storage.retained_out(ca.id)[-1])
+    await a._transmit(ca, a._storage.retained_out(ca.id)[-1])
     assert isinstance(wire.a.sent[-1], functions.messages.SendEncryptedFileRequest)
     assert wire.a.sent[-1].file.id == original.file.id
 

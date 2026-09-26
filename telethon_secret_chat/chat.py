@@ -106,6 +106,10 @@ class SecretChat:
         # should be put into the queue without sending a new request". One request
         # per hole, and this is what makes it one.
         self.gap_requested = False
+        # The §3.7 span still to be requested, as [start, end] on the wire, or None.
+        # Separate from `gap_requested` because a hole can be known before its
+        # request is queued, and the previous key must be kept for the whole hole.
+        self.resend_due = None
         self.layer = INITIAL_REMOTE_LAYER  # §7.2: starts at 46, only rises
         # TDLib keeps two layers and this package had collapsed them. `layer`
         # above is `config_state_.his_layer`, the peer's CAPABILITY, raised by a
@@ -228,6 +232,7 @@ class SecretChat:
         "out_seq_no",
         "peer_in_seq_no",
         "gap_requested",
+        "resend_due",
         "layer",
         "wrapper_layer",
         "ttl",
@@ -313,6 +318,13 @@ def _validate(record: Dict[str, Any], stored_id) -> None:
         value = record.get(name)
         if value is not None and (not isinstance(value, bytes) or len(value) != KEY_LENGTH):
             refuse(f"{name} is not a {KEY_LENGTH}-byte key")
+    due = record.get("resend_due")
+    if due is not None and not (
+        isinstance(due, (list, tuple))
+        and len(due) == 2
+        and all(type(n) is int and n >= 0 for n in due)
+    ):
+        refuse("resend_due is not a pair of nonnegative integers")
     key = record.get("key")
     if key is not None and record.get("key_fingerprint") != key_fingerprint(key):
         refuse("the stored fingerprint does not match the stored key")

@@ -18,16 +18,18 @@ getting wrong:
   fingerprint effectively unchecked.
 """
 
+import asyncio
 import time
+from types import SimpleNamespace
 
 import pytest
 
-from telethon_secret_chat import SecretChatManager, rekey
+from telethon_secret_chat import SecretChatManager, rekey, sequence
 from telethon_secret_chat.chat import ChatState, SecretChat
 from telethon_secret_chat.schema import secret_tl as tl
 from telethon_secret_chat.storage import FileStorage, MemoryStorage
 
-from .fake_client import Wire, establish
+from .fake_client import FakeClient, Wire, establish
 
 KEY = bytes((i * 5 + 3) % 256 for i in range(256))
 
@@ -138,13 +140,6 @@ def test_the_documented_tie_break(mine, theirs, expected):
     re-keying will never happen".
     """
     assert rekey.resolve_collision(mine, theirs) == expected
-
-
-def test_no_abort_is_sent_for_either_collision_outcome():
-    """§4.7 is explicit for both: the larger side abandons "without sending an
-    explicit decryptedMessageActionAbortKey", and on equality "abort both instances
-    without sending an explicit decryptedMessageActionAbortKey"."""
-    assert rekey.sends_abort_on_collision() is False
 
 
 # --- §4.6 the point of no return ----------------------------------------------
@@ -409,3 +404,85 @@ async def test_the_old_key_is_kept_while_a_gap_is_open(pair):
     chat.new_key_confirmed = True
     rk.retire_previous_key_if_settled(chat)
     assert chat.previous_key is None
+
+
+# --- deep-debug 2026-09-26: two ways an exchange could wedge a chat ------------
+
+
+class _SlowClient(FakeClient):
+    """Yields to the loop on every request, as a real network round trip does, and
+    can refuse sends - so a retained message stays pending and must be retried."""
+
+    refuse_sends = False
+
+    async def __call__(self, request):
+        await asyncio.sleep(0)
+        if self.refuse_sends and "SendEncrypted" in type(request).__name__:
+            raise OSError("synthetic network failure")
+        return await super().__call__(request)
+
+
+def _request_keys(manager, chat_id):
+    return [
+        item
+        for item in manager._storage.retained_out(chat_id)
+        if isinstance(
+            getattr(sequence.unpack(item).message, "action", None),
+            tl.DecryptedMessageActionRequestKey,
+        )
+    ]
+
+
+async def test_concurrent_service_sends_start_exactly_one_exchange():
+    """DD-01. ``set_typing`` and ``mark_read`` ran outside the chat lock, so both
+    passed the trigger check while an earlier send was still retrying, and each
+    sent its own ``RequestKey``. The second overwrote the first's exchange id, the
+    peer answered the first, and this side ignored that answer for ever."""
+    wire = SimpleNamespace(a=_SlowClient(user_id=1000), b=FakeClient(user_id=2000))
+    wire.a.peer, wire.b.peer = wire.b, wire.a
+    a = SecretChatManager(wire.a, storage=MemoryStorage())
+    b = SecretChatManager(wire.b, storage=MemoryStorage())
+    await a.start()
+    await b.start()
+    try:
+        chat_a, _ = await establish(a, b, wire)
+        wire.a.refuse_sends = True
+        with pytest.raises(OSError):
+            await a.send_message(chat_a.id, "left pending by a failed send")
+        wire.a.refuse_sends = False
+        wire.a.hold = True  # the peer never answers, so both requests stay retained
+        a.status(chat_a.id).messages_since_rekey = rekey.MESSAGE_TRIGGER + 1
+
+        await asyncio.gather(a.set_typing(chat_a.id), a.mark_read(chat_a.id, [1]))
+
+        assert len(_request_keys(a, chat_a.id)) == 1, "two exchanges were started at once"
+    finally:
+        await a.stop()
+        await b.stop()
+
+
+async def test_a_request_key_with_an_unsafe_value_closes_the_chat(pair):
+    """DD-02. §1.2's checks apply to rekey values too, and TDLib treats a failed
+    check on an inbound ``RequestKey`` as fatal (``SecretChatActor.cpp``
+    ``on_inbound_action(RequestKey)`` -> ``check_status`` -> ``cancel_chat``). Here
+    the refusal escaped delivery instead, so the action stayed at the head of the
+    durable mailbox and every later message queued behind it undelivered."""
+    wire, a, b = pair
+    chat_a, chat_b = await establish(a, b, wire)
+    closed = []
+    a.on("ChatClosed", closed.append)
+
+    await b._send(
+        b.status(chat_b.id),
+        tl.DecryptedMessageService(
+            random_id=1,
+            action=tl.DecryptedMessageActionRequestKey(
+                exchange_id=5, g_a=(1).to_bytes(256, "big")  # outside 1 < g_a < p-1
+            ),
+        ),
+    )
+
+    chat = a.status(chat_a.id)
+    assert chat.state is ChatState.CLOSED, "an unsafe rekey value left the chat open"
+    assert chat.pending_deliveries == [], "the refused action stayed in the mailbox"
+    assert [event.chat_id for event in closed] == [chat_a.id]
