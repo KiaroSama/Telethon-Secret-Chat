@@ -42,7 +42,7 @@ try {
         throw 'Invalid media directory'
     }
     $target = if ($Only) { $Only.Replace('\', '/') } else { 'tests/interop' }
-    if ($target -notmatch '^tests/interop(?:/test_live_(?:roundtrip|media)\.py(?:::[A-Za-z_][A-Za-z0-9_]*)?)?$') {
+    if ($target -notmatch '^tests/interop(?:/test_live_(?:roundtrip|media|rekey)\.py(?:::[A-Za-z_][A-Za-z0-9_]*)?)?$') {
         $failure = 'Only must select this repository''s live interop tier, not arbitrary pytest arguments.'
         throw 'Invalid selector'
     }
@@ -95,7 +95,7 @@ try {
     $cases = @($xml.SelectNodes('//testcase'))
     if (-not $cases.Count) { throw 'No executed cases' }
     foreach ($case in $cases) {
-        if ($case.classname -notmatch '^tests\.interop\.test_live_(roundtrip|media)$' -or
+        if ($case.classname -notmatch '^tests\.interop\.test_live_(roundtrip|media|rekey)$' -or
             $case.SelectSingleNode('skipped|failure|error')) { throw 'Invalid test evidence' }
     }
     Write-InteropLog INFO ("The selected {0} live case(s) passed; record this exact selection and media coverage." -f $cases.Count)

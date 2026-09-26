@@ -14,6 +14,7 @@ LIVE_SKIPS = {
     "tests.interop.test_live_roundtrip::test_closing_here_is_seen_as_closed_here",
     "tests.interop.test_live_media::test_every_media_kind_is_sent_and_opens_on_the_far_side",
     "tests.interop.test_live_media::test_a_file_from_the_far_side_decrypts_and_is_written",
+    "tests.interop.test_live_rekey::test_a_rekey_started_here_is_accepted_by_the_official_client",
 }
 
 
@@ -30,7 +31,9 @@ def case_set(path: Path):
         if case.find("skipped") is not None:
             skipped.add(identity)
     if skipped != LIVE_SKIPS:
-        raise ValueError("skips differ from the five explicitly unexecuted live cases")
+        raise ValueError(
+            f"skips differ from the {len(LIVE_SKIPS)} explicitly unexecuted live cases"
+        )
     if not cases - skipped:
         raise ValueError("a matrix leg executed no offline tests")
     log.debug("Validated %d cases from one matrix leg", len(cases))
