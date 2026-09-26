@@ -73,7 +73,11 @@ def _read_vector(r, read_item):
     marker = r.read_int(signed=False)
     if marker != 0x1CB5C415:
         raise ValueError("expected a vector")
-    return [read_item() for _ in range(r.read_int())]
+    count = r.read_int()
+    # Every element supported by this schema consumes at least four bytes.
+    if count < 0 or count > (len(r.get_bytes()) - r.tell_position()) // 4:
+        raise ValueError("invalid vector length")
+    return [read_item() for _ in range(count)]
 
 
 def read_object(r):
@@ -144,7 +148,7 @@ class DecryptedMessage_1f814f1f(SecretTLObject):
     def from_reader(cls, r):
         random_id = r.read_long()
         random_bytes = r.tgread_bytes()
-        message = r.tgread_string()
+        message = r.tgread_bytes().decode("utf-8")
         media = read_object(r)
         return cls(random_id=random_id, random_bytes=random_bytes, message=message, media=media)
 
@@ -343,9 +347,9 @@ class DecryptedMessageMediaContact(SecretTLObject):
 
     @classmethod
     def from_reader(cls, r):
-        phone_number = r.tgread_string()
-        first_name = r.tgread_string()
-        last_name = r.tgread_string()
+        phone_number = r.tgread_bytes().decode("utf-8")
+        first_name = r.tgread_bytes().decode("utf-8")
+        last_name = r.tgread_bytes().decode("utf-8")
         user_id = r.read_int()
         return cls(
             phone_number=phone_number, first_name=first_name, last_name=last_name, user_id=user_id
@@ -413,8 +417,8 @@ class DecryptedMessageMediaDocument_b095434b(SecretTLObject):
         thumb = r.tgread_bytes()
         thumb_w = r.read_int()
         thumb_h = r.read_int()
-        file_name = r.tgread_string()
-        mime_type = r.tgread_string()
+        file_name = r.tgread_bytes().decode("utf-8")
+        mime_type = r.tgread_bytes().decode("utf-8")
         size = r.read_int()
         key = r.tgread_bytes()
         iv = r.tgread_bytes()
@@ -565,7 +569,7 @@ class DecryptedMessage_204d3878(SecretTLObject):
     def from_reader(cls, r):
         random_id = r.read_long()
         ttl = r.read_int()
-        message = r.tgread_string()
+        message = r.tgread_bytes().decode("utf-8")
         media = read_object(r)
         return cls(random_id=random_id, ttl=ttl, message=message, media=media)
 
@@ -641,7 +645,7 @@ class DecryptedMessageMediaVideo_524a415d(SecretTLObject):
         thumb_w = r.read_int()
         thumb_h = r.read_int()
         duration = r.read_int()
-        mime_type = r.tgread_string()
+        mime_type = r.tgread_bytes().decode("utf-8")
         w = r.read_int()
         h = r.read_int()
         size = r.read_int()
@@ -685,7 +689,7 @@ class DecryptedMessageMediaAudio(SecretTLObject):
     @classmethod
     def from_reader(cls, r):
         duration = r.read_int()
-        mime_type = r.tgread_string()
+        mime_type = r.tgread_bytes().decode("utf-8")
         size = r.read_int()
         key = r.tgread_bytes()
         iv = r.tgread_bytes()
@@ -1194,7 +1198,7 @@ class DocumentAttributeFilename(SecretTLObject):
 
     @classmethod
     def from_reader(cls, r):
-        file_name = r.tgread_string()
+        file_name = r.tgread_bytes().decode("utf-8")
         return cls(file_name=file_name)
 
 
@@ -1213,7 +1217,7 @@ class PhotoSizeEmpty(SecretTLObject):
 
     @classmethod
     def from_reader(cls, r):
-        type = r.tgread_string()
+        type = r.tgread_bytes().decode("utf-8")
         return cls(type=type)
 
 
@@ -1240,7 +1244,7 @@ class PhotoSize(SecretTLObject):
 
     @classmethod
     def from_reader(cls, r):
-        type = r.tgread_string()
+        type = r.tgread_bytes().decode("utf-8")
         location = read_object(r)
         w = r.read_int()
         h = r.read_int()
@@ -1271,7 +1275,7 @@ class PhotoCachedSize(SecretTLObject):
 
     @classmethod
     def from_reader(cls, r):
-        type = r.tgread_string()
+        type = r.tgread_bytes().decode("utf-8")
         location = read_object(r)
         w = r.read_int()
         h = r.read_int()
@@ -1377,7 +1381,7 @@ class DecryptedMessageMediaExternalDocument(SecretTLObject):
         id = r.read_long()
         access_hash = r.read_long()
         date = r.read_int()
-        mime_type = r.tgread_string()
+        mime_type = r.tgread_bytes().decode("utf-8")
         size = r.read_int()
         thumb = read_object(r)
         dc_id = r.read_int()
@@ -1447,10 +1451,10 @@ class DecryptedMessage_36b091de(SecretTLObject):
         flags = r.read_int()
         random_id = r.read_long()
         ttl = r.read_int()
-        message = r.tgread_string()
+        message = r.tgread_bytes().decode("utf-8")
         media = read_object(r) if flags & (1 << 9) else None
         entities = _read_vector(r, lambda: read_object(r)) if flags & (1 << 7) else None
-        via_bot_name = r.tgread_string() if flags & (1 << 11) else None
+        via_bot_name = r.tgread_bytes().decode("utf-8") if flags & (1 << 11) else None
         reply_to_random_id = r.read_long() if flags & (1 << 3) else None
         return cls(
             random_id=random_id,
@@ -1513,7 +1517,7 @@ class DecryptedMessageMediaPhoto(SecretTLObject):
         size = r.read_int()
         key = r.tgread_bytes()
         iv = r.tgread_bytes()
-        caption = r.tgread_string()
+        caption = r.tgread_bytes().decode("utf-8")
         return cls(
             thumb=thumb,
             thumb_w=thumb_w,
@@ -1579,13 +1583,13 @@ class DecryptedMessageMediaVideo(SecretTLObject):
         thumb_w = r.read_int()
         thumb_h = r.read_int()
         duration = r.read_int()
-        mime_type = r.tgread_string()
+        mime_type = r.tgread_bytes().decode("utf-8")
         w = r.read_int()
         h = r.read_int()
         size = r.read_int()
         key = r.tgread_bytes()
         iv = r.tgread_bytes()
-        caption = r.tgread_string()
+        caption = r.tgread_bytes().decode("utf-8")
         return cls(
             thumb=thumb,
             thumb_w=thumb_w,
@@ -1649,12 +1653,12 @@ class DecryptedMessageMediaDocument_7afe8ae2(SecretTLObject):
         thumb = r.tgread_bytes()
         thumb_w = r.read_int()
         thumb_h = r.read_int()
-        mime_type = r.tgread_string()
+        mime_type = r.tgread_bytes().decode("utf-8")
         size = r.read_int()
         key = r.tgread_bytes()
         iv = r.tgread_bytes()
         attributes = _read_vector(r, lambda: read_object(r))
-        caption = r.tgread_string()
+        caption = r.tgread_bytes().decode("utf-8")
         return cls(
             thumb=thumb,
             thumb_w=thumb_w,
@@ -1685,7 +1689,7 @@ class DocumentAttributeSticker(SecretTLObject):
 
     @classmethod
     def from_reader(cls, r):
-        alt = r.tgread_string()
+        alt = r.tgread_bytes().decode("utf-8")
         stickerset = read_object(r)
         return cls(alt=alt, stickerset=stickerset)
 
@@ -1710,8 +1714,8 @@ class DocumentAttributeAudio_ded218e0(SecretTLObject):
     @classmethod
     def from_reader(cls, r):
         duration = r.read_int()
-        title = r.tgread_string()
-        performer = r.tgread_string()
+        title = r.tgread_bytes().decode("utf-8")
+        performer = r.tgread_bytes().decode("utf-8")
         return cls(duration=duration, title=title, performer=performer)
 
 
@@ -1934,7 +1938,7 @@ class MessageEntityPre(SecretTLObject):
     def from_reader(cls, r):
         offset = r.read_int()
         length = r.read_int()
-        language = r.tgread_string()
+        language = r.tgread_bytes().decode("utf-8")
         return cls(offset=offset, length=length, language=language)
 
 
@@ -1959,7 +1963,7 @@ class MessageEntityTextUrl(SecretTLObject):
     def from_reader(cls, r):
         offset = r.read_int()
         length = r.read_int()
-        url = r.tgread_string()
+        url = r.tgread_bytes().decode("utf-8")
         return cls(offset=offset, length=length, url=url)
 
 
@@ -1978,7 +1982,7 @@ class InputStickerSetShortName(SecretTLObject):
 
     @classmethod
     def from_reader(cls, r):
-        short_name = r.tgread_string()
+        short_name = r.tgread_bytes().decode("utf-8")
         return cls(short_name=short_name)
 
 
@@ -2029,10 +2033,10 @@ class DecryptedMessageMediaVenue(SecretTLObject):
     def from_reader(cls, r):
         lat = r.read_double()
         long = r.read_double()
-        title = r.tgread_string()
-        address = r.tgread_string()
-        provider = r.tgread_string()
-        venue_id = r.tgread_string()
+        title = r.tgread_bytes().decode("utf-8")
+        address = r.tgread_bytes().decode("utf-8")
+        provider = r.tgread_bytes().decode("utf-8")
+        venue_id = r.tgread_bytes().decode("utf-8")
         return cls(
             lat=lat, long=long, title=title, address=address, provider=provider, venue_id=venue_id
         )
@@ -2053,7 +2057,7 @@ class DecryptedMessageMediaWebPage(SecretTLObject):
 
     @classmethod
     def from_reader(cls, r):
-        url = r.tgread_string()
+        url = r.tgread_bytes().decode("utf-8")
         return cls(url=url)
 
 
@@ -2092,8 +2096,8 @@ class DocumentAttributeAudio(SecretTLObject):
         flags = r.read_int()
         voice = bool(flags & (1 << 10))
         duration = r.read_int()
-        title = r.tgread_string() if flags & (1 << 0) else None
-        performer = r.tgread_string() if flags & (1 << 1) else None
+        title = r.tgread_bytes().decode("utf-8") if flags & (1 << 0) else None
+        performer = r.tgread_bytes().decode("utf-8") if flags & (1 << 1) else None
         waveform = r.tgread_bytes() if flags & (1 << 2) else None
         return cls(
             voice=voice, duration=duration, title=title, performer=performer, waveform=waveform
@@ -2232,10 +2236,10 @@ class DecryptedMessage(SecretTLObject):
         silent = bool(flags & (1 << 5))
         random_id = r.read_long()
         ttl = r.read_int()
-        message = r.tgread_string()
+        message = r.tgread_bytes().decode("utf-8")
         media = read_object(r) if flags & (1 << 9) else None
         entities = _read_vector(r, lambda: read_object(r)) if flags & (1 << 7) else None
-        via_bot_name = r.tgread_string() if flags & (1 << 11) else None
+        via_bot_name = r.tgread_bytes().decode("utf-8") if flags & (1 << 11) else None
         reply_to_random_id = r.read_long() if flags & (1 << 3) else None
         grouped_id = r.read_long() if flags & (1 << 17) else None
         return cls(
@@ -2366,12 +2370,12 @@ class DecryptedMessageMediaDocument(SecretTLObject):
         thumb = r.tgread_bytes()
         thumb_w = r.read_int()
         thumb_h = r.read_int()
-        mime_type = r.tgread_string()
+        mime_type = r.tgread_bytes().decode("utf-8")
         size = r.read_long()
         key = r.tgread_bytes()
         iv = r.tgread_bytes()
         attributes = _read_vector(r, lambda: read_object(r))
-        caption = r.tgread_string()
+        caption = r.tgread_bytes().decode("utf-8")
         return cls(
             thumb=thumb,
             thumb_w=thumb_w,
@@ -2449,7 +2453,7 @@ class JsonObjectValue(SecretTLObject):
 
     @classmethod
     def from_reader(cls, r):
-        key = r.tgread_string()
+        key = r.tgread_bytes().decode("utf-8")
         value = read_object(r)
         return cls(key=key, value=value)
 
@@ -2525,7 +2529,7 @@ class JsonString(SecretTLObject):
 
     @classmethod
     def from_reader(cls, r):
-        value = r.tgread_string()
+        value = r.tgread_bytes().decode("utf-8")
         return cls(value=value)
 
 
@@ -2593,7 +2597,7 @@ class TextWithEntities(SecretTLObject):
 
     @classmethod
     def from_reader(cls, r):
-        text = r.tgread_string()
+        text = r.tgread_bytes().decode("utf-8")
         entities = _read_vector(r, lambda: read_object(r))
         return cls(text=text, entities=entities)
 

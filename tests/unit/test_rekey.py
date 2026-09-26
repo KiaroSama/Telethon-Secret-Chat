@@ -405,4 +405,7 @@ async def test_the_old_key_is_kept_while_a_gap_is_open(pair):
     assert chat.previous_key is not None
     chat.gap_requested = False
     rk.retire_previous_key_if_settled(chat)
+    assert chat.previous_key is not None  # The initiator still needs new-key confirmation.
+    chat.new_key_confirmed = True
+    rk.retire_previous_key_if_settled(chat)
     assert chat.previous_key is None

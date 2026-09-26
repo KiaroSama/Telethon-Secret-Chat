@@ -7,35 +7,40 @@ Output: ``telethon_secret_chat/schema/secret_tl.py`` - generated, and the one fi
         exempt from the 800-line ceiling.
 
 Run it with ``uv run --locked python tools/generate_schema.py`` after re-fetching
-the schema. It is a build tool, not part of the shipped package.
+ the schema; ``--check`` writes nothing and exits 1 if the tracked module drifted.
+ It is a build tool, not part of the shipped package.
 
 Why generate rather than hand-write: a constructor id is the CRC32 of a
-declaration, and a digit wrong in one of ninety of them is a message the peer
-silently cannot parse. The published line is copied once; every id, every field
-order and every flag position is derived from it mechanically.
+ declaration, and a digit wrong in one of ninety of them is a message the peer
+ silently cannot parse. The published line is copied once; every id, every field
+ order and every flag position is derived from it mechanically.
 
 Why our own classes rather than Telethon's: Telethon ships the OUTER encrypted
-types (``EncryptedChat``, ``messages.sendEncrypted``) but none of the ``Decrypted*``
-schema, and the cloud types this schema reuses are pinned here at ids that have
-since moved in the API schema - ``photoSize#77bfb61b`` against the current API's
-``photoSize#75c78e60``, for one. Reading a secret chat through Telethon's registry
-would decode those against whatever the API schema says today. So the registry is
-ours, keyed by the ids on this page, and Telethon's global ``tlobjects`` is never
-mutated - the archived package's ``patch_tlobjects()`` was a process-wide side
-effect this package does not need.
+ types (``EncryptedChat``, ``messages.sendEncrypted``) but none of the ``Decrypted*``
+ schema, and the cloud types this schema reuses are pinned here at ids that have
+ since moved in the API schema - ``photoSize#77bfb61b`` against the current API's
+ ``photoSize#75c78e60``, for one. Reading a secret chat through Telethon's registry
+ would decode those against whatever the API schema says today. So the registry is
+ ours, keyed by the ids on this page, and Telethon's global ``tlobjects`` is never
+ mutated - the archived package's ``patch_tlobjects()`` was a process-wide side
+ effect this package does not need.
 
 NAMING. A TL name is reused across layers with a different id each time
-(``decryptedMessage`` exists three times). The LAST declaration on the page is the
-current one and takes the clean class name; earlier ones are suffixed with their
-id. Names are cosmetic - dispatch is by constructor id - so this only decides what
-the package's own code types when it builds a message, and those are all current.
+ (``decryptedMessage`` exists three times). The LAST declaration on the page is the
+ current one and takes the clean class name; earlier ones are suffixed with their
+ id. Names are cosmetic - dispatch is by constructor id - so this only decides what
+ the package's own code types when it builds a message, and those are all current.
 """
 
 from __future__ import annotations
 
+import argparse
+import logging
+import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import List, NamedTuple, Optional
 
@@ -125,7 +130,7 @@ READ = {
     "double": "r.read_double()",
     "int128": "r.read_large_int(bits=128)",
     "int256": "r.read_large_int(bits=256)",
-    "string": "r.tgread_string()",
+    "string": 'r.tgread_bytes().decode("utf-8")',
     "bytes": "r.tgread_bytes()",
     "Bool": "r.tgread_bool()",
 }
@@ -316,7 +321,11 @@ def _read_vector(r, read_item):
     marker = r.read_int(signed=False)
     if marker != 0x1CB5C415:
         raise ValueError("expected a vector")
-    return [read_item() for _ in range(r.read_int())]
+    count = r.read_int()
+    # Every element supported by this schema consumes at least four bytes.
+    if count < 0 or count > (len(r.get_bytes()) - r.tell_position()) // 4:
+        raise ValueError("invalid vector length")
+    return [read_item() for _ in range(count)]
 
 
 def read_object(r):
@@ -365,17 +374,54 @@ class SecretTLObject:
 '''
 
 
-def main() -> int:
+def render(ctors: List[Ctor]) -> bytes:
+    """The formatted module, produced beside TARGET and never written over it.
+
+    Formatted here rather than left to a human: CI runs `black --check .` over
+    everything, so a generated file that is not already black-clean turns
+    "regenerate the schema" into a two-step ritual someone will half-remember. The
+    temporary file sits in TARGET's directory so black reads the project's config.
+    """
+    handle, name = tempfile.mkstemp(dir=TARGET.parent, prefix=".secret_tl-", suffix=".py")
+    temporary = Path(name)
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as out:
+            out.write(emit(ctors))
+        subprocess.run([sys.executable, "-m", "black", "-q", str(temporary)], check=True)
+        return temporary.read_bytes()
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--check", action="store_true", help="write nothing; exit 1 if the module has drifted"
+    )
+    args = parser.parse_args(argv)
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+    logging.debug("Reading the tracked schema input")
     ctors = parse(SCHEMA.read_text(encoding="utf-8"))
     if not ctors:
-        print("no constructors parsed - is the schema file intact?", file=sys.stderr)
+        logging.error("No constructors parsed; the tracked schema may be incomplete")
         return 1
-    TARGET.write_text(emit(ctors), encoding="utf-8", newline="\n")
-    # Formatted here rather than left to a human: CI runs `black --check .` over
-    # everything, so a generated file that is not already black-clean turns
-    # "regenerate the schema" into a two-step ritual someone will half-remember.
-    subprocess.run([sys.executable, "-m", "black", "-q", str(TARGET)], check=True)
-    print(f"generated {TARGET.relative_to(ROOT)}: {len(ctors)} constructors")
+    generated = render(ctors)
+    if args.check:
+        if not TARGET.exists() or TARGET.read_bytes() != generated:
+            logging.error("%s is not what the schema generates; regenerate it", TARGET.name)
+            return 1
+        logging.info("%s matches the schema (%d constructors)", TARGET.name, len(ctors))
+        return 0
+    # Replaced only once formatting has succeeded, so a failure leaves the old module.
+    handle, name = tempfile.mkstemp(dir=TARGET.parent, prefix=".secret_tl-", suffix=".tmp")
+    try:
+        with os.fdopen(handle, "wb") as out:
+            out.write(generated)
+        os.replace(name, TARGET)
+    except BaseException:
+        Path(name).unlink(missing_ok=True)
+        raise
+    logging.info("Generated %s with %d constructors", TARGET.relative_to(ROOT), len(ctors))
     return 0
 
 

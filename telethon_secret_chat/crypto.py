@@ -79,6 +79,14 @@ def _check_x(x: int) -> None:
         raise ValueError("x must be 0 or 8: protocol-reference.md §2.5")
 
 
+def _check_key(shared_key: bytes) -> None:
+    """§1.4 pads every shared key to exactly 256 bytes. A shorter or longer one is a
+    damaged record, and deriving from it would produce a frame no peer can read -
+    refused before any cipher work rather than sent."""
+    if len(shared_key) != KEY_LENGTH:
+        raise ValueError(f"a shared key is exactly {KEY_LENGTH} bytes: protocol-reference.md §1.4")
+
+
 def compute_msg_key(shared_key: bytes, payload: bytes, x: int) -> bytes:
     """§2.3, verbatim::
 
@@ -138,6 +146,7 @@ def encrypt_frame(shared_key: bytes, body: bytes, x: int) -> bytes:
     keys the hash and §2.6 prefixes the fingerprint and the ``msg_key``.
     """
     _check_x(x)
+    _check_key(shared_key)
     payload = pad_payload(len(body).to_bytes(4, "little") + body)
     msg_key = compute_msg_key(shared_key, payload, x)
     aes_key, aes_iv = derive_keys(shared_key, msg_key, x)
@@ -157,6 +166,7 @@ def decrypt_frame(shared_key: bytes, frame: bytes, x: int, *, chat_id: int | Non
     and the chat's counters, and they live in ``sequence.py`` (§3.4-§3.6).
     """
     _check_x(x)
+    _check_key(shared_key)
 
     # Check 1: the fingerprint names a key we hold. Cheap, and it is what lets a
     # receiver pick between the current and the previous key during a rekey (§4.5).

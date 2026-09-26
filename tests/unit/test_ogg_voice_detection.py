@@ -21,19 +21,65 @@ import pytest
 from telethon_secret_chat import files, ogg_tags
 
 
-def _ogg(*comments: str, codec: bytes = b"OpusHead") -> bytes:
-    """An Ogg first page, framed the way the format frames it.
+def _lacing(length: int, complete: bool = True) -> list:
+    """xiph framing.html: 255 means the packet continues; a value below 255 ends it,
+    so a packet whose length is a multiple of 255 ends with a 0."""
+    if not complete:
+        assert length % 255 == 0, "a continuing part must fill whole segments"
+        return [255] * (length // 255)
+    return [255] * (length // 255) + [length % 255]
+
+
+def _page(*parts, flags: int = 0, serial: int = 1, sequence: int = 0, version: int = 0) -> bytes:
+    """One Ogg page: 27-byte header, segment table, body. ``parts`` are
+    ``(bytes, complete)`` packet pieces. CRC is left zero: nothing here checks it."""
+    lacing = bytes(v for data, complete in parts for v in _lacing(len(data), complete))
+    assert len(lacing) <= 255
+    return (
+        b"OggS"
+        + bytes([version, flags])
+        + bytes(8)
+        + serial.to_bytes(4, "little")
+        + sequence.to_bytes(4, "little")
+        + bytes(4)
+        + bytes([len(lacing)])
+        + lacing
+        + b"".join(data for data, _ in parts)
+    )
+
+
+def _comment_packet(*comments: str, codec: bytes = b"OpusHead") -> bytes:
+    """The comment header: vendor, count, then length-prefixed ``NAME=value``.
 
     The length prefixes matter: they are what puts a non-letter byte in front of
     every tag name, which is how `ALBUM=` is told apart from `MYALBUM=`.
     """
-    head = b"OggS" + b"\x00" * 24 + codec + b"\x01\x01" + b"\x00" * 16
     magic = b"OpusTags" if codec == b"OpusHead" else b"\x03vorbis"
     block = (4).to_bytes(4, "little") + b"test" + len(comments).to_bytes(4, "little")
     for comment in comments:
         raw = comment.encode("utf-8")
         block += len(raw).to_bytes(4, "little") + raw
-    return head + magic + block
+    return magic + block + (b"\x01" if codec != b"OpusHead" else b"")
+
+
+def _ogg(*comments: str, codec: bytes = b"OpusHead", split: bool = False) -> bytes:
+    """The first pages of a real Ogg stream: an identification packet alone on the
+    BOS page, then the comment packet - on one page, or across two when ``split``."""
+    if codec == b"OpusHead":
+        ident = b"OpusHead" + b"\x01\x01" + bytes(9)
+    else:
+        ident = b"\x01vorbis" + bytes(23)
+    first = _page((ident, True), flags=0x02)
+    packet = _comment_packet(*comments, codec=codec)
+    if not split:
+        return first + _page((packet, True), sequence=1)
+    cut = 255 * (len(packet) // 255 if len(packet) % 255 else len(packet) // 255 - 1)
+    assert 0 < cut < len(packet), "split needs a comment packet longer than 255 bytes"
+    return (
+        first
+        + _page((packet[:cut], False), sequence=1)
+        + _page((packet[cut:], True), flags=0x01, sequence=2)
+    )
 
 
 def test_a_recording_with_no_music_tags_is_a_voice_note():

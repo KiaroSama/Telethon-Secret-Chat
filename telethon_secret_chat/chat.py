@@ -21,7 +21,7 @@ from enum import Enum
 from typing import Any, Dict, Optional
 
 from .crypto import KEY_LENGTH, key_fingerprint
-from .errors import ChatClosed, ChatNotReady
+from .errors import ChatClosed, ChatNotReady, StoreCorrupt
 from .framing import INITIAL_REMOTE_LAYER
 
 __all__ = ["ChatState", "SecretChat"]
@@ -118,6 +118,11 @@ class SecretChat:
         # matters is `framing.MIN_WRAPPER_LAYER`, enforced at decode.
         self.wrapper_layer = 0
         self.ttl = 0  # §5.1: 0 disables
+        self.handshake = {}  # Persisted initial-exchange scratch; never rendered.
+        self.pending_deliveries = []  # Durable receive-to-dispatch mailbox.
+        self.gap_end = None
+        self.new_key_confirmed = False
+        self.initial_key_hash = None  # Official 36-byte visual authentication hash.
 
         now = time.time()
         self.created_at = now
@@ -141,6 +146,11 @@ class SecretChat:
         share an ``aes_key``."""
         return 8 if self.is_outbound else 0
 
+    @property
+    def key_hash(self):
+        """The original 36-byte visual-verification hash, or None for legacy chats."""
+        return self.initial_key_hash
+
     # --- the state machine ----------------------------------------------------
 
     def transition_to(self, target: ChatState) -> None:
@@ -157,6 +167,12 @@ class SecretChat:
             return
         self.state = ChatState.CLOSED
         self.closed_reason = reason
+        self.key = self.key_fingerprint = None
+        self.pending_key = self.previous_key = None
+        self.exchange_id = self.exchange_secret = self.rekey_role = None
+        self.handshake = {}
+        self.pending_deliveries = []
+        self.initial_key_hash = None
 
     def require_sendable(self) -> None:
         """contracts/public-api.md §2: ``send_message`` refuses outside ready and
@@ -179,6 +195,14 @@ class SecretChat:
         """
         if len(key) != KEY_LENGTH:
             raise ValueError(f"a shared key is exactly {KEY_LENGTH} bytes: §1.4 pads it to that")
+        if self.state is ChatState.CLOSED:
+            raise ChatClosed(chat_id=self.id, reason=self.closed_reason or "already closed")
+        if self.key is None and self.initial_key_hash is None:
+            import hashlib
+
+            self.initial_key_hash = (
+                hashlib.sha1(key).digest()[:16] + hashlib.sha256(key).digest()[:20]
+            )
         self.key = key
         self.key_fingerprint = key_fingerprint(key)
         if self.state in (ChatState.REQUESTED, ChatState.PENDING):
@@ -213,6 +237,11 @@ class SecretChat:
         "admin_id",
         "participant_id",
         "closed_reason",
+        "handshake",
+        "pending_deliveries",
+        "gap_end",
+        "new_key_confirmed",
+        "initial_key_hash",
     )
 
     def to_record(self) -> Dict[str, Any]:
@@ -223,7 +252,15 @@ class SecretChat:
         return record
 
     @classmethod
-    def from_record(cls, record: Dict[str, Any]) -> "SecretChat":
+    def from_record(cls, record: Dict[str, Any], *, stored_id=None) -> "SecretChat":
+        """Rebuild a chat, refusing a record that could only fail later.
+
+        A truncated key or a fingerprint that no longer matches its key decrypts
+        nothing and looks from outside exactly like a peer problem, so it is refused
+        here, where the operator can still act. ``StoreCorrupt`` names the rule that
+        failed and never the value.
+        """
+        _validate(record, stored_id)
         chat = cls(
             id=record["id"],
             access_hash=record["access_hash"],
@@ -251,3 +288,33 @@ class SecretChat:
         )
 
     __str__ = __repr__
+
+
+_COUNTERS = ("in_seq_no", "out_seq_no", "peer_in_seq_no", "messages_since_rekey")
+
+
+def _validate(record: Dict[str, Any], stored_id) -> None:
+    chat_id = record.get("id") if isinstance(record, dict) else None
+
+    def refuse(reason: str):
+        raise StoreCorrupt(chat_id=chat_id if type(chat_id) is int else stored_id, reason=reason)
+
+    if not isinstance(record, dict) or type(chat_id) is not int:
+        refuse("a record has no integer chat id")
+    if stored_id is not None and chat_id != int(stored_id):
+        refuse("a record is filed under a different chat id")
+    if record.get("state") not in {state.value for state in ChatState}:
+        refuse("a record carries an unknown state")
+    for name in _COUNTERS:
+        value = record.get(name, 0)
+        if type(value) is not int or value < 0:
+            refuse(f"{name} is not a nonnegative integer")
+    for name in ("key", "pending_key", "previous_key"):
+        value = record.get(name)
+        if value is not None and (not isinstance(value, bytes) or len(value) != KEY_LENGTH):
+            refuse(f"{name} is not a {KEY_LENGTH}-byte key")
+    key = record.get("key")
+    if key is not None and record.get("key_fingerprint") != key_fingerprint(key):
+        refuse("the stored fingerprint does not match the stored key")
+    if key is None and record["state"] in (ChatState.READY.value, ChatState.REKEYING.value):
+        refuse("an established chat has no key")
