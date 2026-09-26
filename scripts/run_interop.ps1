@@ -1,51 +1,16 @@
 <#
 .SYNOPSIS
-    Run the interop tier without a session string ever touching your shell history.
-
+    Run real-client interop using a private .env without exposing session values.
 .DESCRIPTION
-    The tier needs four variables (tests/interop/conftest.py) and three of them are
-    already in the telegram-mcp `.env` next door. Typing a StringSession into a
-    terminal to re-supply them puts a full login into your shell history, your
-    scrollback and any terminal logging you have on - so this reads them from that
-    file into THIS process only and runs pytest. Nothing is printed, and the values
-    are never written anywhere.
-
-    It also refuses to run while the telegram-mcp server is holding the same
-    account. That is Principle I of the project constitution - one auth key, one
-    connection - and Telegram enforces it by PERMANENTLY invalidating a key used
-    from two places at once (AuthKeyDuplicatedError). Stopping the server is left
-    to you rather than done here, because it is your running service.
-
-    You are still the far end. The run prints what to do on the second account and
-    waits for it with a deadline; that is the whole point of the tier - the
-    evidence is an OFFICIAL client reading what this package wrote.
-
-.PARAMETER Account
-    Label of the account to run AS, matching TELEGRAM_SESSION_STRING_<LABEL> in the
-    telegram-mcp .env. Case-insensitive; underscores as in the variable name.
-
-.PARAMETER Peer
-    The SECOND account - username or numeric id. This is the one you operate by
-    hand during the run.
-
-.PARAMETER MediaDir
-    Optional. A directory of real video/audio samples. Without it those kinds are
-    reported as not covered rather than faked.
-
-.PARAMETER Only
-    Optional. A pytest node id, to run one case instead of the whole tier. The
-    fingerprint case needs NO human step - the peer's phone accepts the chat by
-    itself - so that one can run unattended.
-
-.PARAMETER McpRoot
-    Where to find the telegram-mcp `.env`. Defaults to the sibling checkout.
-
-.EXAMPLE
-    .\scripts\run_interop.ps1 -Account kgb_verifier -Peer @someone
+    Requires PowerShell 7 on Windows. The operator must stop every other user of
+    the selected authorization. Port 18765 is a local safety check, not proof that
+    no client on another machine uses that authorization. No service is stopped.
+    All process environment values and the working directory are restored. A
+    successful subset, skipped suite, or missing media never proves full interop.
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][string]$Account,
+    [Parameter(Mandatory = $true)][ValidatePattern('^[A-Za-z0-9_]+$')][string]$Account,
     [Parameter(Mandatory = $true)][string]$Peer,
     [string]$MediaDir,
     [string]$Only,
@@ -54,100 +19,96 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$here = Split-Path -Parent $PSScriptRoot
-
-function Fail([string]$message) {
-    Write-Host "run_interop: $message" -ForegroundColor Red
-    exit 1
+function Write-InteropLog {
+    param([ValidateSet('INFO', 'WARNING', 'ERROR', 'DEBUG')][string]$Level, [string]$Message)
+    if ($Level -eq 'DEBUG' -and $DebugPreference -eq 'SilentlyContinue') { return }
+    Write-Host ("{0:yyyy-MM-ddTHH:mm:ss.fffK} [{1}] {2}" -f [DateTimeOffset]::Now, $Level, $Message)
 }
 
-$envFile = Join-Path $McpRoot '.env'
-if (-not (Test-Path -LiteralPath $envFile)) {
-    Fail "no .env at $envFile. Pass -McpRoot with the telegram-mcp checkout."
-}
-
-# Principle I. A session connected twice is a session Telegram destroys, so this
-# is a refusal rather than a warning. The port is the server's own HTTP transport.
-$listening = Get-NetTCPConnection -LocalPort 18765 -State Listen -ErrorAction SilentlyContinue
-if ($listening) {
-    Write-Host ""
-    Write-Host "  The telegram-mcp server is running on 127.0.0.1:18765." -ForegroundColor Yellow
-    Write-Host "  It holds this account's session, and Telegram PERMANENTLY invalidates" -ForegroundColor Yellow
-    Write-Host "  an auth key used from two clients at once. Stop it, run this, start it" -ForegroundColor Yellow
-    Write-Host "  again - the launcher is $McpRoot\start-mcp.ps1." -ForegroundColor Yellow
-    Write-Host ""
-    Fail "refusing to connect a second client to a live session."
-}
-
-# Parsed here rather than with python-dotenv so nothing leaves this process. Only
-# the three names below are ever looked at; everything else in the file is ignored.
-$wanted = @{
-    ("TELEGRAM_SESSION_STRING_" + $Account.ToUpperInvariant()) = 'TSC_TEST_SESSION'
-    'TELEGRAM_API_ID'                                          = 'TSC_TEST_API_ID'
-    'TELEGRAM_API_HASH'                                        = 'TSC_TEST_API_HASH'
-}
-$found = @{}
-foreach ($line in [IO.File]::ReadAllLines($envFile, [Text.UTF8Encoding]::new($false))) {
-    $trimmed = $line.Trim()
-    if ($trimmed.StartsWith('#') -or -not $trimmed.Contains('=')) { continue }
-    $name = $trimmed.Substring(0, $trimmed.IndexOf('=')).Trim()
-    if (-not $wanted.ContainsKey($name)) { continue }
-    $value = $trimmed.Substring($trimmed.IndexOf('=') + 1).Trim().Trim('"').Trim("'")
-    if ($value) { $found[$wanted[$name]] = $value }
-}
-
-# Names only in the report. A missing one is named; a present one never is.
-$missing = @($wanted.Values | Where-Object { -not $found.ContainsKey($_) })
-if ($missing.Count -gt 0) {
-    Fail ("not in that .env: " + ($missing -join ', ') +
-        " - check the account label, which must match TELEGRAM_SESSION_STRING_<LABEL>.")
-}
-
-foreach ($pair in $found.GetEnumerator()) {
-    Set-Item -Path ("Env:" + $pair.Key) -Value $pair.Value
-}
-$env:TSC_TEST_PEER = $Peer
-if ($Nonce) { $env:TSC_TEST_NONCE = $Nonce }
-if ($MediaDir) {
-    if (-not (Test-Path -LiteralPath $MediaDir -PathType Container)) {
-        Fail "-MediaDir $MediaDir is not a directory."
-    }
-    $env:TSC_TEST_MEDIA_DIR = $MediaDir
-}
-
-Write-Host ""
-Write-Host "  Running as '$Account' against peer '$Peer'." -ForegroundColor Cyan
-Write-Host "  Have the SECOND account open in Telegram - the run prints each step" -ForegroundColor Cyan
-Write-Host "  and waits up to 3 minutes for it. Accepting the chat is automatic:" -ForegroundColor Cyan
-Write-Host "  the request reaches every device the peer has and the first to" -ForegroundColor Cyan
-Write-Host "  complete the key exchange wins, which is normally the phone." -ForegroundColor Cyan
-if (-not $MediaDir) {
-    Write-Host "  No -MediaDir: video and audio will be reported as NOT covered." -ForegroundColor DarkYellow
-}
-Write-Host ""
-
-Push-Location -LiteralPath $here
+$names = @('TSC_TEST_SESSION', 'TSC_TEST_API_ID', 'TSC_TEST_API_HASH',
+    'TSC_TEST_PEER', 'TSC_TEST_MEDIA_DIR', 'TSC_TEST_NONCE')
+$previous = @{}
+foreach ($name in $names) { $previous[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
+$changed = $false
+$pushed = $false
+$record = $null
+$code = 1
+$failure = 'Preflight validation failed; no session was started.'
 try {
-    # `-s` is not optional: the instructions are printed while the run waits for
-    # them, and capturing them buffers them past the deadline they exist to beat.
-    $target = if ($Only) { $Only } else { 'tests/interop' }
-    # `python -m pytest`, never `uv run pytest`: uv launches a console script
-    # through a trampoline that cannot canonicalize a path containing a SPACE,
-    # and this project lives in "Telethon Secret Chat". The module form does not
-    # go through it.
-    & uv run --locked python -m pytest $target -q -s
-    $code = $LASTEXITCODE
-} finally {
-    Pop-Location
-    foreach ($name in @('TSC_TEST_SESSION', 'TSC_TEST_API_ID', 'TSC_TEST_API_HASH',
-            'TSC_TEST_PEER', 'TSC_TEST_MEDIA_DIR', 'TSC_TEST_NONCE')) {
-        Remove-Item -Path ("Env:" + $name) -ErrorAction SilentlyContinue
+    $envFile = Join-Path $McpRoot '.env'
+    if (-not (Test-Path -LiteralPath $envFile -PathType Leaf)) { throw 'Missing .env' }
+    if ($MediaDir -and -not (Test-Path -LiteralPath $MediaDir -PathType Container)) {
+        $failure = 'MediaDir is not a directory; no session was started.'
+        throw 'Invalid media directory'
     }
-}
-
-if ($code -eq 0) {
-    Write-Host ""
-    Write-Host "  Interop passed. SC-001 and SC-002 now have their evidence -" -ForegroundColor Green
-    Write-Host "  record the date and this run in specs/.../tasks.md." -ForegroundColor Green
+    $target = if ($Only) { $Only.Replace('\', '/') } else { 'tests/interop' }
+    if ($target -notmatch '^tests/interop(?:/test_live_(?:roundtrip|media)\.py(?:::[A-Za-z_][A-Za-z0-9_]*)?)?$') {
+        $failure = 'Only must select this repository''s live interop tier, not arbitrary pytest arguments.'
+        throw 'Invalid selector'
+    }
+    $failure = 'Could not verify the local session-use guard; refusing to connect.'
+    $listeners = @(Get-NetTCPConnection -State Listen -ErrorAction Stop)
+    if (@($listeners | Where-Object { $_.LocalPort -eq 18765 }).Count) {
+        $failure = 'The telegram-mcp listener is active; stop its session owner before interop.'
+        throw 'Session already in use'
+    }
+    $failure = 'Could not read the required private account configuration.'
+    $wanted = @{
+        ('TELEGRAM_SESSION_STRING_' + $Account.ToUpperInvariant()) = 'TSC_TEST_SESSION'
+        'TELEGRAM_API_ID' = 'TSC_TEST_API_ID'
+        'TELEGRAM_API_HASH' = 'TSC_TEST_API_HASH'
+    }
+    $found = @{}
+    foreach ($line in [IO.File]::ReadAllLines($envFile, [Text.UTF8Encoding]::new($false))) {
+        $line = $line.Trim()
+        if ($line.StartsWith('#') -or -not $line.Contains('=')) { continue }
+        $index = $line.IndexOf('=')
+        $name = $line.Substring(0, $index).Trim()
+        if (-not $wanted.ContainsKey($name)) { continue }
+        $value = $line.Substring($index + 1).Trim()
+        if ($value.Length -ge 2 -and (($value.StartsWith('"') -and $value.EndsWith('"')) -or
+                ($value.StartsWith("'") -and $value.EndsWith("'")))) {
+            $value = $value.Substring(1, $value.Length - 2)
+        }
+        if ($value) { $found[$wanted[$name]] = $value }
+    }
+    if (@($wanted.Values | Where-Object { -not $found.ContainsKey($_) }).Count) {
+        throw 'Missing required account fields'
+    }
+    $found['TSC_TEST_PEER'] = $Peer
+    $found['TSC_TEST_MEDIA_DIR'] = if ($MediaDir) { (Resolve-Path -LiteralPath $MediaDir).Path } else { $null }
+    $found['TSC_TEST_NONCE'] = if ($Nonce) { $Nonce } else { $null }
+    $changed = $true
+    foreach ($name in $names) { [Environment]::SetEnvironmentVariable($name, $found[$name], 'Process') }
+    Write-InteropLog INFO 'Starting the selected live cases. Follow the official-client instructions.'
+    if (-not $MediaDir) { Write-InteropLog WARNING 'No real media directory: video/audio interoperability is NOT covered.' }
+    Write-InteropLog DEBUG 'Process-only configuration prepared; values are intentionally not logged.'
+    $failure = 'The test process could not complete; interoperability is not confirmed.'
+    $record = [IO.Path]::GetTempFileName()
+    Push-Location -LiteralPath (Split-Path -Parent $PSScriptRoot)
+    $pushed = $true
+    & uv run --locked python -m pytest $target -q -s "--junitxml=$record"
+    $code = $LASTEXITCODE
+    if ($code -ne 0) { throw 'Pytest did not succeed' }
+    $failure = 'The test record is missing, incomplete, skipped, or failed; interoperability is not confirmed.'
+    [xml]$xml = [IO.File]::ReadAllText($record)
+    $cases = @($xml.SelectNodes('//testcase'))
+    if (-not $cases.Count) { throw 'No executed cases' }
+    foreach ($case in $cases) {
+        if ($case.classname -notmatch '^tests\.interop\.test_live_(roundtrip|media)$' -or
+            $case.SelectSingleNode('skipped|failure|error')) { throw 'Invalid test evidence' }
+    }
+    Write-InteropLog INFO ("The selected {0} live case(s) passed; record this exact selection and media coverage." -f $cases.Count)
+    if ($Only) { Write-InteropLog WARNING 'This was a subset, not certification of the complete interop tier.' }
+    $code = 0
+} catch {
+    Write-InteropLog ERROR $failure
+    if ($code -eq 0) { $code = 1 }
+} finally {
+    if ($pushed) { Pop-Location }
+    if ($changed) {
+        foreach ($name in $names) { [Environment]::SetEnvironmentVariable($name, $previous[$name], 'Process') }
+    }
+    if ($record) { Remove-Item -LiteralPath $record -Force -ErrorAction SilentlyContinue }
 }
 exit $code

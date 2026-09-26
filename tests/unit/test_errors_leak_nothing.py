@@ -64,6 +64,7 @@ def _every_error():
         errors.StorageRequired(),
         errors.LayerUnsupported(chat_id=42, peer_layer=8),
         errors.ResendUnsatisfiable(chat_id=42, requested=(5, 9), retained_from=7),
+        errors.StoreCorrupt(chat_id=42, reason="the key does not match its fingerprint"),
     ]
 
 
