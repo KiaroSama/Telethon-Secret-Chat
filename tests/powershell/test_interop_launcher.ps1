@@ -34,6 +34,11 @@ function global:uv {
 $root = Join-Path ([IO.Path]::GetTempPath()) ('interop-launcher-' + [Guid]::NewGuid())
 New-Item -ItemType Directory -Path $root | Out-Null
 $launcher = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'scripts/run_interop.ps1'
+$logDir = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'logs'
+$logLine = '^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC\] \[(DEBUG|INFO|WARNING|ERROR)\] \[run_interop\] \S'
+$created = [Collections.Generic.List[string]]::new()
+function Get-RunLogs { @(Get-ChildItem -LiteralPath $logDir -Filter 'run_interop_*_UTC*.log' -File -ErrorAction SilentlyContinue | ForEach-Object FullName) }
+$existing = Get-RunLogs
 $names = @('TSC_TEST_SESSION', 'TSC_TEST_API_ID', 'TSC_TEST_API_HASH', 'TSC_TEST_PEER', 'TSC_TEST_MEDIA_DIR', 'TSC_TEST_NONCE')
 $before = @{}
 foreach ($name in $names) { $before[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
@@ -57,6 +62,15 @@ try {
         }
         Assert-Contract ($output -notmatch 'SYNTHETIC_NEVER_LOGIN|SYNTHETIC_HASH') 'Credential appeared in output'
         Assert-Contract ($output -notmatch 'SC-001 and SC-002 now have') 'Subset falsely claimed complete evidence'
+        # One new log file per run, never an overwrite: runs in the same second get a suffix.
+        $new = @(Get-RunLogs | Where-Object { $_ -notin $existing -and $_ -notin $created })
+        Assert-Contract ($new.Count -eq 1) ('Expected exactly one new run log for ' + $mode)
+        $created.Add($new[0])
+        $lines = [IO.File]::ReadAllLines($new[0], [Text.UTF8Encoding]::new($false, $true))
+        Assert-Contract ($lines.Count -ge 2) 'The run log records neither start nor outcome'
+        Assert-Contract (@($lines | Where-Object { $_ -notmatch $logLine }).Count -eq 0) 'A run log line is not [UTC time] [LEVEL] [run_interop] message'
+        Assert-Contract (($lines -join "`n") -notmatch 'SYNTHETIC_NEVER_LOGIN|SYNTHETIC_HASH|@synthetic') 'A private value reached the run log'
+        Assert-Contract ($lines[-1] -match ('exit code ' + $result + '$')) 'The run log does not end with the exit code'
         if ($mode -in @('guard-error', 'listener', 'bad-media', 'bad-selector')) {
             Assert-Contract ($global:InteropCalls -eq 0) 'Preflight refusal still launched a process'
         }
@@ -69,6 +83,7 @@ try {
 } finally {
     foreach ($name in $names) { [Environment]::SetEnvironmentVariable($name, $before[$name], 'Process') }
     Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+    foreach ($path in $created) { Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue }
     Remove-Item Function:global:uv, Function:global:Get-NetTCPConnection -ErrorAction SilentlyContinue
     Remove-Variable InteropMode, InteropCalls -Scope Global -ErrorAction SilentlyContinue
 }

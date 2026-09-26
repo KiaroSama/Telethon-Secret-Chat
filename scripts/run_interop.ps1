@@ -7,6 +7,8 @@
     no client on another machine uses that authorization. No service is stopped.
     All process environment values and the working directory are restored. A
     successful subset, skipped suite, or missing media never proves full interop.
+    Each run also writes logs/run_interop_YYYY-MM-DD_HH-mm-ss_UTC.log under the
+    repository root (UTF-8, one file per run, never overwritten, no secret values).
 #>
 [CmdletBinding()]
 param(
@@ -19,11 +21,41 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$started = [DateTime]::UtcNow
+$utf8 = [Text.UTF8Encoding]::new($false)
+$script:LogPath = $null
+try {
+    # Resolved from the script, not the caller's working directory.
+    $logDir = Join-Path (Split-Path -Parent $PSScriptRoot) 'logs'
+    [void][IO.Directory]::CreateDirectory($logDir)
+    $stem = 'run_interop_' + $started.ToString('yyyy-MM-dd_HH-mm-ss') + '_UTC'
+    for ($n = 1; -not $script:LogPath -and $n -le 100; $n++) {
+        $candidate = Join-Path $logDir ($(if ($n -eq 1) { $stem } else { "${stem}_$n" }) + '.log')
+        try {
+            # CreateNew never replaces an earlier run's log, even one from the same second.
+            [IO.File]::Open($candidate, [IO.FileMode]::CreateNew).Dispose()
+            $script:LogPath = $candidate
+        } catch [IO.IOException] { if (-not (Test-Path -LiteralPath $candidate)) { throw } }
+    }
+} catch {
+    $script:LogPath = $null
+}
+if (-not $script:LogPath) { Write-Host 'WARNING: no run log file could be created; logging to the console only.' }
 function Write-InteropLog {
     param([ValidateSet('INFO', 'WARNING', 'ERROR', 'DEBUG')][string]$Level, [string]$Message)
     if ($Level -eq 'DEBUG' -and $DebugPreference -eq 'SilentlyContinue') { return }
     Write-Host ("{0:yyyy-MM-ddTHH:mm:ss.fffK} [{1}] {2}" -f [DateTimeOffset]::Now, $Level, $Message)
+    if ($script:LogPath) {
+        try {
+            $line = '[{0:yyyy-MM-dd HH:mm:ss} UTC] [{1}] [run_interop] {2}' -f [DateTime]::UtcNow, $Level, $Message
+            [IO.File]::AppendAllText($script:LogPath, $line + "`n", $utf8)
+        } catch {
+            $script:LogPath = $null
+            Write-Host 'WARNING: the run log file stopped accepting writes; logging to the console only.'
+        }
+    }
 }
+Write-InteropLog INFO ('Interop launcher started; run log: ' + $(if ($script:LogPath) { $script:LogPath } else { 'none' }))
 
 $names = @('TSC_TEST_SESSION', 'TSC_TEST_API_ID', 'TSC_TEST_API_HASH',
     'TSC_TEST_PEER', 'TSC_TEST_MEDIA_DIR', 'TSC_TEST_NONCE')
@@ -87,8 +119,10 @@ try {
     $record = [IO.Path]::GetTempFileName()
     Push-Location -LiteralPath (Split-Path -Parent $PSScriptRoot)
     $pushed = $true
+    Write-InteropLog INFO ('Running pytest on {0}; media directory given: {1}' -f $target, [bool]$MediaDir)
     & uv run --locked python -m pytest $target -q -s "--junitxml=$record"
     $code = $LASTEXITCODE
+    Write-InteropLog INFO ('pytest exited with code {0}' -f $code)
     if ($code -ne 0) { throw 'Pytest did not succeed' }
     $failure = 'The test record is missing, incomplete, skipped, or failed; interoperability is not confirmed.'
     [xml]$xml = [IO.File]::ReadAllText($record)
@@ -110,5 +144,7 @@ try {
         foreach ($name in $names) { [Environment]::SetEnvironmentVariable($name, $previous[$name], 'Process') }
     }
     if ($record) { Remove-Item -LiteralPath $record -Force -ErrorAction SilentlyContinue }
+    $level = if ($code -eq 0) { 'INFO' } else { 'ERROR' }
+    Write-InteropLog $level ('Finished in {0:N1}s with exit code {1}' -f ([DateTime]::UtcNow - $started).TotalSeconds, $code)
 }
 exit $code
