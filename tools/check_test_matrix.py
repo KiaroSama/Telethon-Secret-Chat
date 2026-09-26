@@ -53,7 +53,7 @@ def check_matrix(root: Path, expected_legs):
         if reference is not None and cases != reference:
             raise ValueError("matrix legs did not collect identical testcase identities")
         reference = cases
-    log.warning("The five live Telegram cases were intentionally NOT executed")
+    log.warning("The %d live Telegram cases were intentionally NOT executed", len(LIVE_SKIPS))
     log.info("All %d matrix legs agree on %d testcases", len(records), len(reference))
 
 
