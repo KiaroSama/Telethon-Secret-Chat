@@ -48,6 +48,7 @@ __all__ = [
     "start",
     "handle",
     "MESSAGE_TRIGGER",
+    "PROTOCOL_ACTIONS",
     "AGE_TRIGGER",
 ]
 
@@ -57,6 +58,17 @@ __all__ = [
 # last_timestamp + 60 * 60 * 24 * 7 < Time::now()`.
 MESSAGE_TRIGGER = 100
 AGE_TRIGGER = 7 * 24 * 60 * 60
+
+#: The exchange's own messages. They never evaluate the trigger: a RequestKey is
+#: itself sent as a service action, and letting it re-check would start a second
+#: exchange from inside the first.
+PROTOCOL_ACTIONS = (
+    tl.DecryptedMessageActionRequestKey,
+    tl.DecryptedMessageActionAcceptKey,
+    tl.DecryptedMessageActionCommitKey,
+    tl.DecryptedMessageActionAbortKey,
+    tl.DecryptedMessageActionNoop,
+)
 
 
 def should_rekey(chat, now: float) -> bool:
@@ -83,7 +95,7 @@ def new_exchange_id() -> int:
     bits from the non-cryptographic ``random`` module - which makes both the
     collision assumption and the unpredictability false.
     """
-    return secrets.randbits(63) - (1 << 62)
+    return secrets.randbits(64) - (1 << 63)
 
 
 def resolve_collision(mine: int, theirs: int) -> str:
@@ -153,7 +165,9 @@ def adopt_new_key(chat, key: bytes) -> None:
     chat.adopt_key(key)
     chat.pending_key = None
     chat.exchange_id = None
+    chat.exchange_secret = None
     chat.rekey_role = None
+    chat.new_key_confirmed = False
     chat.rekeyed_at = time.time()
     chat.messages_since_rekey = 0
 
@@ -169,7 +183,7 @@ def retire_previous_key_if_settled(chat) -> None:
     written before the switch may still arrive, and it can only be read with the key
     that is about to be thrown away.
     """
-    if chat.previous_key is not None and not chat.gap_requested:
+    if chat.previous_key is not None and chat.new_key_confirmed and not chat.gap_requested:
         retire_previous_key(chat)
 
 
@@ -182,26 +196,23 @@ def retire_previous_key(chat) -> None:
 
 
 async def start(manager, chat) -> None:
-    """§4.2: A sends ``RequestKey``.
-
-    "Note that the same Diffie-Hellman parameters (p,g) as for the initial
-    Diffie-Hellman key exchange in this secret chat are used. They do not need to be
-    re-transmitted explicitly" - which is why the chat persists them, and why a
-    restart mid-exchange can still finish (the spec's edge case).
-    """
-    if chat.exchange_id is not None:
+    """Publish the request, secret and outbox record in one durable transition."""
+    if chat.exchange_id is not None or chat.previous_key is not None:
         return
-    chat.exchange_id = new_exchange_id()
-    chat.exchange_secret = handshake.generate_secret()
-    chat.rekey_role = "requested"
-    g_a = handshake.public_value(chat.dh_g, chat.exchange_secret, chat.dh_prime)
-    if chat.state.value == "ready":
-        chat.transition_to(type(chat.state).REKEYING)
+    exchange_id = new_exchange_id()
+    secret = handshake.generate_secret()
+    g_a = handshake.public_value(chat.dh_g, secret, chat.dh_prime)
+
+    def prepared():
+        chat.exchange_id = exchange_id
+        chat.exchange_secret = secret
+        chat.rekey_role = "requested"
+        chat.state = type(chat.state).REKEYING
+
     await manager._send_action(
         chat,
-        tl.DecryptedMessageActionRequestKey(
-            exchange_id=chat.exchange_id, g_a=g_a.to_bytes(256, "big")
-        ),
+        tl.DecryptedMessageActionRequestKey(exchange_id=exchange_id, g_a=g_a.to_bytes(256, "big")),
+        after_prepare=prepared,
     )
 
 
@@ -229,37 +240,39 @@ async def handle(manager, chat, action):
 
 
 async def _on_request(manager, chat, action) -> None:
-    """§4.3: B answers with ``AcceptKey`` - or applies §4.7's tie-break first."""
+    """Only simultaneous *requests* are eligible for the signed-ID tie break."""
+    if chat.previous_key is not None:
+        return
     if chat.exchange_id is not None:
+        if chat.rekey_role != "requested":
+            return  # An accepted exchange cannot be abandoned or overwritten.
         outcome = resolve_collision(chat.exchange_id, action.exchange_id)
         if outcome == "abandon_theirs":
-            return  # silently, and no AbortKey (§4.7)
+            return
         if outcome == "abort_both":
             _clear(chat)
-            return  # also silently
-        # "join_theirs": drop our own instance and answer theirs, reusing nothing -
-        # a fresh secret is simpler than reusing (a, g_a) and §4.2 permits either.
-        _clear(chat)
+            return
 
     g_a = dh.value_from_bytes(action.g_a)
-    # §4.2: `a` is subject to "the same limitations as for the initial
-    # Diffie-Hellman key exchange" - so §1.2's checks apply here in full.
     b = handshake.generate_secret()
     key = handshake.shared_key(peer_value=g_a, secret=b, p=chat.dh_prime, chat_id=chat.id)
-    chat.exchange_id = action.exchange_id
-    chat.pending_key = key
-    # §4.3's point of no return: from here this side cannot abort (§4.6).
-    chat.rekey_role = "accepted"
-    if chat.state.value == "ready":
-        chat.transition_to(type(chat.state).REKEYING)
     g_b = handshake.public_value(chat.dh_g, b, chat.dh_prime)
+
+    def prepared():
+        chat.exchange_id = action.exchange_id
+        chat.exchange_secret = None
+        chat.pending_key = key
+        chat.rekey_role = "accepted"
+        chat.state = type(chat.state).REKEYING
+
     await manager._send_action(
         chat,
         tl.DecryptedMessageActionAcceptKey(
-            exchange_id=chat.exchange_id,
+            exchange_id=action.exchange_id,
             g_b=g_b.to_bytes(256, "big"),
             key_fingerprint=key_fingerprint(key),
         ),
+        after_prepare=prepared,
     )
 
 
@@ -283,18 +296,20 @@ async def _on_accept(manager, chat, action) -> None:
         return
 
     exchange_id = chat.exchange_id
-    adopt_new_key(chat, key)
-    # "After that, A can (and must) encrypt all following messages with the new key."
-    chat.rekey_role = "committed"
+
+    def prepared():
+        adopt_new_key(chat, key)
+        chat.state = type(chat.state).READY
+
+    # The commit is serialized/encrypted using the OLD key. Adoption and its
+    # exact old-key ciphertext are then persisted together, before the RPC.
     await manager._send_action(
         chat,
         tl.DecryptedMessageActionCommitKey(
             exchange_id=exchange_id, key_fingerprint=key_fingerprint(key)
         ),
+        after_prepare=prepared,
     )
-    chat.rekey_role = None
-    if chat.state.value == "rekeying":
-        chat.transition_to(type(chat.state).READY)
 
 
 async def _on_commit(manager, chat, action) -> None:
@@ -306,23 +321,35 @@ async def _on_commit(manager, chat, action) -> None:
         # ends did not derive the same key, so switching would break the chat.
         await _abort(manager, chat)
         return
-    adopt_new_key(chat, chat.pending_key)
-    if chat.state.value == "rekeying":
-        chat.transition_to(type(chat.state).READY)
-    # §4.5: "A may only discard the previous key after a message encrypted with the
-    # new key has been received. If no ordinary messages are scheduled to be sent, a
-    # special no-op message should sent by B for this purpose."
-    await manager._send_action(chat, tl.DecryptedMessageActionNoop())
+    key = chat.pending_key
+
+    def prepared():
+        adopt_new_key(chat, key)
+        chat.state = type(chat.state).READY
+        # B may retire after the authenticated CommitKey and all preceding gaps.
+        # A, unlike B, must wait for a new-key packet (the Noop below).
+        chat.new_key_confirmed = True
+
+    await manager._send_action(
+        chat,
+        tl.DecryptedMessageActionNoop(),
+        after_prepare=prepared,
+        encryption_key=key,
+    )
 
 
 async def _abort(manager, chat) -> None:
     exchange_id = chat.exchange_id
-    permitted = may_abort(chat)
-    _clear(chat)
-    if permitted and exchange_id is not None:
+    if may_abort(chat) and exchange_id is not None:
         await manager._send_action(
-            chat, tl.DecryptedMessageActionAbortKey(exchange_id=exchange_id)
+            chat,
+            tl.DecryptedMessageActionAbortKey(exchange_id=exchange_id),
+            after_prepare=lambda: _clear(chat),
         )
+    elif exchange_id is not None:
+        # After acceptance, abandoning the key would violate the protocol.
+        # A failed commit sanity check must terminate the chat instead.
+        await manager.close(chat.id, "rekey commitment failed its fingerprint check")
 
 
 def _clear(chat) -> None:

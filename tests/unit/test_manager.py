@@ -291,6 +291,7 @@ def test_the_package_exports_exactly_the_contract():
         "StorageRequired",
         "LayerUnsupported",
         "ResendUnsatisfiable",
+        "StoreCorrupt",
         "ChatRequested",
         "ChatReady",
         "ChatClosedEvent",
