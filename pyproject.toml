@@ -44,7 +44,7 @@ dev = [
     "pytest-cov>=5.0",
     "pytest-timeout>=2.3",
     "black>=24.0",
-    "flake8>=7.0",
+    "flake8>=7.4.0",
 ]
 
 [build-system]
