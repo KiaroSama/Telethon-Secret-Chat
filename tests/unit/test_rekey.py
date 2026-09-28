@@ -24,26 +24,17 @@ from types import SimpleNamespace
 
 import pytest
 
+from telethon_secret_chat.errors import SendPending
+
 from telethon_secret_chat import SecretChatManager, rekey, sequence
 from telethon_secret_chat.chat import ChatState, SecretChat
 from telethon_secret_chat.schema import secret_tl as tl
 from telethon_secret_chat.storage import FileStorage, MemoryStorage
 
+from .dh_material import SAFE_PRIME
 from .fake_client import FakeClient, Wire, establish
 
 KEY = bytes((i * 5 + 3) % 256 for i in range(256))
-
-
-@pytest.fixture
-async def pair():
-    wire = Wire()
-    a = SecretChatManager(wire.a, storage=MemoryStorage())
-    b = SecretChatManager(wire.b, storage=MemoryStorage())
-    await a.start()
-    await b.start()
-    yield wire, a, b
-    await a.stop()
-    await b.stop()
 
 
 def a_chat(**over):
@@ -223,9 +214,9 @@ async def test_an_exchange_completes_and_both_ends_agree_on_the_new_key(pair):
 
     await a.rekey(chat_a.id)
 
-    assert a.status(chat_a.id).key != before
-    assert a.status(chat_a.id).key == b.status(chat_b.id).key
-    assert a.status(chat_a.id).key_fingerprint == b.status(chat_b.id).key_fingerprint
+    assert a._entity(chat_a.id).key != before
+    assert a._entity(chat_a.id).key == b._entity(chat_b.id).key
+    assert a._entity(chat_a.id).key_fingerprint == b._entity(chat_b.id).key_fingerprint
 
 
 async def test_the_conversation_continues_after_the_exchange(pair):
@@ -240,7 +231,7 @@ async def test_the_conversation_continues_after_the_exchange(pair):
     await b.send_message(chat_b.id, "and back")
 
     assert got == ["before", "after"]
-    assert a.status(chat_a.id).state is ChatState.READY
+    assert a._entity(chat_a.id).state is ChatState.READY
 
 
 async def test_a_message_sent_mid_exchange_is_delivered(pair):
@@ -255,7 +246,7 @@ async def test_a_message_sent_mid_exchange_is_delivered(pair):
     # Hold B's replies so the exchange is genuinely in flight while A sends.
     wire.b.hold = True
     await a.rekey(chat_a.id)
-    assert a.status(chat_a.id).state is ChatState.REKEYING
+    assert a._entity(chat_a.id).state is ChatState.REKEYING
     await a.send_message(chat_a.id, "sent while rekeying")
     await wire.b.release()
 
@@ -270,10 +261,10 @@ async def test_a_peers_abort_clears_the_local_exchange(pair):
     chat_a, chat_b = await establish(a, b, wire)
     wire.b.hold = True
     await a.rekey(chat_a.id)
-    exchange_id = a.status(chat_a.id).exchange_id
+    exchange_id = a._entity(chat_a.id).exchange_id
 
     await b._send(
-        b.status(chat_b.id),
+        b._entity(chat_b.id),
         tl.DecryptedMessageService(
             random_id=1, action=tl.DecryptedMessageActionAbortKey(exchange_id=exchange_id)
         ),
@@ -281,7 +272,7 @@ async def test_a_peers_abort_clears_the_local_exchange(pair):
     wire.b.hold = False
     await wire.b.release()
 
-    chat = a.status(chat_a.id)
+    chat = a._entity(chat_a.id)
     assert chat.exchange_id is None and chat.pending_key is None
     assert chat.state is ChatState.READY, "US6 scenario 3: a stated, recoverable condition"
 
@@ -296,22 +287,22 @@ async def test_a_bad_fingerprint_in_an_accept_does_not_switch_the_key(pair):
     # honestly - the only AcceptKey A sees is the forged one below.
     wire.a.hold = True
     await a.rekey(chat_a.id)
-    before = a.status(chat_a.id).key
+    before = a._entity(chat_a.id).key
 
     await b._send(
-        b.status(chat_b.id),
+        b._entity(chat_b.id),
         tl.DecryptedMessageService(
             random_id=1,
             action=tl.DecryptedMessageActionAcceptKey(
-                exchange_id=a.status(chat_a.id).exchange_id,
+                exchange_id=a._entity(chat_a.id).exchange_id,
                 g_b=(2**2000).to_bytes(256, "big"),  # a well-formed value in range
                 key_fingerprint=1,  # that is not the fingerprint of the key it implies
             ),
         ),
     )
-    assert a.status(chat_a.id).key == before, "a mismatched fingerprint switched the key"
-    assert a.status(chat_a.id).pending_key is None
-    assert a.status(chat_a.id).state is ChatState.READY, "the chat was left mid-exchange"
+    assert a._entity(chat_a.id).key == before, "a mismatched fingerprint switched the key"
+    assert a._entity(chat_a.id).pending_key is None
+    assert a._entity(chat_a.id).state is ChatState.READY, "the chat was left mid-exchange"
 
 
 # --- T046: a restart during an exchange ---------------------------------------
@@ -330,20 +321,20 @@ async def test_a_restart_during_an_exchange_leaves_the_chat_usable(tmp_path):
 
     wire.b.hold = True
     await a.rekey(chat_a.id)
-    in_flight = a.status(chat_a.id)
+    in_flight = a._entity(chat_a.id)
     assert in_flight.state is ChatState.REKEYING and in_flight.exchange_id is not None
     await a.stop()
 
     revived = SecretChatManager(wire.a, storage=FileStorage(tmp_path / "a.db"))
     await revived.start()
-    after = revived.status(chat_a.id)
+    after = revived._entity(chat_a.id)
 
     assert after.key == in_flight.key, "the CURRENT key changed across a restart"
     assert after.exchange_id == in_flight.exchange_id, "the exchange was forgotten"
     assert after.state is ChatState.REKEYING
     # And the exchange can still finish, which is what "usable" means here.
     await wire.b.release()
-    assert revived.status(chat_a.id).state is ChatState.READY
+    assert revived._entity(chat_a.id).state is ChatState.READY
     await revived.stop()
     await b.stop()
 
@@ -363,11 +354,11 @@ async def test_the_documented_trigger_rekeys_without_being_asked(pair):
     # The state a chat is in once the key has carried more than 100 messages -
     # §4.1 is "MORE than 100", and TDLib's `last_message_id + 100 < message_id` is
     # the same strict comparison. The next send is the one that must notice.
-    a.status(chat_a.id).messages_since_rekey = rekey.MESSAGE_TRIGGER + 1
+    a._entity(chat_a.id).messages_since_rekey = rekey.MESSAGE_TRIGGER + 1
     await a.send_message(chat_a.id, "the one that notices")
 
-    assert a.status(chat_a.id).key != before, "the 100-message trigger never fired"
-    assert a.status(chat_a.id).key == b.status(chat_b.id).key
+    assert a._entity(chat_a.id).key != before, "the 100-message trigger never fired"
+    assert a._entity(chat_a.id).key == b._entity(chat_b.id).key
 
 
 async def test_the_previous_key_is_discarded_once_the_new_one_is_in_use(pair):
@@ -383,8 +374,8 @@ async def test_the_previous_key_is_discarded_once_the_new_one_is_in_use(pair):
     await b.send_message(chat_b.id, "under the new key")
     await a.send_message(chat_a.id, "and back")
 
-    assert a.status(chat_a.id).previous_key is None
-    assert b.status(chat_b.id).previous_key is None
+    assert a._entity(chat_a.id).previous_key is None
+    assert b._entity(chat_b.id).previous_key is None
 
 
 async def test_the_old_key_is_kept_while_a_gap_is_open(pair):
@@ -447,11 +438,11 @@ async def test_concurrent_service_sends_start_exactly_one_exchange():
     try:
         chat_a, _ = await establish(a, b, wire)
         wire.a.refuse_sends = True
-        with pytest.raises(OSError):
+        with pytest.raises(SendPending):
             await a.send_message(chat_a.id, "left pending by a failed send")
         wire.a.refuse_sends = False
         wire.a.hold = True  # the peer never answers, so both requests stay retained
-        a.status(chat_a.id).messages_since_rekey = rekey.MESSAGE_TRIGGER + 1
+        a._entity(chat_a.id).messages_since_rekey = rekey.MESSAGE_TRIGGER + 1
 
         await asyncio.gather(a.set_typing(chat_a.id), a.mark_read(chat_a.id, [1]))
 
@@ -473,7 +464,7 @@ async def test_a_request_key_with_an_unsafe_value_closes_the_chat(pair):
     a.on("ChatClosed", closed.append)
 
     await b._send(
-        b.status(chat_b.id),
+        b._entity(chat_b.id),
         tl.DecryptedMessageService(
             random_id=1,
             action=tl.DecryptedMessageActionRequestKey(
@@ -482,7 +473,137 @@ async def test_a_request_key_with_an_unsafe_value_closes_the_chat(pair):
         ),
     )
 
-    chat = a.status(chat_a.id)
+    chat = a._entity(chat_a.id)
     assert chat.state is ChatState.CLOSED, "an unsafe rekey value left the chat open"
     assert chat.pending_deliveries == [], "the refused action stayed in the mailbox"
     assert [event.chat_id for event in closed] == [chat_a.id]
+
+
+class _RefusingServiceSends(FakeClient):
+    """The server is unreachable for service sends: records stay pending."""
+
+    refuse = True
+
+    async def __call__(self, request):
+        from telethon.tl import functions
+
+        if self.refuse and isinstance(request, functions.messages.SendEncryptedServiceRequest):
+            self.sent.append(request)
+            raise OSError("synthetic outage")
+        return await super().__call__(request)
+
+
+async def test_flushing_history_does_not_destroy_a_pending_rekey_step():
+    """§3.8 rewrites deleted MESSAGES into self-deletes; a pending RequestKey is not
+    content, and rewriting it would leave the exchange half-open for good."""
+    from .helpers import ready_manager
+
+    manager, chat = ready_manager(_RefusingServiceSends())
+    chat.dh_prime, chat.dh_g = SAFE_PRIME, 2
+    with pytest.raises(SendPending):
+        await manager.rekey(chat.id)
+    with pytest.raises(SendPending):
+        await manager.flush_history(chat.id)
+    actions = [
+        type(sequence.unpack(item).message.action).__name__
+        for item in manager._storage.retained_out(chat.id)
+        if item.get("method") == "service"
+    ]
+    assert "DecryptedMessageActionRequestKey" in actions
+
+
+async def test_a_peer_flush_leaves_pending_service_actions_alone():
+    from .helpers import ready_manager
+
+    manager, chat = ready_manager(_RefusingServiceSends())
+    chat.dh_prime, chat.dh_g = SAFE_PRIME, 2
+    with pytest.raises(SendPending):
+        await manager.rekey(chat.id)
+    from telethon_secret_chat import actions
+
+    await actions.handle(manager, chat, tl.DecryptedMessageActionFlushHistory())
+    kinds = [
+        type(sequence.unpack(item).message.action).__name__
+        for item in manager._storage.retained_out(chat.id)
+    ]
+    assert kinds == ["DecryptedMessageActionRequestKey"]
+
+
+# --- plans/012: the branches the module was written to fix -------------------------
+
+
+async def test_both_sides_requesting_at_once_end_on_one_key(pair):
+    """§4.7 end to end: two RequestKeys cross; the tie-break leaves one exchange."""
+    wire, a, b = pair
+    chat_a, chat_b = await establish(a, b, wire)
+    wire.a.hold = wire.b.hold = True
+    await a.rekey(chat_a.id)
+    await b.rekey(chat_b.id)
+    await wire.a.release()
+    await wire.b.release()
+    ca, cb = a._chats[chat_a.id], b._chats[chat_b.id]
+    assert ca.state is cb.state is ChatState.READY
+    assert ca.key == cb.key and ca.exchange_id is cb.exchange_id is None
+    got = []
+    b.on("MessageReceived", lambda e: got.append(e.text))
+    await a.send_message(chat_a.id, "after the collision")
+    assert got == ["after the collision"]
+
+
+async def test_a_commit_with_the_wrong_fingerprint_closes_the_chat():
+    """The archived package compared bytes against an int here, so the check was dead."""
+    from .helpers import OTHER, ready_manager
+
+    manager, chat = ready_manager()
+    chat.exchange_id, chat.pending_key, chat.rekey_role = 5, OTHER, "accepted"
+    chat.state = ChatState.REKEYING
+    wrong = rekey.key_fingerprint(OTHER) ^ 1
+    await rekey.handle(
+        manager, chat, tl.DecryptedMessageActionCommitKey(exchange_id=5, key_fingerprint=wrong)
+    )
+    assert chat.state is ChatState.CLOSED
+    assert chat.closed_reason == "rekey commitment failed its fingerprint check"
+
+
+@pytest.mark.parametrize(
+    "action",
+    [
+        tl.DecryptedMessageActionAcceptKey(
+            exchange_id=12345, g_b=b"\x02" * 256, key_fingerprint=1
+        ),
+        tl.DecryptedMessageActionCommitKey(exchange_id=12345, key_fingerprint=1),
+        tl.DecryptedMessageActionAbortKey(exchange_id=12345),
+    ],
+)
+async def test_actions_for_a_foreign_exchange_are_ignored_and_not_applied(action):
+    from copy import deepcopy
+
+    from .helpers import ready_manager
+
+    manager, chat = ready_manager()
+    before = deepcopy(chat.to_record())
+    outcome = await rekey.handle(manager, chat, action)
+    assert chat.to_record() == before
+    assert outcome.applied is False
+
+
+async def test_a_request_key_while_the_previous_key_is_held_is_answered_with_abort():
+    """Silence left the peer's exchange in `requested` for ever; §4.6 allows an abort
+    before this side has sent AcceptKey."""
+    from .helpers import OTHER, ready_manager
+
+    manager, chat = ready_manager()
+    chat.previous_key = OTHER
+    chat.dh_prime, chat.dh_g = SAFE_PRIME, 2
+    await rekey.handle(
+        manager,
+        chat,
+        tl.DecryptedMessageActionRequestKey(exchange_id=77, g_a=(2**2047).to_bytes(256, "big")),
+    )
+    sent = [
+        sequence.unpack(item).message.action for item in manager._storage.retained_out(chat.id)
+    ]
+    assert any(
+        isinstance(action, tl.DecryptedMessageActionAbortKey) and action.exchange_id == 77
+        for action in sent
+    )

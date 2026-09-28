@@ -22,39 +22,16 @@ from types import SimpleNamespace
 
 import pytest
 
+from telethon_secret_chat.errors import SendPending
+
 from telethon_secret_chat import SecretChatManager, sequence
-from telethon_secret_chat.chat import ChatState, SecretChat
+from telethon_secret_chat.chat import ChatState
 from telethon_secret_chat.errors import MessageRejected
 from telethon_secret_chat.schema import secret_tl as tl
 from telethon_secret_chat.storage import MemoryStorage
 
 from .fake_client import FakeClient, establish
-
-KEY = bytes((i * 5 + 3) % 256 for i in range(256))
-
-
-def a_chat(sent=0):
-    """We are the originator, so incoming carries (in odd, out even)."""
-    chat = SecretChat(id=7, access_hash=1, peer_user_id=2, is_outbound=True)
-    chat.adopt_key(KEY)
-    chat.out_seq_no = sent  # how many WE have sent, for §3.6's D
-    return chat
-
-
-def peer_message(raw_out, text="x", raw_in=0):
-    """A message from the peer, with §3.4's transform already applied."""
-    return tl.DecryptedMessageLayer(
-        random_bytes=b"\x00" * 31,
-        layer=144,
-        in_seq_no=2 * raw_in + 1,  # the peer is the recipient: x = 1
-        out_seq_no=2 * raw_out,  # ... and x = 0 on its out
-        message=tl.DecryptedMessage(random_id=raw_out, ttl=0, message=text),
-    )
-
-
-def texts(result):
-    return [w.message.message for w in result.ready]
-
+from .helpers import a_chat, peer_message, texts
 
 # --- the ordinary case --------------------------------------------------------
 
@@ -236,7 +213,7 @@ async def test_a_resend_request_lost_before_it_was_queued_is_asked_again():
         a.on("MessageReceived", lambda event: got.append(event.text))
 
         wire.a.refuse_sends = True
-        with pytest.raises(OSError):
+        with pytest.raises(SendPending):
             await a.send_message(chat_a.id, "left pending by a failed send")
         wire.b.hold = True
         await b.send_message(chat_b.id, "m0")
@@ -271,7 +248,7 @@ async def test_a_retried_resend_request_skips_what_arrived_in_the_meantime():
         a.on("MessageReceived", lambda event: got.append(event.text))
 
         wire.a.refuse_sends = True
-        with pytest.raises(OSError):
+        with pytest.raises(SendPending):
             await a.send_message(chat_a.id, "left pending by a failed send")
         wire.b.hold = True
         await b.send_message(chat_b.id, "m0")
@@ -286,7 +263,7 @@ async def test_a_retried_resend_request_skips_what_arrived_in_the_meantime():
         await b.send_message(chat_b.id, "m3")
 
         assert got == ["m0", "m1", "m2", "m3"]
-        assert b.status(chat_b.id).state is ChatState.READY, "the peer ended the chat"
+        assert b._entity(chat_b.id).state is ChatState.READY, "the peer ended the chat"
     finally:
         await a.stop()
         await b.stop()
@@ -309,13 +286,13 @@ async def test_an_unsatisfiable_resend_request_ends_the_chat():
         b.on("ChatClosed", closed.append)
         # B is the recipient, so its own out_seq_no is even (§3.4). It never sent 200.
         await a._send(
-            a.status(chat_a.id),
+            a._entity(chat_a.id),
             tl.DecryptedMessageService(
                 random_id=1,
                 action=tl.DecryptedMessageActionResend(start_seq_no=200, end_seq_no=200),
             ),
         )
-        assert b.status(chat_b.id).state is ChatState.CLOSED
+        assert b._entity(chat_b.id).state is ChatState.CLOSED
         assert [event.reason for event in closed] == ["a resend request could not be satisfied"]
     finally:
         await a.stop()

@@ -40,6 +40,10 @@ class EventDispatch:
             except Exception:
                 log.error("secret-chat handler %s failed", self._handler_name(handler))
                 continue
+            if inspect.isawaitable(result) and self._stopping:
+                if inspect.iscoroutine(result):
+                    result.close()  # Stopping: nothing would ever await it.
+                continue
             if inspect.isawaitable(result):
                 task = asyncio.ensure_future(self._run_handler(handler, result))
                 self._handler_tasks.add(task)

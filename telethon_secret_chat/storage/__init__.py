@@ -28,6 +28,7 @@ __all__ = ["StorageBackend", "MemoryStorage", "FileStorage"]
 Record = Dict[str, Any]
 Message = Dict[str, Any]
 log = logging.getLogger("telethon_secret_chat.storage")
+TEMP_PREFIX = ".secret-chat-store-"
 
 
 class StorageBackend(ABC):
@@ -183,6 +184,11 @@ class FileStorage(MemoryStorage):
         self.path = Path(path)
         if self.path.is_symlink():
             raise ValueError("the secret-chat store must not be a symbolic link")
+        # A kill between mkstemp and os.replace leaves a full copy of every key beside
+        # the store; the prefix makes such a file ours to delete (single process).
+        if self.path.parent.is_dir():
+            for leftover in self.path.parent.glob(TEMP_PREFIX + "*.tmp"):
+                leftover.unlink(missing_ok=True)
         if self.path.exists():
             try:
                 state = json.loads(self.path.read_text(encoding="utf-8"), object_hook=self._decode)
@@ -212,7 +218,7 @@ class FileStorage(MemoryStorage):
     def _write(self) -> None:
         directory = self.path.parent
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-        handle, temporary = tempfile.mkstemp(dir=str(directory), suffix=".tmp")
+        handle, temporary = tempfile.mkstemp(dir=str(directory), prefix=TEMP_PREFIX, suffix=".tmp")
         try:
             # mkstemp is owner-only on POSIX. Apply the restriction before data.
             self._restrict(Path(temporary))

@@ -36,13 +36,13 @@ async def test_a_chat_comes_back_with_its_key_and_counters(tmp_path):
 
     await a.send_message(chat_a.id, "one")
     await a.send_message(chat_a.id, "two")
-    before = a.status(chat_a.id)
+    before = a._entity(chat_a.id)
     await a.stop()
 
     # The process ends here. Everything below is a new manager over the same file.
     revived = SecretChatManager(wire.a, storage=FileStorage(tmp_path / "a.db"))
     await revived.start()
-    after = revived.status(chat_a.id)
+    after = revived._entity(chat_a.id)
 
     assert after.key == before.key
     assert after.key_fingerprint == before.key_fingerprint
@@ -98,7 +98,7 @@ async def test_a_closed_chat_stays_closed_across_a_restart(tmp_path):
 
     revived = SecretChatManager(wire.a, storage=FileStorage(tmp_path / "a.db"))
     await revived.start()
-    assert revived.status(chat_a.id).state is ChatState.CLOSED
+    assert revived._entity(chat_a.id).state is ChatState.CLOSED
     await revived.stop()
     await b.stop()
 

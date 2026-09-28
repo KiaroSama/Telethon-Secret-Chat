@@ -3,7 +3,9 @@
 import pytest
 
 from telethon_secret_chat import ogg_tags
-from .test_ogg_voice_detection import _comment_packet, _ogg, _page
+from .helpers import comment_packet as _comment_packet
+from .helpers import ogg as _ogg
+from .helpers import page as _page
 
 
 @pytest.mark.parametrize(

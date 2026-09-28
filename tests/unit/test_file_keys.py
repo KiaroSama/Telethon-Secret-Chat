@@ -196,23 +196,6 @@ def test_the_refusal_names_no_key_and_no_content():
 # --- contracts §2: send_file and save_file (T039) -----------------------------
 
 
-@pytest.fixture
-async def pair():
-    from telethon_secret_chat import SecretChatManager
-    from telethon_secret_chat.storage import MemoryStorage
-
-    from .fake_client import Wire
-
-    wire = Wire()
-    a = SecretChatManager(wire.a, storage=MemoryStorage())
-    b = SecretChatManager(wire.b, storage=MemoryStorage())
-    await a.start()
-    await b.start()
-    yield wire, a, b
-    await a.stop()
-    await b.stop()
-
-
 async def test_a_file_crosses_the_chat_and_opens_on_the_other_side(pair, tmp_path):
     """US5 scenarios 1 and 2: sent, then saved, and the bytes match."""
     from .fake_client import establish
@@ -304,3 +287,35 @@ async def test_sending_an_unreadable_file_refuses(pair, tmp_path):
     chat_a, _ = await establish(a, b, wire)
     with pytest.raises(OSError):
         await a.send_file(chat_a.id, tmp_path / "does-not-exist.bin")
+
+
+def _save_args(content=b"secret bytes"):
+    key, iv = files.new_file_key()
+    return dict(
+        ciphertext=files.encrypt_file(content, key, iv),
+        key=key,
+        iv=iv,
+        size=len(content),
+        claimed_fingerprint=files.file_fingerprint(key, iv),
+        chat_id=1,
+    )
+
+
+def test_a_leftover_media_temp_file_is_removed_before_saving(tmp_path):
+    leftover = tmp_path / ".secret-chat-file-x.tmp"
+    leftover.write_bytes(b"plaintext of a file whose save was killed")
+    files.save(tmp_path / "out.bin", **_save_args())
+    assert not leftover.exists()
+    assert (tmp_path / "out.bin").read_bytes() == b"secret bytes"
+
+
+def test_an_interrupted_media_save_leaves_no_temp_file(tmp_path, monkeypatch):
+    import os
+
+    def fail(*args):
+        raise OSError("synthetic fsync failure")
+
+    monkeypatch.setattr(os, "fsync", fail)
+    with pytest.raises(OSError):
+        files.save(tmp_path / "out.bin", **_save_args())
+    assert list(tmp_path.iterdir()) == []

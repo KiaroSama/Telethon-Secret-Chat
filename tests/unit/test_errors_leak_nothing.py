@@ -65,6 +65,9 @@ def _every_error():
         errors.LayerUnsupported(chat_id=42, peer_layer=8),
         errors.ResendUnsatisfiable(chat_id=42, requested=(5, 9), retained_from=7),
         errors.StoreCorrupt(chat_id=42, reason="the key does not match its fingerprint"),
+        errors.UnknownChat(chat_id=42),
+        errors.ManagerStopping(),
+        errors.SendPending(chat_id=42, random_id=99, cause="OSError"),
     ]
 
 

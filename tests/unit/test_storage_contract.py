@@ -14,9 +14,10 @@ Parametrised over every shipped backend so a new one cannot be added without mee
 the same contract - `docs`/data-model.md §5.
 """
 
+import os
+
 import pytest
 
-from telethon_secret_chat import errors
 from telethon_secret_chat.storage import FileStorage, MemoryStorage, StorageBackend
 
 KEY_A = b"\xaa" * 256
@@ -180,27 +181,20 @@ def test_outgoing_retention_drops_only_what_was_acknowledged(storage):
 # --- construction -------------------------------------------------------------
 
 
-def test_a_manager_without_a_backend_refuses_rather_than_defaulting():
-    """FR-014. The failure mode this prevents is a library quietly writing key
-    material into whatever directory the process happened to start in."""
-    with pytest.raises(errors.StorageRequired):
-        raise errors.StorageRequired()
-
-
+@pytest.mark.skipif(
+    os.name == "nt", reason="POSIX file modes; Windows ACLs are the application's job"
+)
 def test_the_file_backend_is_owner_only(tmp_path):
-    """Key material on disk, readable by one account. Checked on POSIX where the
-    mode is meaningful; on Windows the equivalent is an ACL and is asserted by the
-    backend itself refusing to proceed when it cannot set one."""
-    import os
+    """Key material on disk, readable by one account. On Windows the equivalent is an
+    ACL the application sets on the directory (storage module docstring), so the leg
+    declares this skip in tools/check_test_matrix.py PLATFORM_SKIPS."""
     import stat
 
     path = tmp_path / "chats.db"
     store = FileStorage(path)
     store.save(_record())
-
-    if os.name != "nt":
-        mode = stat.S_IMODE(path.stat().st_mode)
-        assert mode & (stat.S_IRWXG | stat.S_IRWXO) == 0, f"group/other can read: {mode:o}"
+    mode = stat.S_IMODE(path.stat().st_mode)
+    assert mode & (stat.S_IRWXG | stat.S_IRWXO) == 0, f"group/other can read: {mode:o}"
 
 
 # --- the two queues survive a restart (T033) ----------------------------------
@@ -234,3 +228,32 @@ def test_taking_the_gap_queue_is_persisted_not_only_in_memory(tmp_path):
     store.queue_in(1, {"seq_no": 2, "body": "held"})
     assert store.take_in(1)
     assert FileStorage(path).take_in(1) == []
+
+
+# --- plans/011: a crash between mkstemp and replace leaves the whole store behind ---
+
+
+def test_a_leftover_store_temp_file_is_removed_on_open(tmp_path):
+    leftover = tmp_path / ".secret-chat-store-abc.tmp"
+    leftover.write_text("every key, from a write that never finished")
+    unrelated = tmp_path / "other.tmp"
+    unrelated.write_text("not ours")
+    FileStorage(tmp_path / "chats.json")
+    assert not leftover.exists()
+    assert unrelated.exists()
+
+
+def test_an_interrupted_write_leaves_no_temp_file(tmp_path, monkeypatch):
+    import os
+
+    store = FileStorage(tmp_path / "chats.json")
+    before = (tmp_path / "chats.json").read_bytes()
+
+    def fail(*args):
+        raise OSError("synthetic replace failure")
+
+    monkeypatch.setattr(os, "replace", fail)
+    with pytest.raises(OSError):
+        store.save(_record())
+    assert [p.name for p in tmp_path.iterdir()] == ["chats.json"]
+    assert (tmp_path / "chats.json").read_bytes() == before

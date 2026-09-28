@@ -26,23 +26,6 @@ from telethon_secret_chat.schema import secret_tl as tl
 
 
 @pytest.fixture
-async def pair():
-    from telethon_secret_chat import SecretChatManager
-    from telethon_secret_chat.storage import MemoryStorage
-
-    from .fake_client import Wire
-
-    wire = Wire()
-    a = SecretChatManager(wire.a, storage=MemoryStorage())
-    b = SecretChatManager(wire.b, storage=MemoryStorage())
-    await a.start()
-    await b.start()
-    yield wire, a, b
-    await a.stop()
-    await b.stop()
-
-
-@pytest.fixture
 async def chat(pair):
     """Two established managers, plus a sender that returns what arrived."""
     from .fake_client import establish

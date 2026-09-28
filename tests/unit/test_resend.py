@@ -20,9 +20,12 @@ was explicitly never persisted, and with no bound at all.
 
 import pytest
 
+from telethon_secret_chat.errors import SendPending
+
 from telethon_secret_chat import sequence
 from telethon_secret_chat.chat import ChatState, SecretChat
 from telethon_secret_chat.errors import ResendUnsatisfiable
+from telethon_secret_chat.schema import secret_tl as tl
 from telethon_secret_chat.storage import MemoryStorage
 
 KEY = bytes((i * 5 + 3) % 256 for i in range(256))
@@ -194,7 +197,7 @@ async def test_a_resend_request_is_answered_even_while_it_is_out_of_order():
     # B asks for that message, in a service message carrying an out_seq_no far ahead
     # of where A is - so it would be QUEUED if the exception did not exist.
     await b._send(
-        b.status(chat_b.id),
+        b._entity(chat_b.id),
         stl.DecryptedMessageService(
             random_id=1,
             # A has sent two messages since the chat opened: its NotifyLayer
@@ -209,3 +212,46 @@ async def test_a_resend_request_is_answered_even_while_it_is_out_of_order():
     assert resent, "the resend request was never answered"
     await a.stop()
     await b.stop()
+
+
+def _resend_request(start, end):
+    return tl.DecryptedMessageLayer(
+        random_bytes=b"\x00" * 31,
+        layer=144,
+        in_seq_no=1,
+        out_seq_no=0,
+        message=tl.DecryptedMessageService(
+            random_id=5, action=tl.DecryptedMessageActionResend(start_seq_no=start, end_seq_no=end)
+        ),
+    )
+
+
+async def test_a_resend_answer_lost_on_the_network_is_sent_again():
+    """The request is consumed when it is accepted; if the answer then fails on the
+    network, only the retained records can still carry it - so they must stay due."""
+    from telethon.tl import functions
+
+    from .helpers import FlakyClient, incoming, ready_manager
+
+    manager, chat = ready_manager(FlakyClient())
+    manager._client.failing = False
+    for text in ("one", "two", "three"):
+        await manager.send_message(chat.id, text)
+    frames = [bytes.fromhex(item["frame"]) for item in manager._storage.retained_out(chat.id)]
+    seen = []
+    manager.on("ServiceActionReceived", seen.append)
+
+    manager._client.failing = True
+    with pytest.raises(SendPending):
+        await manager._on_encrypted_message(incoming(chat, _resend_request(1, 5)))
+    assert seen, "the accepted request was not delivered while the network was down"
+
+    manager._client.failing = False
+    before = len(manager._client.sent)
+    await manager.retry_pending(chat.id)
+    resent = [
+        request.data
+        for request in manager._client.sent[before:]
+        if isinstance(request, functions.messages.SendEncryptedRequest)
+    ]
+    assert resent == frames

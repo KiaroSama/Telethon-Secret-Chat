@@ -46,6 +46,12 @@ class FakeClient:
         # was one (§6.4: the bytes are encrypted client-side BEFORE upload).
         self.uploaded = []
         self.stored = {}  # file id -> ciphertext, standing in for the CDN
+        # A request with no branch below. It also raises, but a raise inside an update
+        # handler becomes a silent DecryptFailed, so teardown checks this list too.
+        self.unanswered = []
+        # Telethon's private parser, as async as the real one. Records the parse mode it
+        # was asked for, so a test can pin the client-default sentinel `()`.
+        self.parse_modes = []
 
     # --- the surface manager.py uses -----------------------------------------
 
@@ -92,10 +98,43 @@ class FakeClient:
                 self.held.append((request.peer.chat_id, request.data, request.file))
             elif self.peer is not None:
                 await self.peer.deliver(request.peer.chat_id, request.data, request.file)
-            return types.messages.SentEncryptedMessage(date=0)
+            # The server answers a file send with the stored file's handle, which the
+            # outbox keeps for resends (messages.sentEncryptedFile).
+            return types.messages.SentEncryptedFile(
+                date=0,
+                file=types.EncryptedFile(
+                    id=request.file.id,
+                    access_hash=0,
+                    size=len(self.stored.get(request.file.id, b"")),
+                    dc_id=1,
+                    key_fingerprint=getattr(request.file, "key_fingerprint", 0),
+                ),
+            )
         if isinstance(request, functions.messages.DiscardEncryptionRequest):
+            if self.peer is not None and not self.hold:
+                await self.peer.deliver_update(
+                    types.UpdateEncryption(
+                        chat=types.EncryptedChatDiscarded(id=request.chat_id), date=0
+                    )
+                )
             return types.BoolTrue()
+        self.unanswered.append(type(request).__name__)
         raise AssertionError(f"the manager sent a request this fake does not answer: {request!r}")
+
+    def assert_quiet(self):
+        if self.unanswered:
+            raise AssertionError(f"unanswered requests: {self.unanswered}")
+
+    async def _parse_message_text(self, message, parse_mode):
+        from telethon.tl import types as api
+
+        self.parse_modes.append(parse_mode)
+        if parse_mode != () or "**" not in message:
+            return message, []
+        start = message.index("**")
+        plain = message.replace("**", "", 2)
+        length = message.index("**", start + 2) - start - 2
+        return plain, [api.MessageEntityBold(offset=start, length=length)]
 
     async def upload_file(self, file, **kwargs):
         """Telethon's public upload. The bytes arriving here are ciphertext."""
@@ -219,4 +258,4 @@ async def establish(manager_a, manager_b, wire):
         )
     )
     await wire.b.release()
-    return manager_a.status(chat_a.id), chat_b
+    return manager_a._entity(chat_a.id), manager_b._entity(chat_b.id)

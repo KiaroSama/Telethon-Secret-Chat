@@ -53,6 +53,7 @@ __all__ = [
 ]
 
 BLOCK = 16
+TEMP_PREFIX = ".secret-chat-file-"
 
 # --- the eight kinds (§6.3's `attributes:Vector<DocumentAttribute>`) -----------
 # The vector is the only thing that tells a receiving client an `.ogg` is a voice
@@ -287,7 +288,13 @@ def save(
     plaintext = decrypt_file(ciphertext, key, iv, size)
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    descriptor, temporary = tempfile.mkstemp(dir=str(target.parent), suffix=".tmp")
+    # A kill mid-write leaves decrypted plaintext in a temp file; ours carry a prefix
+    # so the next save can remove them.
+    for leftover in target.parent.glob(TEMP_PREFIX + "*.tmp"):
+        leftover.unlink(missing_ok=True)
+    descriptor, temporary = tempfile.mkstemp(
+        dir=str(target.parent), prefix=TEMP_PREFIX, suffix=".tmp"
+    )
     try:
         with os.fdopen(descriptor, "wb") as handle:
             descriptor = None
