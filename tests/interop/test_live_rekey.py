@@ -1,4 +1,4 @@
-"""Spec 003 / US1: a rekey this package starts, accepted by an official client.
+"""A rekey this package starts, accepted by an official client.
 
 Every other rekey test in this repository runs this package against itself, which
 Principle I says proves nothing: two copies of one wrong CommitKey agree perfectly. Here
@@ -17,7 +17,7 @@ works against code this project did not write.
    first message under the new key from the far side is the operator's reply. Asserting
    the discard earlier would fail against a correct peer.
 
-The operator's work is the same as the round-trip test: accept the chat, send one reply.
+The operator's work is the same as the round-trip test: keep a device online, send one reply.
 The rekey itself is automatic on the far side.
 """
 
@@ -79,7 +79,7 @@ async def test_a_rekey_started_here_is_accepted_by_the_official_client(manager, 
         # The reply was the first message under the new key from the far side, and it
         # is what lets this side drop the previous key.
         assert (
-            manager.status(chat.id).previous_key is None
+            manager.status(chat.id).has_previous_key is False
         ), "the reply arrived but the previous key was kept"
     finally:
         await manager.close(chat.id, reason="interop rekey check finished")
