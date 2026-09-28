@@ -1,16 +1,12 @@
 # What CodeQL looks at, and the one thing it must not.
 #
-# `tests/` is excluded, and the reason is specific rather than convenience: eight
-# of the fourteen alerts from the first `security-extended` run were
-# `py/overly-permissive-file` inside the suites that PROVE the file-permission
-# hardening works. `test_owner_only.py` and `test_session_hardening.py` create a
-# world-readable session file on purpose and assert the server refuses to start
-# on it. Flagging that as a vulnerability is flagging the test for reproducing
-# the bug - and fourteen standing "high" alerts that everyone learns to scroll
-# past is worse than none, because the next real one arrives into that habit.
+# `tests/` is excluded because its fixtures do on purpose what the
+# security-extended suite flags: they build malformed and forged frames, feed
+# them to the parser, and create store files with loose permissions to prove the
+# package refuses or repairs them. Standing alerts for the tests that reproduce a
+# bug teach everyone to scroll past alerts.
 #
-# Production code stays in scope in full, including `scripts/`: those run on the
-# owner's machine with the owner's credentials.
+# Production code stays in scope in full, including `tools/` and `scripts/`.
 name: "telethon-secret-chat CodeQL"
 
 paths-ignore:
