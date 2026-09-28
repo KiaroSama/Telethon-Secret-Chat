@@ -1,32 +1,36 @@
 # Telethon Secret Chat
 
+<div align="center">
+
 [![Tests & Coverage](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/tests.yml)
 [![Lint & Format](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/python-lint-format.yml/badge.svg?branch=main)](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/python-lint-format.yml)
 [![Package Validation](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/package-validation.yml/badge.svg?branch=main)](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/package-validation.yml)
 [![CodeQL](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/codeql.yml)
 [![License: GPL-3.0-or-later](https://img.shields.io/github/license/KiaroSama/Telethon-Secret-Chat)](LICENSE)
-[![Version 0.0.1](https://img.shields.io/badge/version-0.0.1-lightgrey)](pyproject.toml)
+[![Version 0.1.0](https://img.shields.io/badge/version-0.1.0-lightgrey)](pyproject.toml)
 [![Python 3.11 | 3.12 | 3.13 | 3.14](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-3776AB?logo=python&logoColor=white)](pyproject.toml)
 [![Platform: Linux | Windows](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey)](.github/workflows/tests.yml)
 
 [![Built with Telethon 1.45+](https://img.shields.io/badge/built%20with-Telethon%201.45%2B-26A5E4?logo=telegram&logoColor=white)](https://codeberg.org/Lonami/Telethon)
 [![Protocol: MTProto 2.0](https://img.shields.io/badge/protocol-MTProto%202.0-26A5E4)](docs/protocol-reference.md)
-[![Managed with uv](https://img.shields.io/badge/managed%20with-uv-DE5FE9)](uv.lock)
 [![Code style: Black](https://img.shields.io/badge/code%20style-black-000000)](https://github.com/psf/black)
-[![Dependabot](https://img.shields.io/badge/dependabot-uv%20%7C%20actions-025E8C?logo=dependabot)](.github/dependabot.yml)
 [![Top language](https://img.shields.io/github/languages/top/KiaroSama/Telethon-Secret-Chat)](https://github.com/KiaroSama/Telethon-Secret-Chat)
 [![Code size](https://img.shields.io/github/languages/code-size/KiaroSama/Telethon-Secret-Chat)](https://github.com/KiaroSama/Telethon-Secret-Chat)
 [![Last commit](https://img.shields.io/github/last-commit/KiaroSama/Telethon-Secret-Chat/main)](https://github.com/KiaroSama/Telethon-Secret-Chat/commits/main)
 [![Open issues](https://img.shields.io/github/issues/KiaroSama/Telethon-Secret-Chat)](https://github.com/KiaroSama/Telethon-Secret-Chat/issues)
 [![Support donations](https://img.shields.io/badge/Support-donations-d04a9a)](#donate)
 
+</div>
+
 Telegram's **MTProto 2.0 end-to-end encryption** — secret chats — for
-[Telethon](https://github.com/LonamiWebs/Telethon).
+[Telethon](https://codeberg.org/Lonami/Telethon).
 
 Telethon never implemented it. The raw TL requests are in the schema
 (`messages.requestEncryption`, `messages.sendEncrypted` and the rest) but nothing drives them:
 no Diffie-Hellman exchange, no key store, no layer negotiation, no `create_secret_chat` on the
-client. The project was archived in February 2026, so that gap will not close upstream.
+client. Telethon's development continues on [Codeberg](https://codeberg.org/Lonami/Telethon)
+(1.45.0); the GitHub repository is an archived mirror since 2026-02-21, and the 1.x line still
+ships no secret-chat support.
 
 This package fills it, so an application already built on Telethon can run secret chats on the
 **same authorization it already has** — instead of carrying a second client, a second login, and
@@ -54,6 +58,21 @@ The alternatives were measured rather than assumed, and both were rejected:
 Owning the secret-chat layer in Python is the remaining route, and it is a bounded one: the
 protocol has been frozen since Layer 73.
 
+## Install
+
+The distribution is **`kiaro-telethon-secret-chat`**; the import name is
+`telethon_secret_chat`. It is not published on PyPI — the name `telethon-secret-chat` there
+belongs to an unrelated package — so install it from this repository, pinned to a commit:
+
+```bash
+pip install "kiaro-telethon-secret-chat @ git+https://github.com/KiaroSama/Telethon-Secret-Chat.git@<commit>"
+# Native AES for file encryption; without it files are encrypted in pure Python.
+pip install "kiaro-telethon-secret-chat[fast] @ git+https://github.com/KiaroSama/Telethon-Secret-Chat.git@<commit>"
+```
+
+The `fast` extra pulls in [`cryptg`](https://pypi.org/project/cryptg/), which Telethon's AES
+uses when it is installed. Changes between versions are listed in [CHANGELOG.md](CHANGELOG.md).
+
 ## Usage
 
 ```python
@@ -65,41 +84,94 @@ await client.connect()
 
 # Storage is REQUIRED and has no default. A library that quietly picks where to
 # write key material picks a location the operator never protected.
-manager = SecretChatManager(client, storage=FileStorage("secret-chats.db"))
+manager = SecretChatManager(client, storage=FileStorage("secret-chats.json"))
+
+# Handlers BEFORE start(): see below.
+manager.on("ChatReady", lambda e: ...)  # draw the key visualization from e.key_hash
+manager.on("MessageReceived", lambda e: print(e.text))
+manager.on("DecryptFailed", lambda e: log.warning("refused: %s", e.reason))
+
 await manager.start()
 
 chat = await manager.create(peer)
-# To verify, show chat.key_hash (36 bytes, the input to Telegram's key
-# visualization) - that is what the peer's official client draws. The 64-bit
-# key_fingerprint is a protocol sanity check and no client displays it.
-await manager.send_message(chat.id, "hello")
+random_id = await manager.send_message(chat.id, "**hello**")
 ```
 
-Events are registered by name and carry a shape, never a value:
+Register handlers before `start()`: it re-announces pending requests and delivers stored
+messages immediately, and an event with no handler is dropped and counted as delivered.
 
-```python
-manager.on("ChatReady", lambda e: show_key_visualization(e.key_hash))
-manager.on("MessageReceived", lambda e: print(e.text))
-manager.on("DecryptFailed", lambda e: log.warning("refused: %s", e.reason))
-```
+`e.key_hash` is 36 bytes, the input to Telegram's key visualization — what the peer's
+official client draws. Rendering the picture is the application's job. The 64-bit
+`key_fingerprint` is a protocol sanity check and no client displays it.
+
+Text is parsed with the client's default parse mode (`client.parse_mode`, Markdown unless
+changed), and the resulting entities are mapped to the secret-chat schema; entity types the
+secret-chat layer cannot carry are dropped rather than sent. Pass `entities=` to skip parsing.
+
+### Events
+
+Registered with `manager.on(name, handler)`. Each carries a shape, never a key or a
+ciphertext.
+
+| Event | When |
+|---|---|
+| `ChatRequested(chat_id, peer_user_id)` | the peer asked for a chat; call `accept()` |
+| `ChatReady(chat_id, peer_user_id, key_fingerprint, key_hash)` | the chat is established |
+| `ChatClosedEvent(chat_id, reason)` | the chat ended, here or at the peer (`on("ChatClosed", ...)` is an accepted alias) |
+| `MessageReceived(chat_id, random_id, seq_no, text, entities, ttl, media, file, reply_to)` | a message, in conversation order |
+| `MessageAcknowledged(chat_id, seq_no, random_ids)` | the peer's counter passed a message this side sent |
+| `ServiceActionReceived(chat_id, action_name, action, applied)` | one of the thirteen service actions, reported even when handled internally |
+| `DecryptFailed(chat_id, reason)` | a received message was refused |
+| `SendFailed` | the server permanently rejected a queued message; it is not retried |
 
 A failed decrypt is an **event**, not an exception thrown through your update loop.
-Failures the protocol says must end a chat also produce `ChatClosed`.
+Failures the protocol says must end a chat also produce `ChatClosedEvent`.
+
+A synchronous handler runs before the message leaves the durable mailbox, so after a crash
+it can run again (at-least-once); an asynchronous handler is scheduled, and scheduling is
+not completion. Handlers own their own idempotency.
 
 ### The operations
 
-| Call | Does |
-|---|---|
-| `create(user)` / `accept(chat_id)` / `close(chat_id)` | the chat's life |
-| `list()` / `status(chat_id)` | what exists, with fingerprint and TTL |
-| `send_message(chat_id, text)` / `read_history(chat_id, limit)` | text |
-| `send_file(chat_id, path, kind=None)` / `save_file(message, path)` | media, in any of the eight kinds |
-| `set_ttl`, `mark_read`, `delete_messages`, `screenshot`, `flush_history`, `set_typing` | the chat's controls |
-| `rekey(chat_id)` | a new key now, rather than on the documented trigger |
+| Call | Returns | Does |
+|---|---|---|
+| `SecretChatManager(client, storage, *, history_limit=1000)` | — | `storage` is required (`StorageRequired` without it) |
+| `await start()` / `await stop()` | `None` | subscribe and resume stored chats / unsubscribe, cancel handler tasks, save |
+| `await create(user)` | the new chat | request a chat; `ChatReady` follows when the peer's device accepts |
+| `await accept(chat_id)` | the chat | answer a `ChatRequested`; `ChatNotReady` if there is no request |
+| `await close(chat_id, reason=...)` | `None` | end the chat here and discard it on the server |
+| `await forget(chat_id)` | `None` | drop a CLOSED chat's record; `list()` no longer shows it (`ValueError` if not closed) |
+| `list()` / `status(chat_id)` | `ChatSnapshot` list / `ChatSnapshot` | what exists (see below) |
+| `await send_message(chat_id, text, entities=None, reply_to=None)` | `random_id` | send text; `reply_to` is the `random_id` replied to |
+| `await send_file(chat_id, path, *, caption="", mime_type=None, kind=None, reply_to=None)` | `random_id` | send a file as one of the eight `MEDIA_KINDS` |
+| `await save_file(message, path)` | `Path` | decrypt a received file and write it |
+| `read_history(chat_id, limit=50)` | list of `MessageReceived` | recent messages received from the peer (see below) |
+| `await set_ttl(chat_id, seconds)` | `None` | send the self-destruct timer (`ValueError` outside 0..2³¹-1) |
+| `await mark_read(chat_id, random_ids)` / `await screenshot(chat_id, random_ids)` | `None` | read receipts / screenshot notice |
+| `await delete_messages(chat_id, random_ids)` / `await flush_history(chat_id)` | `None` | delete here (local content first) and ask the peer to delete |
+| `await set_typing(chat_id, action=None)` | `None` | typing indicator |
+| `await rekey(chat_id)` | `None` | a new key now, rather than on the documented trigger |
+| `await retry_pending(chat_id)` | `None` | resend anything the network did not confirm; also run at `start()` and before every send |
+| `on(event, handler)` | `None` | register a handler (`ValueError` for an unknown event) |
+
+`list()` and `status()` return a read-only `ChatSnapshot` — `id`, `state`, `peer_user_id`,
+`is_outbound`, `ttl`, `layer`, `key_fingerprint`, `key_hash`, `created_at`, `rekeyed_at`,
+`closed_reason`, `has_previous_key`, `exchange_in_progress` — with no key material. Changing
+it changes nothing; the operations above are the only way to change a chat.
+
+`read_history` holds the most recent `history_limit` (default 1000) messages per chat, in
+memory, received since this process started. An application that needs durable history
+keeps its own.
 
 `start()` validates every stored chat before installing any. A damaged record (a key
 that is not 256 bytes, a fingerprint that no longer matches its key, an unknown
 state) raises `StoreCorrupt` naming the chat, and no chat is started.
+
+`FileStorage` writes the whole store through a temporary file and an atomic replace. A crash
+between the two can leave a `.secret-chat-store-*.tmp` beside the store, and a crash while
+saving a received file a `.secret-chat-file-*.tmp` beside it; both hold key material or
+plaintext, and both are deleted the next time the store is opened or a file is saved there.
+The store is JSON and **not encrypted at rest**: protect its directory and backups.
 
 `set_ttl` sends the timer to the peer, whose client enforces it. This package does
 **not** delete anything locally when a TTL expires; an application that keeps
@@ -110,21 +182,42 @@ in the message. That fingerprint binds the file's key and IV to this message; it
 is **not** an authentication tag over the file's bytes, and a saved file is not
 proven intact by having been saved.
 
-`send_message` and `send_file` resolve when **Telegram accepts the ciphertext**, not
-when the peer acknowledges; acknowledgement arrives as an event.
+### Errors
+
+Everything raised derives from `SecretChatError`, and no error carries a key, a plaintext or
+a wire object.
+
+| Error | Raised when |
+|---|---|
+| `UnknownChat` | no chat with that id in this manager (also a `KeyError`) |
+| `ChatNotReady` | the chat is not established, or there is no request to accept |
+| `ChatClosed` | the chat is closed (the exception; the event is `ChatClosedEvent`) |
+| `ManagerStopping` | a send while `stop()` is running (also a `RuntimeError`) |
+| `SendPending` | the message is stored and will be sent, but its transmission failed; carries `random_id` — **do not resend**, the next send or `start()` retries it |
+| `ParameterRejected` | a Diffie-Hellman value failed a required check |
+| `ResendUnsatisfiable` | the peer asked for messages this side no longer holds; the chat ends |
+| `StoreCorrupt` | a stored record failed validation at `start()` |
+| `StorageRequired` | the manager was built without a storage backend |
+| `LayerUnsupported` | exported for API stability; not raised today (see below) |
+
+`send_message` and `send_file` return when **Telegram accepts the ciphertext**, not when the
+peer acknowledges; acknowledgement arrives as `MessageAcknowledged`.
 
 ### Running the tests
 
 **`python -m pytest`, not `pytest`.** uv launches a console script through a
 trampoline that cannot canonicalize a path containing a SPACE, and this project's
 folder is `Telethon Secret Chat`; `uv run pytest` fails with
-`uv trampoline failed to canonicalize script path`. The module form skips it. CI
-runs on a path without spaces and is unaffected.
+`uv trampoline failed to canonicalize script path`. The module form skips it. The same
+applies to flake8, black and mypy.
 
 ```bash
-uv sync --all-extras
-uv run --locked python -m pytest tests/unit -q      # no account, no network
-uv run --locked python -m pytest tests/vectors -q   # cross-checked against Telethon's own primitives
+uv sync --locked
+uv run --locked python -m pytest tests/unit tests/vectors tests/test_packaging.py -q   # no account, no network
+uv run --locked python -m flake8 . --count --show-source --statistics
+uv run --locked python -m black --check .
+uv run --locked python -m mypy
+uv run --locked python tools/generate_schema.py --check   # the generated schema matches its source
 
 # Interop needs two real accounts and is never run in CI. The second account
 # is driven BY HAND in an official client - that is the whole claim - so the
@@ -139,37 +232,65 @@ export TSC_TEST_MEDIA_DIR="<a directory of sample files>"
 uv run --locked python -m pytest tests/interop -q -s
 ```
 
-On Windows, beside a `telegram-mcp` checkout, `scripts/run_interop.ps1` supplies the
-first three from that project's `.env` without them passing through your shell:
+On Windows, beside a `telegram-mcp` checkout, `scripts/run_interop.ps1` (PowerShell 7) supplies
+the session, API id and API hash from that project's `.env` without them passing through your
+shell:
 
 ```powershell
 .\scripts\run_interop.ps1 -Account kgb_verifier -Peer "@second-account"
 ```
 
+| Parameter | Meaning |
+|---|---|
+| `-Account` | the `TELEGRAM_SESSION_STRING_<ACCOUNT>` entry to use (required) |
+| `-Peer` | the second account (required) |
+| `-McpRoot` | the telegram-mcp checkout holding the `.env`; default `$env:TSC_MCP_ROOT`, else a `Telegram-mcp` directory beside this repository |
+| `-MediaDir` | real media samples (`TSC_TEST_MEDIA_DIR`); without it video/audio are reported as not covered |
+| `-Only` | one live module or test, e.g. `tests/interop/test_live_media.py`; a subset is reported as a subset, never as the full tier |
+| `-Nonce` | the code to reply with, fixed in advance (`TSC_TEST_NONCE`) so the operator knows it before the run |
+
 Typing a StringSession at a prompt puts a full login into shell history, scrollback
 and any terminal logging you have on; this reads it into the one process that needs
-it and prints nothing. It also REFUSES while the telegram-mcp server is listening,
-because that server already holds the session and Telegram permanently invalidates an
-auth key used from two clients at once - stop it, run this, start it again.
+it and prints nothing, and pytest runs with `--tb=short` so no traceback prints fixture
+arguments. It also REFUSES while the telegram-mcp server is listening, because that server
+already holds the session and Telegram permanently invalidates an auth key used from two
+clients at once - stop it (and its keepalive supervisor), run this, start it again.
 
 Each run also writes its own log to `logs/run_interop_YYYY-MM-DD_HH-mm-ss_UTC.log` under
 the repository root: UTF-8, one file per run (a run in the same second gets a `_2`
 suffix, so nothing is overwritten), one `[YYYY-MM-DD HH:mm:ss UTC] [LEVEL] [run_interop]
 message` line per event, and the exit code on the last line. Levels are `INFO`,
-`WARNING` and `ERROR`, plus `DEBUG` with `-Debug`. No session string, API hash or peer
-appears in it, so the file can be attached to a support request as it is. `*.log` is
+`WARNING` and `ERROR`, plus `DEBUG` with `-Debug`. No session string, API hash, peer or
+nonce appears in it, so the file can be attached to a support request as it is. `*.log` is
 git-ignored and nothing deletes old logs; remove them when you no longer need them. If
 the file cannot be created, the run says so and logs to the console only.
 
 Accepting the chat is not one of the manual steps: the request reaches every device
 the peer has and the first to complete the key exchange wins, which is normally the
-phone. What still needs you is replying with the code the run prints, and opening the
-files it sends.
+phone. Keep one device of the second account online. What still needs you is replying
+with the code the run prints, and opening the files it sends. A chat that is never accepted
+is closed by the run before it fails, so no pending request is left behind.
+
+**Capturing official-client vectors.** With `TSC_CAPTURE_DIR` set (for example to
+`tests/vectors/fixtures`), the round-trip test writes `official-client-<date>.json` after
+its chat is closed: the chat's key — burned by that close, so nothing it protected still
+exists — the direction, the raw frames the official client wrote, and what this package
+read from each. No chat id, account, username or session goes in. The file is refused if
+the chat is not closed. `tests/vectors/test_official_client_frames.py` replays every such
+file offline (decrypt, unwrap, sequence check) and skips with its reason when there is
+none. A capture is replaced by a new one from a new throwaway chat, never edited.
 
 ### What is not implemented
 
-- **MTProto 1.0.** A chat that cannot proceed without it is refused with that stated
-  as the reason. Layers below 73 are out of scope.
+- **MTProto 1.0.** A peer that cannot use MTProto 2.0 (layer below 73) is out of scope;
+  its messages surface as `DecryptFailed`. No refusal path is wired, by decision, so
+  `LayerUnsupported` is exported but not raised.
+- **Forwarding a file without re-uploading it.** Every `send_file` uploads.
+- **Media metadata.** Dimensions, duration and thumbnails are sent as zero or empty; a
+  receiving client shows the file but may not size or preview it.
+- **Durable history.** `read_history` is in memory only (see above).
+- **Telling the user the peer runs a newer layer.** The protocol suggests a notice when the
+  peer's layer exceeds ours; nothing reports it.
 - **Moving a chat between devices.** A secret chat is bound to the authorization that
   performed its DH exchange. Adopting this package means re-creating existing chats.
 - **Two processes on one session.** That property belongs to the session, not to this
@@ -181,17 +302,26 @@ The rule this project is built on:
 
 > Two instances of the same wrong code agree with each other perfectly.
 
-So a round trip through our own encrypt/decrypt pair is **not** evidence. Every cryptographic
-behaviour is pinned either by a live exchange with an official Telegram client or TDLib, or by a
-fixture captured from a known-good implementation and matched byte for byte. TDLib is the oracle
-while it is still present; the fixtures outlive it.
+So a round trip through our own encrypt/decrypt pair is **not** evidence. The evidence
+that exists today is of two kinds: the interop tier, a live exchange with an official
+Telegram client on real accounts that the operator runs by hand (dated runs, never in CI),
+and `tests/vectors/`, which checks the key derivation against Telethon's own primitives.
+Frames captured from an official client (above) join the vectors once the operator has
+captured them; none are in the tree yet.
+
+Module boundaries, the storage contract and the event contract are in
+[docs/architecture.md](docs/architecture.md); the protocol itself, with the decisions this
+package took where it left a choice, in [docs/protocol-reference.md](docs/protocol-reference.md).
 
 ## Requirements
 
 - Python 3.11+
-- Telethon 1.45+ — the package touches exactly **one** Telethon internal
+- Telethon 1.45+, below 2 — the package touches exactly **one** Telethon internal
   (`TelegramClient._parse_message_text`), and `tests/unit/test_telethon_canary.py`
   fails when it disappears, naming the fallback in its failure message
+- Optional: `cryptg` (the `fast` extra) for native AES
+
+The package ships `py.typed`; CI runs mypy in lenient mode.
 
 ## Licence
 

@@ -41,6 +41,52 @@ The shared key a rekey replaced, kept only until nothing sent under it can still
 then discarded.
 _Avoid_: old key (in writing), backup key
 
+## Messages
+
+**Wrapper layer**:
+The layer number written on one received message's wrapper; it may never go down from one
+accepted message to the next.
+_Avoid_: layer (unqualified), message layer
+
+**Capability layer**:
+The highest layer the peer has said it understands, raised by a layer notice or any higher
+wrapper and never lowered; our outgoing layer is capped by it.
+_Avoid_: peer layer, remote layer (in writing), layer (unqualified)
+
+**Gap**:
+A hole in the peer's message numbering: a message arrived before one it follows. Later
+messages wait until the hole is filled.
+_Avoid_: missing message, loss
+
+**Resend**:
+The request asking the peer to send the messages of one gap again, sent once per gap.
+_Avoid_: retry (that is our own transmission again), re-request
+
+**Retained outbox**:
+The messages this side sent, kept with their exact encrypted bytes until the peer's counter
+shows it processed them, so a resend can be answered with the original bytes.
+_Avoid_: send queue, outbox (unqualified), sent history
+
+**Delivery mailbox**:
+Received messages accepted in order but not yet handed to the application; it survives a
+restart, so a message is handed over at least once.
+_Avoid_: inbox, receive queue, pending messages
+
+**Acknowledgement**:
+The peer's counter passing a message this side sent: proof the peer processed it, which is
+later than Telegram accepting it.
+_Avoid_: delivery receipt, read receipt, sent confirmation
+
+**Media kind**:
+One of the eight names a file is sent as (photo, video, document, audio, animation, sticker,
+video note, voice note); it decides how the receiving client shows the file.
+_Avoid_: media type, file type, mime type
+
+**Tombstone**:
+The record of a closed chat, kept with its keys erased so the chat id cannot be revived,
+until the application forgets it.
+_Avoid_: dead chat, closed record (in writing), deleted chat
+
 ## Verification
 
 **Interop tier**:
