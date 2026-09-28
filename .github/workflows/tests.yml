@@ -15,7 +15,11 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  UV_VERSION: "0.12.8"
+  # One pin per workflow; the same string is in python-lint-format.yml and
+  # package-validation.yml. Not `[tool.uv] required-version`: uv refuses to run
+  # at all below that version, which would break every local checkout until its
+  # uv is upgraded. Dependabot bumps setup-uv but never this string.
+  UV_VERSION: "0.12.19"
 
 jobs:
   lock:
@@ -32,7 +36,6 @@ jobs:
           enable-cache: true
       - run: uv lock --locked
       - run: uv run --locked python tools/generate_schema.py --check
-      - run: git diff --exit-code -- uv.lock telethon_secret_chat/schema/secret_tl.py
 
   test:
     name: Pytest (${{ matrix.os }}, ${{ matrix.python }})
@@ -74,7 +77,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: cases-${{ matrix.os }}-py${{ matrix.python }}
-          path: junit.xml
+          path: |
+            junit.xml
+            coverage.xml
           if-no-files-found: error
       - name: Test the Windows launcher with synthetic credentials and no network
         if: runner.os == 'Windows'
@@ -84,10 +89,12 @@ jobs:
         run: |
           $target = Join-Path $env:RUNNER_TEMP 'Secret Chat Space Path'
           New-Item -ItemType Directory -Path $target -Force | Out-Null
-          Copy-Item -Path telethon_secret_chat, tests, pyproject.toml -Destination $target -Recurse
-          $python = Join-Path $PWD '.venv/Scripts/python.exe'
+          # Everything `uv run --locked` needs to build the project where it lands:
+          # the lock, the interpreter pin, and the readme and licence files the
+          # metadata names.
+          Copy-Item -Path telethon_secret_chat, tests, pyproject.toml, uv.lock, .python-version, README.md, LICENSE, NOTICE -Destination $target -Recurse
           Push-Location $target
-          try { & $python -m pytest tests/unit/test_telethon_canary.py -q } finally { Pop-Location }
+          try { uv run --locked python -m pytest tests/unit/test_telethon_canary.py -q } finally { Pop-Location }
           exit $LASTEXITCODE
 
   agree:
@@ -108,9 +115,8 @@ jobs:
         env:
           TEST_RESULT: ${{ needs.test.result }}
         run: test "$TEST_RESULT" = success
-      - name: Require every leg, identical cases, and only explicit live skips
-        run: >-
-          python tools/check_test_matrix.py records
-          cases-ubuntu-latest-py3.11 cases-ubuntu-latest-py3.12
-          cases-ubuntu-latest-py3.13 cases-ubuntu-latest-py3.14
-          cases-windows-latest-py3.13
+      # The leg names come from the artifacts the matrix uploaded; the count is
+      # what stops a leg that uploaded nothing from passing unnoticed. Five = the
+      # four ubuntu Pythons plus the windows include above.
+      - name: Require every leg, identical cases, and only declared skips
+        run: python tools/check_test_matrix.py records --expect-legs 5 $(ls records)

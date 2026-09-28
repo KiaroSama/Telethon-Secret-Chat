@@ -1,14 +1,12 @@
-# Static security analysis, which this repository had none of.
+# Static security analysis of the package source.
 #
-# The other scanners here answer different questions: `secret-scan.yml` looks for
-# credential SHAPES in the tree and in history, `Dependency review` looks at what
-# is pulled in. Neither reads the code. CodeQL does - taint from an argument to a
-# sink, a path built from caller-supplied text, a command line assembled by
-# string - which is most of what this server does for a living: it resolves paths
-# inside allowed roots, spawns ffmpeg and a native decoder, and hands
-# model-supplied ids to Telegram.
+# CodeQL is the only scanner that reads the code here: this repository has no
+# secret-scanning or dependency-review workflow (Dependabot watches the
+# dependencies). For a library that parses attacker-supplied ciphertext, derives
+# keys and writes a chat store to disk, the questions worth asking are taint from
+# a decrypted frame to a sink and a path built from caller-supplied text.
 #
-# Why `manual` and not `autobuild`: Python needs no build, and `autobuild` on a
+# Why `build-mode: none`: Python needs no build, and an `autobuild` step on a
 # project whose dependencies come from a lockfile only invites the analysis to
 # resolve something. The extraction is over the source as committed.
 name: CodeQL
@@ -27,6 +25,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   analyze:
     name: Analyse Python
@@ -41,6 +43,8 @@ jobs:
     steps:
       - name: Check out repository code
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v7
@@ -54,9 +58,9 @@ jobs:
           build-mode: none
           # Scopes the analysis; see the file for why `tests/` is out.
           config-file: ./.github/codeql/codeql-config.yml
-          # security-extended over the default: this is a credential-handling,
-          # subprocess-spawning, path-resolving server, and the default suite
-          # leaves out most of the path and command-injection queries.
+          # security-extended over the default: the default suite leaves out most
+          # of the path-injection and weak-crypto queries, which are the ones a
+          # key-handling library with an on-disk store most needs.
           queries: security-extended
 
       - name: Analyse
