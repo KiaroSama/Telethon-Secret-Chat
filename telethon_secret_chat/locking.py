@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager, contextmanager
 from copy import deepcopy
 from functools import wraps
 
-__all__ = ["ChatLocking", "serialized"]
+__all__ = ["ChatLocking", "ordered", "serialized"]
 
 
 def serialized(method):
@@ -30,7 +30,30 @@ def serialized(method):
     return run
 
 
+def ordered(method):
+    """A public send: outbound order first, then the chat lock.
+
+    Lock order is always outbound -> chat, never the reverse, and the receive path
+    takes only the chat lock - so an upload holding the outbound lock never makes a
+    chat deaf to incoming messages, acknowledgements or rekey steps.
+    """
+    locked = serialized(method)
+
+    @wraps(method)
+    async def run(self, chat_id, *args, **kwargs):
+        async with self._outbound_lock(chat_id):
+            return await locked(self, chat_id, *args, **kwargs)
+
+    return run
+
+
 class ChatLocking:
+    @asynccontextmanager
+    async def _outbound_lock(self, chat_id):
+        """Keeps this application's own sends in call order. Not reentrant."""
+        async with self._outbound_locks.setdefault(chat_id, asyncio.Lock()):
+            yield
+
     @asynccontextmanager
     async def _chat_lock(self, chat_id):
         task = asyncio.current_task()

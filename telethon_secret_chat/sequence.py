@@ -108,8 +108,7 @@ def accept(chat, wrapper, storage, envelope=None) -> Accepted:
             advance(unpack(record))
         elif record["seq_no"] > chat.in_seq_no:
             waiting.append(record)
-    for record in waiting:
-        storage.queue_in(chat.id, record)
+    storage.requeue_in(chat.id, waiting)
     resend = None
     if not waiting:
         chat.gap_requested = False
