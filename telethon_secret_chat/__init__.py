@@ -9,16 +9,19 @@ There is deliberately no way here to supply a key, skip a check, or lower the la
 The one thing this package sells is that the checks ran.
 """
 
-from .chat import ChatState, SecretChat
+from .chat import ChatSnapshot, ChatState, SecretChat
 from .errors import (
     ChatClosed,
     ChatNotReady,
     LayerUnsupported,
+    ManagerStopping,
     ParameterRejected,
     ResendUnsatisfiable,
     SecretChatError,
+    SendPending,
     StorageRequired,
     StoreCorrupt,
+    UnknownChat,
 )
 from .events import (
     ChatClosedEvent,
@@ -46,6 +49,7 @@ __all__ = [
     # what an application constructs and holds
     "SecretChatManager",
     "SecretChat",
+    "ChatSnapshot",
     "ChatState",
     # storage - required, never defaulted (FR-014)
     "StorageBackend",
@@ -63,6 +67,9 @@ __all__ = [
     "LayerUnsupported",
     "ResendUnsatisfiable",
     "StoreCorrupt",
+    "UnknownChat",
+    "ManagerStopping",
+    "SendPending",
     # events (contracts §3)
     "ChatRequested",
     "ChatReady",

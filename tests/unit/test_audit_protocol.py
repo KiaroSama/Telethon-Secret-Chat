@@ -6,40 +6,15 @@ from copy import deepcopy
 import pytest
 from telethon.tl import functions, types
 
-from telethon_secret_chat import SecretChatManager, crypto, files, framing, sequence
-from telethon_secret_chat.chat import ChatState, SecretChat
-from telethon_secret_chat.errors import MessageRejected
+from telethon_secret_chat import crypto, files, framing, sequence
+from telethon_secret_chat.chat import ChatState
+from telethon_secret_chat.errors import MessageRejected, ResendUnsatisfiable
 from telethon_secret_chat.events import ChatReady, MessageReceived
 from telethon_secret_chat.schema import secret_tl as tl
 from telethon_secret_chat.storage import MemoryStorage
 
-from .fake_client import FakeClient, Wire, establish
-from .test_replay_and_gap import a_chat, peer_message
-
-KEY = bytes(range(256))
-OTHER = bytes(reversed(range(256)))
-
-
-def ready_manager(client=None, store=None):
-    manager = SecretChatManager(client or FakeClient(), storage=store or MemoryStorage())
-    chat = SecretChat(id=7, access_hash=8, peer_user_id=9, is_outbound=True)
-    chat.adopt_key(KEY)
-    chat.layer = 144
-    manager._chats[chat.id] = chat
-    manager._save(chat)
-    return manager, chat
-
-
-@pytest.fixture
-async def pair():
-    wire = Wire()
-    a = SecretChatManager(wire.a, storage=MemoryStorage())
-    b = SecretChatManager(wire.b, storage=MemoryStorage())
-    await a.start()
-    await b.start()
-    yield wire, a, b
-    await a.stop()
-    await b.stop()
+from .fake_client import establish
+from .helpers import KEY, OTHER, a_chat, peer_message, ready_manager
 
 
 def test_old_replay_does_not_fail_monotonic_echo():
@@ -86,7 +61,7 @@ def test_resend_end_parity_must_match_start(end):
     chat, store = a_chat(), MemoryStorage()
     store.queue_out(chat.id, {"seq_no": 1, "body": "00"})
     store.queue_out(chat.id, {"seq_no": 3, "body": "00"})
-    with pytest.raises(Exception):
+    with pytest.raises(ResendUnsatisfiable):
         sequence.answer_resend(chat, store, 1, end)
 
 

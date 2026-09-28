@@ -9,24 +9,7 @@ Both ends are this package, so what these prove is that the field survives the r
 trip - schema round-trip coverage pins the wire bytes.
 """
 
-import pytest
-
-from telethon_secret_chat import SecretChatManager
-from telethon_secret_chat.storage import MemoryStorage
-
-from .fake_client import Wire, establish
-
-
-@pytest.fixture
-async def pair():
-    wire = Wire()
-    a = SecretChatManager(wire.a, storage=MemoryStorage())
-    b = SecretChatManager(wire.b, storage=MemoryStorage())
-    await a.start()
-    await b.start()
-    yield wire, a, b
-    await a.stop()
-    await b.stop()
+from .fake_client import establish
 
 
 async def test_a_text_reply_reaches_the_peer_as_a_reply(pair):

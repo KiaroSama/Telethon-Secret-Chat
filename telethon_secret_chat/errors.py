@@ -30,6 +30,9 @@ __all__ = [
     "LayerUnsupported",
     "ResendUnsatisfiable",
     "StoreCorrupt",
+    "UnknownChat",
+    "ManagerStopping",
+    "SendPending",
 ]
 
 
@@ -187,3 +190,41 @@ class StoreCorrupt(SecretChatError):
     def __init__(self, *, chat_id: Optional[int], reason: str):
         self.reason = reason
         super().__init__(f"the secret-chat store is corrupt: {reason}", chat_id=chat_id)
+
+
+class UnknownChat(SecretChatError, KeyError):
+    """No secret chat with this id is held by this manager.
+
+    Also a ``KeyError``: callers written before this type existed catch that, and
+    must keep working.
+    """
+
+    def __init__(self, *, chat_id: int):
+        super().__init__("no secret chat with this id in this manager", chat_id=chat_id)
+
+    def __str__(self) -> str:
+        # KeyError renders its argument with repr(); keep the composed message plain.
+        return self._message
+
+
+class ManagerStopping(SecretChatError, RuntimeError):
+    """The manager is stopping, so nothing new is sent. Also a ``RuntimeError``."""
+
+    def __init__(self) -> None:
+        super().__init__("the secret-chat manager is stopping")
+
+
+class SendPending(SecretChatError):
+    """The message is stored and will be sent again; do NOT send it a second time.
+
+    Raised when the ciphertext was committed but Telegram did not confirm it. The
+    package retries it before the next send and at every ``start()``; ``random_id``
+    is what a later ``MessageAcknowledged`` names and what ``delete_messages`` takes.
+    ``cause`` is the failure's class name, never its text.
+    """
+
+    def __init__(self, *, chat_id: int, random_id: int, cause: str):
+        self.random_id = random_id
+        self.cause = cause
+        self.reason = "a message is stored and will be sent again"
+        super().__init__(f"{self.reason} (the transport failed with {cause})", chat_id=chat_id)

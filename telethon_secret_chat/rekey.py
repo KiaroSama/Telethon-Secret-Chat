@@ -188,9 +188,17 @@ def retire_previous_key(chat) -> None:
 # --- driving the exchange -----------------------------------------------------
 
 
+NO_DH_PARAMETERS = "stored chat lacks its DH parameters and cannot rekey"
+
+
 async def start(manager, chat) -> None:
     """Publish the request, secret and outbox record in one durable transition."""
     if chat.exchange_id is not None or chat.previous_key is not None:
+        return
+    if chat.dh_prime is None or chat.dh_g is None:
+        # Stores written before the parameters were persisted: §4.2 reuses (p, g)
+        # without retransmitting them, so this chat can never rekey.
+        await manager.close(chat.id, NO_DH_PARAMETERS)
         return
     exchange_id = new_exchange_id()
     secret = handshake.generate_secret()
@@ -213,40 +221,48 @@ async def handle(manager, chat, action):
     """The inbound half of §4.2-§4.6."""
     from .actions import Outcome
 
+    # `applied` says whether the package acted: an action for an exchange this side
+    # does not hold, or one it declined, is reported as not applied.
     if isinstance(action, tl.DecryptedMessageActionRequestKey):
-        await _on_request(manager, chat, action)
-        # An unsafe request closes the chat instead of being applied.
-        return Outcome(applied=chat.state.value != "closed")
+        return Outcome(applied=await _on_request(manager, chat, action))
     if isinstance(action, tl.DecryptedMessageActionAcceptKey):
-        await _on_accept(manager, chat, action)
-        return Outcome(applied=True)
+        return Outcome(applied=await _on_accept(manager, chat, action))
     if isinstance(action, tl.DecryptedMessageActionCommitKey):
-        await _on_commit(manager, chat, action)
-        return Outcome(applied=True)
+        return Outcome(applied=await _on_commit(manager, chat, action))
     if isinstance(action, tl.DecryptedMessageActionAbortKey):
         # §4.6: "Receiving it must clear the local exchange state." §8.4: the
         # archived package let this fall through to the application, so the chat
         # could sit in a half-open exchange indefinitely.
-        if chat.exchange_id == action.exchange_id:
-            _clear(chat)
+        if chat.exchange_id != action.exchange_id:
+            return Outcome(applied=False)
+        _clear(chat)
         return Outcome(applied=True)
     return Outcome(applied=False)
 
 
-async def _on_request(manager, chat, action) -> None:
+async def _on_request(manager, chat, action) -> bool:
     """Only simultaneous *requests* are eligible for the signed-ID tie break."""
     if chat.previous_key is not None:
-        return
+        # TDLib treats this as fatal. An explicit abort (§4.6 allows it: this side has
+        # sent no AcceptKey for it) lets a compliant peer retry once the old key is
+        # gone; silence left its exchange in `requested` for ever.
+        await manager._send_action(
+            chat, tl.DecryptedMessageActionAbortKey(exchange_id=action.exchange_id)
+        )
+        return False
     if chat.exchange_id is not None:
         if chat.rekey_role != "requested":
-            return  # An accepted exchange cannot be abandoned or overwritten.
+            return False  # An accepted exchange cannot be abandoned or overwritten.
         outcome = resolve_collision(chat.exchange_id, action.exchange_id)
         if outcome == "abandon_theirs":
-            return
+            return False
         if outcome == "abort_both":
             _clear(chat)
-            return
+            return True
 
+    if chat.dh_prime is None or chat.dh_g is None:
+        await manager.close(chat.id, NO_DH_PARAMETERS)
+        return False
     g_a = dh.value_from_bytes(action.g_a)
     b = handshake.generate_secret()
     try:
@@ -256,7 +272,7 @@ async def _on_request(manager, chat, action) -> None:
         # Raising instead left the action at the head of the delivery mailbox, and
         # every later message queued behind it undelivered.
         await manager.close(chat.id, failure.reason)
-        return
+        return False
     g_b = handshake.public_value(chat.dh_g, b, chat.dh_prime)
 
     def prepared():
@@ -275,12 +291,13 @@ async def _on_request(manager, chat, action) -> None:
         ),
         after_prepare=prepared,
     )
+    return True
 
 
-async def _on_accept(manager, chat, action) -> None:
+async def _on_accept(manager, chat, action) -> bool:
     """§4.4: A checks, commits, and from then on encrypts with the new key."""
     if chat.exchange_id != action.exchange_id or chat.exchange_secret is None:
-        return
+        return False
     g_b = dh.value_from_bytes(action.g_b)
     try:
         key = handshake.shared_key(
@@ -294,7 +311,7 @@ async def _on_accept(manager, chat, action) -> None:
         # security checks" is explicit grounds to abort the exchange - and this side
         # has sent neither Accept nor Commit, so it still may.
         await _abort(manager, chat)
-        return
+        return False
 
     exchange_id = chat.exchange_id
 
@@ -311,17 +328,18 @@ async def _on_accept(manager, chat, action) -> None:
         ),
         after_prepare=prepared,
     )
+    return True
 
 
-async def _on_commit(manager, chat, action) -> None:
+async def _on_commit(manager, chat, action) -> bool:
     """§4.5: B switches, and sends a ``Noop`` so A may retire the old key."""
     if chat.exchange_id != action.exchange_id or chat.pending_key is None:
-        return
+        return False
     if key_fingerprint(chat.pending_key) != action.key_fingerprint:
         # The same sanity check from the other side. A mismatch here means the two
         # ends did not derive the same key, so switching would break the chat.
         await _abort(manager, chat)
-        return
+        return False
     key = chat.pending_key
 
     def prepared():
@@ -337,6 +355,7 @@ async def _on_commit(manager, chat, action) -> None:
         after_prepare=prepared,
         encryption_key=key,
     )
+    return True
 
 
 async def _abort(manager, chat) -> None:

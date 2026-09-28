@@ -16,7 +16,7 @@ from telethon_secret_chat.storage import MemoryStorage
 
 from .dh_material import SAFE_PRIME
 from .fake_client import FakeClient
-from .test_replay_and_gap import a_chat, peer_message
+from .helpers import a_chat, peer_message
 
 KEY = bytes(range(256))
 OTHER = bytes(reversed(range(256)))
@@ -97,7 +97,7 @@ async def test_valid_and_legacy_records_still_start():
     manager = SecretChatManager(FakeClient(), storage=store_with(a_record(), legacy, closed))
     await manager.start()
     assert sorted(chat.id for chat in manager.list()) == [7, 21, 22]
-    assert manager.status(7).state is ChatState.READY
+    assert manager._entity(7).state is ChatState.READY
     await manager.stop()
 
 
@@ -204,3 +204,58 @@ def test_every_arrival_order_of_four_messages_delivers_all_in_sender_order(order
     assert chat.in_seq_no == 4
     assert chat.state is ChatState.READY
     assert store.peek_in(chat.id) == []
+
+
+# --- plans/010: store hygiene ------------------------------------------------------
+
+
+async def test_a_closed_record_still_holding_keys_is_scrubbed_at_start():
+    """Before PR #15 a closed chat kept its key, handshake and queues on disk."""
+    legacy = a_record(
+        state="closed",
+        closed_reason="done",
+        previous_key=OTHER,
+        exchange_secret=5,
+        handshake={"secret": 1},
+    )
+    store = store_with(legacy)
+    store.queue_out(7, {"seq_no": 1, "random_id": 1, "body": "00"})
+    store.queue_in(7, {"seq_no": 3, "body": "00"})
+    client = FakeClient()
+    manager = SecretChatManager(client, storage=store)
+    closed = []
+    manager.on("ChatClosedEvent", closed.append)
+    await manager.start()
+    record = store.load(7)
+    assert record["key"] is None and record["previous_key"] is None
+    assert record["exchange_secret"] is None and record["handshake"] == {}
+    assert record["closed_reason"] == "done"
+    assert store.retained_out(7) == [] and store.peek_in(7) == []
+    assert manager._entity(7).state is ChatState.CLOSED
+    assert not closed and client.sent == []
+
+
+async def test_a_request_key_on_a_chat_without_dh_parameters_closes_it():
+    """Stores written before the DH parameters were persisted cannot rekey; a peer's
+    RequestKey used to raise TypeError inside delivery and pin the mailbox."""
+    manager = SecretChatManager(FakeClient(), storage=store_with(a_record()))
+    await manager.start()
+    chat = manager._chats[7]
+    await rekey.handle(
+        manager,
+        chat,
+        tl.DecryptedMessageActionRequestKey(exchange_id=1, g_a=(2**2047).to_bytes(256, "big")),
+    )
+    assert chat.state is ChatState.CLOSED
+    assert chat.closed_reason == "stored chat lacks its DH parameters and cannot rekey"
+
+
+async def test_a_closed_chat_can_be_forgotten():
+    store = store_with(a_record())
+    manager = SecretChatManager(FakeClient(), storage=store)
+    await manager.start()
+    with pytest.raises(ValueError):
+        await manager.forget(7)
+    await manager.close(7)
+    await manager.forget(7)
+    assert manager.list() == [] and store.load(7) is None

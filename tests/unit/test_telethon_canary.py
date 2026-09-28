@@ -154,3 +154,16 @@ def test_the_supported_telethon_version_is_stated():
     assert floor, "pyproject does not state a Telethon dependency"
     assert ">=" in floor[0], f"the Telethon floor is not stated: {floor[0]}"
     assert tuple(int(p) for p in telethon.__version__.split(".")[:2]) >= (1, 45)
+
+
+def test_the_encryption_errors_accept_relies_on_still_exist():
+    """FALLBACK: none needed - accept() names these to converge after a crash."""
+    from telethon import errors
+
+    for name in (
+        "EncryptionAlreadyAcceptedError",
+        "EncryptionAlreadyDeclinedError",
+        "EncryptionDeclinedError",
+        "EncryptionIdInvalidError",
+    ):
+        assert hasattr(errors, name), name

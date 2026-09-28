@@ -17,12 +17,11 @@ handled without asking the application, and still reported (FR-011).
 
 import pytest
 
-from telethon_secret_chat import SecretChatManager, actions
+from telethon_secret_chat import actions
 from telethon_secret_chat.chat import SecretChat
 from telethon_secret_chat.schema import secret_tl as tl
-from telethon_secret_chat.storage import MemoryStorage
 
-from .fake_client import Wire, establish
+from .fake_client import establish
 
 KEY = bytes((i * 5 + 3) % 256 for i in range(256))
 
@@ -31,18 +30,6 @@ def a_chat():
     chat = SecretChat(id=7, access_hash=1, peer_user_id=2, is_outbound=True)
     chat.adopt_key(KEY)
     return chat
-
-
-@pytest.fixture
-async def pair():
-    wire = Wire()
-    a = SecretChatManager(wire.a, storage=MemoryStorage())
-    b = SecretChatManager(wire.b, storage=MemoryStorage())
-    await a.start()
-    await b.start()
-    yield wire, a, b
-    await a.stop()
-    await b.stop()
 
 
 ALL_THIRTEEN = [
@@ -126,7 +113,7 @@ async def test_the_peers_ttl_is_stored(pair):
     wire, a, b = pair
     chat_a, chat_b = await establish(a, b, wire)
     await b.set_ttl(chat_b.id, 300)
-    assert a.status(chat_a.id).ttl == 300
+    assert a._entity(chat_a.id).ttl == 300
 
 
 async def test_a_ttl_of_zero_disables_it(pair):
@@ -134,7 +121,7 @@ async def test_a_ttl_of_zero_disables_it(pair):
     chat_a, chat_b = await establish(a, b, wire)
     await b.set_ttl(chat_b.id, 300)
     await b.set_ttl(chat_b.id, 0)
-    assert a.status(chat_a.id).ttl == 0
+    assert a._entity(chat_a.id).ttl == 0
 
 
 @pytest.mark.parametrize("action", ALL_THIRTEEN, ids=lambda a: type(a).TL_NAME)
@@ -151,7 +138,7 @@ async def test_every_action_reaches_the_application(pair, action):
         # §3.7 answers this one immediately and rewrites it to Noop, which is a
         # different documented path - the Noop is what arrives.
         action = tl.DecryptedMessageActionNoop()
-    await b._send(b.status(chat_b.id), tl.DecryptedMessageService(random_id=1, action=action))
+    await b._send(b._entity(chat_b.id), tl.DecryptedMessageService(random_id=1, action=action))
     assert [e.action_name for e in seen] == [type(action).__name__]
 
 
@@ -208,7 +195,7 @@ async def test_setting_a_ttl_stores_it_on_this_side_too(pair):
     wire, a, b = pair
     chat_a, _ = await establish(a, b, wire)
     await a.set_ttl(chat_a.id, 45)
-    assert a.status(chat_a.id).ttl == 45
+    assert a._entity(chat_a.id).ttl == 45
 
 
 async def test_a_message_sent_under_a_ttl_carries_it(pair):
@@ -227,9 +214,9 @@ async def test_a_service_action_advances_the_counter(pair):
     ahead of where the peer expects it."""
     wire, a, b = pair
     chat_a, _ = await establish(a, b, wire)
-    before = a.status(chat_a.id).out_seq_no
+    before = a._entity(chat_a.id).out_seq_no
     await a.set_ttl(chat_a.id, 10)
-    assert a.status(chat_a.id).out_seq_no == before + 1
+    assert a._entity(chat_a.id).out_seq_no == before + 1
 
 
 async def test_deleting_an_unacknowledged_message_leaves_no_hole(pair):

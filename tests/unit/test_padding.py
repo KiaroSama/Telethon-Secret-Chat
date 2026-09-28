@@ -83,20 +83,8 @@ def module_sources():
 
 # The ban on the `random` module used to be enforced here. It is a package-wide
 # rule rather than a padding rule, so it lives in test_no_insecure_random.py -
-# moved, not duplicated, because two copies of a rule drift.
-
-
-def test_no_module_exceeds_the_line_ceiling():
-    """The constitution's 800 lines, with the one exemption it names: "Generated
-    schema files are exempt and MUST be marked as generated"."""
-    over = []
-    for path, source in module_sources():
-        lines = source.splitlines()
-        if lines and lines[0].strip() == "# generated":
-            continue
-        if len(lines) > 800:
-            over.append(f"{path.relative_to(PACKAGE)}: {len(lines)}")
-    assert not over, over
+# moved, not duplicated, because two copies of a rule drift. The line ceiling lives in
+# test_file_size_ceiling.py for the same reason.
 
 
 def test_the_exempt_file_says_it_is_generated_on_its_first_line():

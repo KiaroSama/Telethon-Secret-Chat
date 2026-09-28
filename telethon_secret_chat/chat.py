@@ -17,6 +17,7 @@ failed.
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, Optional
 
@@ -24,7 +25,7 @@ from .crypto import KEY_LENGTH, key_fingerprint
 from .errors import ChatClosed, ChatNotReady, StoreCorrupt
 from .framing import INITIAL_REMOTE_LAYER
 
-__all__ = ["ChatState", "SecretChat"]
+__all__ = ["ChatState", "ChatSnapshot", "SecretChat"]
 
 
 class ChatState(str, Enum):
@@ -47,6 +48,36 @@ _TRANSITIONS = {
     ChatState.REKEYING: {ChatState.READY, ChatState.CLOSED},
     ChatState.CLOSED: set(),
 }
+
+
+@dataclass(frozen=True)
+class ChatSnapshot:
+    """What ``list()`` and ``status()`` hand out: a read-only copy with no key material.
+
+    Principle IV: the live entity holds the chat key, the rekey keys and the DH secret,
+    and any generic serialization a caller applied to it exported them. A copy also
+    cannot be mutated behind the manager's locks.
+    """
+
+    id: int
+    state: ChatState
+    peer_user_id: int
+    is_outbound: bool
+    ttl: int
+    layer: int
+    key_fingerprint: Optional[int]
+    key_hash: Optional[bytes]
+    created_at: float
+    rekeyed_at: float
+    closed_reason: Optional[str]
+    has_previous_key: bool
+    exchange_in_progress: bool
+
+    def __repr__(self) -> str:
+        return (
+            f"ChatSnapshot(id={self.id}, state={self.state.value!r}, "
+            f"peer={self.peer_user_id}, keyed={self.key_fingerprint is not None})"
+        )
 
 
 class SecretChat:
@@ -157,6 +188,23 @@ class SecretChat:
 
     # --- the state machine ----------------------------------------------------
 
+    def snapshot(self) -> ChatSnapshot:
+        return ChatSnapshot(
+            id=self.id,
+            state=self.state,
+            peer_user_id=self.peer_user_id,
+            is_outbound=self.is_outbound,
+            ttl=self.ttl,
+            layer=self.layer,
+            key_fingerprint=self.key_fingerprint,
+            key_hash=self.initial_key_hash,
+            created_at=self.created_at,
+            rekeyed_at=self.rekeyed_at,
+            closed_reason=self.closed_reason,
+            has_previous_key=self.previous_key is not None,
+            exchange_in_progress=self.exchange_id is not None,
+        )
+
     def transition_to(self, target: ChatState) -> None:
         if self.state is ChatState.CLOSED:
             raise ChatClosed(chat_id=self.id, reason=self.closed_reason or "already closed")
@@ -171,6 +219,17 @@ class SecretChat:
             return
         self.state = ChatState.CLOSED
         self.closed_reason = reason
+        self.scrub()
+
+    def holds_material(self) -> bool:
+        """Anything a closed chat must not keep."""
+        return any(
+            value is not None
+            for value in (self.key, self.pending_key, self.previous_key, self.exchange_secret)
+        ) or bool(self.handshake or self.pending_deliveries)
+
+    def scrub(self) -> None:
+        """Drop key material and pending content; the state is left as it is."""
         self.key = self.key_fingerprint = None
         self.pending_key = self.previous_key = None
         self.exchange_id = self.exchange_secret = self.rekey_role = None

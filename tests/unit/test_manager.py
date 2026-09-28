@@ -19,20 +19,7 @@ from telethon_secret_chat.chat import ChatState
 from telethon_secret_chat.errors import ChatClosed, ChatNotReady, ParameterRejected
 from telethon_secret_chat.storage import MemoryStorage
 
-from .fake_client import Wire, establish
-
-
-@pytest.fixture
-async def pair():
-    wire = Wire()
-    a = SecretChatManager(wire.a, storage=MemoryStorage())
-    b = SecretChatManager(wire.b, storage=MemoryStorage())
-    await a.start()
-    await b.start()
-    yield wire, a, b
-    await a.stop()
-    await b.stop()
-
+from .fake_client import establish
 
 # --- establishment ------------------------------------------------------------
 
@@ -41,7 +28,7 @@ async def test_creating_a_chat_leaves_it_awaiting_acceptance(pair):
     """US1 scenario 1: "the application reports it as awaiting acceptance"."""
     wire, a, _ = pair
     chat = await a.create(2000)
-    assert chat.state is ChatState.REQUESTED and chat.key is None
+    assert chat.state is ChatState.REQUESTED and chat.key_fingerprint is None
 
 
 async def test_the_dh_configuration_is_validated_before_a_chat_is_requested(pair):
@@ -116,7 +103,7 @@ async def test_a_peer_publishing_the_wrong_fingerprint_is_refused(pair):
             date=0,
         )
     )
-    assert a.status(chat.id).state is ChatState.CLOSED
+    assert a._entity(chat.id).state is ChatState.CLOSED
 
 
 # --- the conversation ---------------------------------------------------------
@@ -199,13 +186,13 @@ async def test_closing_twice_states_it_rather_than_raising(pair):
     chat_a, _ = await establish(a, b, wire)
     await a.close(chat_a.id)
     await a.close(chat_a.id)
-    assert a.status(chat_a.id).state is ChatState.CLOSED
+    assert a._entity(chat_a.id).state is ChatState.CLOSED
 
 
 async def test_an_unknown_chat_is_refused_by_status_and_history(pair):
     wire, a, _ = pair
     with pytest.raises(KeyError):
-        a.status(999999)
+        a._entity(999999)
     with pytest.raises(KeyError):
         a.read_history(999999, limit=1)
 
@@ -266,7 +253,7 @@ async def test_a_notify_layer_is_sent_as_soon_as_the_chat_is_ready(pair):
     wire, a, b = pair
     chat_a, chat_b = await establish(a, b, wire)
     assert chat_b.layer >= 73, "the peer's NotifyLayer did not raise the stored layer"
-    assert a.status(chat_a.id).layer >= 73
+    assert a._entity(chat_a.id).layer >= 73
 
 
 # --- the exported surface (T027) ----------------------------------------------
@@ -280,6 +267,7 @@ def test_the_package_exports_exactly_the_contract():
     assert set(pkg.__all__) == {
         "SecretChatManager",
         "SecretChat",
+        "ChatSnapshot",
         "ChatState",
         "StorageBackend",
         "MemoryStorage",
@@ -292,6 +280,9 @@ def test_the_package_exports_exactly_the_contract():
         "LayerUnsupported",
         "ResendUnsatisfiable",
         "StoreCorrupt",
+        "UnknownChat",
+        "ManagerStopping",
+        "SendPending",
         "ChatRequested",
         "ChatReady",
         "ChatClosedEvent",
@@ -349,12 +340,212 @@ async def test_formatted_text_is_parsed_rather_than_left_a_coroutine():
     assert entities == ["entity"]
 
 
-async def test_a_client_without_the_private_parser_still_sends_plain_text():
-    """The documented fallback, which is the branch the fakes were exercising."""
+# --- the server's side effects the fake now reproduces -------------------------
 
-    class _Bare:
-        pass
 
-    manager = SecretChatManager(_Bare(), MemoryStorage())
+async def test_a_peer_discarding_the_chat_closes_it_here(pair):
+    """Edge case "the peer discards the chat": reported closed, with one event."""
+    wire, a, b = pair
+    chat_a, _ = await establish(a, b, wire)
+    closed = []
+    b.on("ChatClosedEvent", closed.append)
+    await a.close(chat_a.id)
+    assert b._entity(chat_a.id).state is ChatState.CLOSED
+    assert b._entity(chat_a.id).closed_reason == "the peer discarded the chat"
+    assert [event.chat_id for event in closed] == [chat_a.id]
 
-    assert await manager._parse_text("hello") == ("hello", None)
+
+async def test_a_sent_file_keeps_the_server_handle_for_resends(pair, tmp_path):
+    """§3.7 answers a resend with the original bytes; for a file that means the
+    server's handle, not a second upload."""
+    from telethon.extensions import BinaryReader
+    from telethon.tl import types
+
+    wire, a, b = pair
+    chat_a, _ = await establish(a, b, wire)
+    source = tmp_path / "note.txt"
+    source.write_bytes(b"kept for resend")
+    await a.send_file(chat_a.id, source)
+    record = a._storage.retained_out(chat_a.id)[-1]
+    with BinaryReader(bytes.fromhex(record["file"])) as reader:
+        assert isinstance(reader.tgread_object(), types.InputEncryptedFile)
+
+
+# --- start/stop under concurrent updates, handshake edges (plans/008) -----------
+
+
+async def test_a_request_arriving_during_start_does_not_break_recovery():
+    """Telethon dispatches updates concurrently; one landing while start() awaits
+    recovery work adds a chat to the dict start() is walking."""
+    from telethon.tl import types
+
+    from .helpers import FlakyClient, ready_manager
+
+    class Interrupting(FlakyClient):
+        failing = False
+        fired = False
+
+        async def __call__(self, request):
+            if isinstance(request, functions.messages.SendEncryptedRequest) and not self.fired:
+                self.fired = True
+                await self.deliver_update(
+                    types.UpdateEncryption(
+                        chat=types.EncryptedChatRequested(
+                            id=4242,
+                            access_hash=1,
+                            date=0,
+                            admin_id=5,
+                            participant_id=1000,
+                            g_a=(2**2047 + 12345).to_bytes(256, "big"),
+                        ),
+                        date=0,
+                    )
+                )
+            return await super().__call__(request)
+
+    first, chat = ready_manager(Interrupting())
+    first._storage.queue_out(
+        chat.id,
+        {"seq_no": 1, "random_id": 1, "pending": True, "frame": "00" * 64, "method": "message"},
+    )
+    manager = SecretChatManager(Interrupting(), storage=first._storage)
+    failed = []
+    manager.on("DecryptFailed", failed.append)
+    await manager.start()
+    assert not failed, [f.reason for f in failed]
+    try:
+        assert 4242 in {c.id for c in manager.list()}, [
+            type(r).__name__ for r in manager._client.sent
+        ]
+    finally:
+        await manager.stop()
+
+
+async def test_an_unsafe_incoming_request_is_discarded_on_the_server(pair):
+    from telethon.tl import types
+
+    wire, _, b = pair
+    failed = []
+    b.on("DecryptFailed", failed.append)
+    await wire.b.deliver_update(
+        types.UpdateEncryption(
+            chat=types.EncryptedChatRequested(
+                id=777,
+                access_hash=1,
+                date=0,
+                admin_id=1000,
+                participant_id=2000,
+                g_a=(1).to_bytes(256, "big"),
+            ),
+            date=0,
+        )
+    )
+    assert failed and failed[0].chat_id == 777
+    discards = [
+        r for r in wire.b.sent if isinstance(r, functions.messages.DiscardEncryptionRequest)
+    ]
+    assert [r.chat_id for r in discards] == [777]
+
+
+async def test_a_pending_request_accepted_elsewhere_closes_locally_only(pair):
+    from telethon.tl import types
+
+    wire, a, b = pair
+    chat_a = await a.create(2000)
+    request = wire.a.sent[-1]
+    await wire.b.deliver_update(
+        types.UpdateEncryption(
+            chat=types.EncryptedChatRequested(
+                id=chat_a.id,
+                access_hash=7777,
+                date=0,
+                admin_id=1000,
+                participant_id=2000,
+                g_a=request.g_a,
+            ),
+            date=0,
+        )
+    )
+    await wire.b.deliver_update(
+        types.UpdateEncryption(
+            chat=types.EncryptedChat(
+                id=chat_a.id,
+                access_hash=7777,
+                date=0,
+                admin_id=1000,
+                participant_id=2000,
+                g_a_or_b=request.g_a,
+                key_fingerprint=1,
+            ),
+            date=0,
+        )
+    )
+    assert b._entity(chat_a.id).state is ChatState.CLOSED
+    assert not any(isinstance(r, functions.messages.DiscardEncryptionRequest) for r in wire.b.sent)
+
+
+async def test_an_async_handler_scheduled_while_stopping_is_not_left_pending():
+    from telethon_secret_chat.events import ChatReady
+
+    from .helpers import ready_manager
+
+    manager, _ = ready_manager()
+    ran = []
+
+    async def handler(event):
+        ran.append(event)
+
+    manager.on("ChatReady", handler)
+    manager._stopping = True
+    manager._emit(ChatReady(1, 2, 3))
+    assert not manager._handler_tasks and not ran
+
+
+# --- plans/022-023: one error family, and snapshots instead of the live entity -----
+
+
+async def test_an_unknown_chat_is_a_package_error_and_still_a_key_error(pair):
+    from telethon_secret_chat.errors import SecretChatError, UnknownChat
+
+    _, a, _ = pair
+    with pytest.raises(UnknownChat) as caught:
+        a.status(999999)
+    assert isinstance(caught.value, SecretChatError) and isinstance(caught.value, KeyError)
+
+
+async def test_status_hands_out_a_read_only_snapshot_without_key_material(pair):
+    import dataclasses
+
+    wire, a, b = pair
+    chat_a, _ = await establish(a, b, wire)
+    snapshot = a.status(chat_a.id)
+    for name in ("key", "pending_key", "previous_key", "exchange_secret", "handshake"):
+        assert not hasattr(snapshot, name), name
+    assert not any(
+        isinstance(value, bytes) and len(value) == 256 for value in vars(snapshot).values()
+    )
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        snapshot.ttl = 5
+    live = a._chats[chat_a.id]
+    assert (snapshot.key_fingerprint, snapshot.key_hash) == (live.key_fingerprint, live.key_hash)
+    assert [c.id for c in a.list()] == [chat_a.id]
+
+
+async def test_history_keeps_only_the_most_recent_messages():
+    from .fake_client import Wire
+
+    wire = Wire()
+    a = SecretChatManager(wire.a, storage=MemoryStorage())
+    b = SecretChatManager(wire.b, storage=MemoryStorage(), history_limit=5)
+    await a.start()
+    await b.start()
+    try:
+        chat_a, _ = await establish(a, b, wire)
+        for n in range(8):
+            await a.send_message(chat_a.id, f"m{n}")
+        assert [m.text for m in b.read_history(chat_a.id, limit=50)] == [
+            f"m{n}" for n in range(3, 8)
+        ]
+    finally:
+        await a.stop()
+        await b.stop()

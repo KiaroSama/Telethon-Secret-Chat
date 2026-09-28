@@ -100,15 +100,9 @@ async def handle(manager, chat, action) -> Outcome:
         return Outcome(applied=True)
 
     if isinstance(action, tl.DecryptedMessageActionFlushHistory):
-        manager._history.pop(chat.id, None)
+        manager._forget_history(chat.id)
         with manager._atomic(chat):
-            manager._rewrite_retained_as_deletes(
-                chat,
-                {
-                    manager._retained_random_id(item)
-                    for item in manager._storage.retained_out(chat.id)
-                },
-            )
+            manager._rewrite_retained_as_deletes(chat, manager._content_random_ids(chat))
         return Outcome(applied=True)
 
     if isinstance(action, tl.DecryptedMessageActionResend):
