@@ -1,6 +1,9 @@
 [project]
-name = "telethon-secret-chat"
-version = "0.0.1"
+# Not `telethon-secret-chat`: that name on PyPI is an unrelated package, so every
+# resolver that consulted the index reported this one as outdated. The import name
+# stays `telethon_secret_chat`.
+name = "kiaro-telethon-secret-chat"
+version = "0.1.0"
 description = "Telegram MTProto 2.0 end-to-end encryption (secret chats) for Telethon"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -29,30 +32,52 @@ dependencies = [
     # 1.45 is the floor, not a preference: it announces TL layer 229, and the
     # encryption requests this package drives (messages.requestEncryption,
     # acceptEncryption, sendEncrypted*, getDhConfig) must match the schema the
-    # transport announces.
-    "telethon>=1.45.0",
+    # transport announces. <2 because the v2 line is a different API, and this
+    # package calls one private v1 method (TelegramClient._parse_message_text,
+    # guarded by tests/unit/test_telethon_canary.py).
+    "telethon>=1.45.0,<2",
 ]
+
+[project.optional-dependencies]
+# Native AES for file encryption. Without it Telethon's AES falls back to pure
+# Python, which is correct but slow on large media. 0.6.0 ships wheels for
+# CPython 3.11-3.14 on Linux, macOS and Windows, so no marker is needed.
+fast = ["cryptg>=0.6.0"]
 
 [project.urls]
 Homepage = "https://github.com/KiaroSama/Telethon-Secret-Chat"
+Repository = "https://github.com/KiaroSama/Telethon-Secret-Chat"
+Changelog = "https://github.com/KiaroSama/Telethon-Secret-Chat/blob/main/CHANGELOG.md"
 "Bug Tracker" = "https://github.com/KiaroSama/Telethon-Secret-Chat/issues"
 
 [dependency-groups]
+# Floors at the majors actually tested (uv.lock), so an unlocked install cannot
+# pick a formatter that disagrees with `generate_schema.py --check`.
 dev = [
-    "pytest>=8.0",
-    "pytest-asyncio>=0.24",
-    "pytest-cov>=5.0",
-    "pytest-timeout>=2.3",
-    "black>=24.0",
-    "flake8>=7.4.0",
+    "pytest>=9",
+    "pytest-asyncio>=1.0",
+    "pytest-cov>=7",
+    "pytest-timeout>=2.4",
+    "black>=26",
+    "flake8>=7.4",
+    "mypy>=2.3",
 ]
 
 [build-system]
-requires = ["setuptools>=84.0.0"]
+# Capped because build requirements are not locked: every CI build and every
+# git-commit install resolves the newest setuptools, and a new major has refused
+# previously valid metadata before (the licence classifier, above). Raise the cap
+# deliberately, with a green `Package Validation` run as the evidence.
+requires = ["setuptools>=84,<86"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["telethon_secret_chat*"]
+
+[tool.setuptools.package-data]
+# PEP 561 marker: tells a consumer's type checker to read the inline annotations.
+# schema/end-to-end.tl is not shipped; only tools/generate_schema.py reads it.
+telethon_secret_chat = ["py.typed"]
 
 [tool.black]
 # 99, matching the reference project this was scaffolded from, so a file moved
@@ -66,28 +91,19 @@ testpaths = ["tests"]
 # Bounded by default. A crypto handshake that never completes is the shape of
 # failure this package can produce, and an unbounded test hides it as a hang.
 timeout = 120
+# The unawaited coroutine of 2026-09-20 shipped because a warning is not a failure.
+addopts = "--strict-markers --strict-config"
+filterwarnings = [
+    "error::RuntimeWarning",
+    "error::pytest.PytestUnraisableExceptionWarning",
+]
 
 [tool.coverage.run]
 branch = true
-source = [
-    # Listed per module rather than as a package, so a new file has to be added
-    # here deliberately and cannot arrive uncovered and unnoticed.
-    "telethon_secret_chat",
-    "telethon_secret_chat.errors",
-    "telethon_secret_chat.storage",
-    "telethon_secret_chat.dh",
-    "telethon_secret_chat.crypto",
-    "telethon_secret_chat.framing",
-    "telethon_secret_chat.handshake",
-    "telethon_secret_chat.sequence",
-    "telethon_secret_chat.actions",
-    "telethon_secret_chat.files",
-    "telethon_secret_chat.rekey",
-    "telethon_secret_chat.chat",
-    "telethon_secret_chat.manager",
-    "telethon_secret_chat.events",
-]
-# schema/secret_tl.py is deliberately NOT listed. It is generated (see
+# The whole package: a new module is measured the moment it exists, including
+# one no test imports (it then reports 0%).
+source = ["telethon_secret_chat"]
+# schema/secret_tl.py is deliberately left out by `omit` below. It is generated (see
 # tools/generate_schema.py), and ninety constructors' worth of emitted branches
 # would report a percentage for the generator's output rather than for anything a
 # human wrote. What covers it is tests/unit/test_schema_roundtrip.py, which checks
@@ -97,3 +113,21 @@ omit = ["telethon_secret_chat/schema/*"]
 [tool.coverage.report]
 show_missing = true
 skip_covered = false
+
+[tool.mypy]
+# Lenient on purpose: the package is partly annotated, and this check exists to
+# catch record-shape and None-flow mistakes, not to demand annotations. Tighten
+# module by module (disallow_untyped_defs), never in one sweep.
+python_version = "3.11"
+packages = ["telethon_secret_chat"]
+# Generated; its untyped constructors say nothing about hand-written code.
+exclude = ["telethon_secret_chat/schema/"]
+# Telethon ships no type information.
+ignore_missing_imports = true
+warn_unused_ignores = true
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+# `exclude` stops discovery only; imports of the schema would still be followed.
+module = "telethon_secret_chat.schema.*"
+follow_imports = "skip"

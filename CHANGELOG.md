@@ -1,0 +1,51 @@
+# Changelog
+
+Every change to the public API gets a line here in the same commit. The consumer pins this
+package by commit and reads this file before moving its pin. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
+[Semantic Versioning](https://semver.org/) with the pre-1.0 rule that a minor bump may break.
+
+## [Unreleased] - 0.1.0
+
+`pyproject.toml` already carries 0.1.0; the date is set when the release is tagged.
+
+### Changed
+
+- The distribution is renamed to `kiaro-telethon-secret-chat`: `telethon-secret-chat` on PyPI
+  is an unrelated package. The import name `telethon_secret_chat` is unchanged; a consumer
+  changes its dependency line once.
+- `__version__` is read from the installed metadata, so the version is written in one place.
+- `list()` and `status()` return a read-only `ChatSnapshot` with no key material instead of
+  the live chat object.
+- A send whose message was stored but whose transmission failed raises `SendPending` carrying
+  the `random_id`; the message is retried by the next send or `start()` and must not be
+  resent by the caller.
+- Formatted text is parsed with the client's default parse mode, and the entities are mapped
+  to the secret-chat schema; entity types the secret-chat layer cannot carry are dropped.
+- The in-memory history keeps the most recent `history_limit` messages per chat (default
+  1000, a new keyword of `SecretChatManager`).
+- Telethon is capped below 2; the build backend is capped below setuptools 86.
+
+### Added
+
+- `forget(chat_id)` drops a closed chat's record.
+- `UnknownChat` (also a `KeyError`) and `ManagerStopping` (also a `RuntimeError`), so every
+  failure is inside `SecretChatError`.
+- The `SendFailed` event for a message the server permanently rejected.
+- The `fast` extra (`cryptg`) for native AES.
+- `py.typed`; CI runs a lenient mypy check.
+- Crash-leftover temporary files beside the store (`.secret-chat-store-*.tmp`) and beside a
+  saved file (`.secret-chat-file-*.tmp`) are deleted on the next open or save.
+
+### Fixed (since the tree first pinned by the consumer, 42fd06f)
+
+- Rekey and resend recovery hardened; remaining audit gaps closed (2026-09-26).
+- `start()` validates every stored record and raises `StoreCorrupt` before installing any
+  chat; `create()` discards the server-side request when its record cannot be saved; service
+  actions rekey first when the trigger is due (2026-09-21 to 2026-09-26).
+- Durability and protocol repairs from the audit, with strict TL parsing regenerated from the
+  tracked schema (2026-09-21).
+
+## [0.0.1] - 2026-09-19
+
+- First scaffold; the tree the consumer first pinned is `42fd06f` (2026-09-21).
