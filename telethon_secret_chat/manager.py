@@ -26,7 +26,7 @@ from .dispatch import EventDispatch
 from .errors import StorageRequired, UnknownChat
 from .events import ChatClosedEvent, ChatRequested
 from .establishment import Establishment
-from .locking import ChatLocking, serialized
+from .locking import ChatLocking, ordered, serialized
 from .outbox import RetainedOutbox
 from .receive import Receiving
 from .schema import secret_tl as tl
@@ -53,6 +53,7 @@ class SecretChatManager(ChatLocking, EventDispatch, RetainedOutbox, Establishmen
         self._handlers: Dict[str, List[Callable]] = {}
         self._handler_tasks = set()
         self._locks = {}
+        self._outbound_locks = {}
         self._lock_owners = {}
         self._inflight = set()
         self._creating = 0
@@ -176,7 +177,7 @@ class SecretChatManager(ChatLocking, EventDispatch, RetainedOutbox, Establishmen
         """The live chat, for this package and its tests; never handed to callers."""
         return self._require(chat_id)
 
-    @serialized
+    @ordered
     async def send_message(self, chat_id, text, entities=None, reply_to=None):
         chat = self._sendable(chat_id)
         if entities is None and text:
@@ -196,7 +197,7 @@ class SecretChatManager(ChatLocking, EventDispatch, RetainedOutbox, Establishmen
         )
         return random_id
 
-    @serialized
+    @ordered
     async def rekey(self, chat_id):
         await rekey_module.start(self, self._sendable(chat_id))
 
@@ -204,18 +205,19 @@ class SecretChatManager(ChatLocking, EventDispatch, RetainedOutbox, Establishmen
         if chat.state is ChatState.READY and rekey_module.should_rekey(chat, time.time()):
             await rekey_module.start(self, chat)
 
-    @serialized
     async def send_file(
         self, chat_id, path, *, caption="", mime_type=None, kind=None, reply_to=None
     ):
-        return await files.send(
-            self, self._sendable(chat_id), path, caption, mime_type, kind, reply_to
-        )
+        # Outbound order only: the upload runs without the chat lock (files.send).
+        async with self._outbound_lock(chat_id):
+            return await files.send(
+                self, self._sendable(chat_id), path, caption, mime_type, kind, reply_to
+            )
 
     async def save_file(self, message, path) -> Path:
         return await files.receive(self, message, path)
 
-    @serialized
+    @ordered
     async def set_ttl(self, chat_id, seconds):
         chat = self._sendable(chat_id)
         if type(seconds) is not int or not 0 <= seconds < 2**31:
@@ -226,11 +228,11 @@ class SecretChatManager(ChatLocking, EventDispatch, RetainedOutbox, Establishmen
             after_prepare=lambda: setattr(chat, "ttl", seconds),
         )
 
-    @serialized
+    @ordered
     async def mark_read(self, chat_id, random_ids):
         await self._send_action(self._sendable(chat_id), actions_module.read_messages(random_ids))
 
-    @serialized
+    @ordered
     async def delete_messages(self, chat_id, random_ids):
         chat = self._sendable(chat_id)
         ids = list(random_ids)
@@ -241,13 +243,13 @@ class SecretChatManager(ChatLocking, EventDispatch, RetainedOutbox, Establishmen
         self._remove_history(chat.id, set(ids))
         await self._send_action(chat, actions_module.delete_messages(ids))
 
-    @serialized
+    @ordered
     async def screenshot(self, chat_id, random_ids):
         await self._send_action(
             self._sendable(chat_id), actions_module.screenshot_messages(random_ids)
         )
 
-    @serialized
+    @ordered
     async def flush_history(self, chat_id):
         chat = self._sendable(chat_id)
         ids = self._content_random_ids(chat)
@@ -256,7 +258,7 @@ class SecretChatManager(ChatLocking, EventDispatch, RetainedOutbox, Establishmen
         self._forget_history(chat_id)
         await self._send_action(chat, actions_module.flush_history())
 
-    @serialized
+    @ordered
     async def set_typing(self, chat_id, action=None):
         await self._send_action(self._sendable(chat_id), actions_module.typing(action))
 

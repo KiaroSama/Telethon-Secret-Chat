@@ -257,3 +257,31 @@ def test_an_interrupted_write_leaves_no_temp_file(tmp_path, monkeypatch):
         store.save(_record())
     assert [p.name for p in tmp_path.iterdir()] == ["chats.json"]
     assert (tmp_path / "chats.json").read_bytes() == before
+
+
+def test_an_inner_failure_unwinds_the_whole_outer_transaction(storage):
+    with pytest.raises(RuntimeError):
+        with storage.transaction():
+            storage.save(_record(chat_id=1))
+            with storage.transaction():
+                storage.queue_out(1, {"seq_no": 1, "body": "00"})
+                raise RuntimeError("synthetic")
+    assert storage.load(1) is None and storage.retained_out(1) == []
+
+
+def test_a_drained_gap_buffer_is_put_back_in_one_write(tmp_path, monkeypatch):
+    """Re-queueing record by record opened one transaction (and one full-state copy)
+    per waiting message, while the hole was being filled."""
+    from telethon_secret_chat import sequence
+
+    from .helpers import a_chat, peer_message
+
+    store = FileStorage(tmp_path / "chats.json")
+    chat = a_chat()
+    for raw in range(2, 40):
+        sequence.accept(chat, peer_message(raw), store)
+    single = []
+    monkeypatch.setattr(store, "queue_in", lambda *a: single.append(a))
+    sequence.accept(chat, peer_message(0), store)
+    assert single == []
+    assert [m["seq_no"] for m in store.peek_in(chat.id)] == list(range(2, 40))

@@ -52,6 +52,7 @@ class FakeClient:
         # Telethon's private parser, as async as the real one. Records the parse mode it
         # was asked for, so a test can pin the client-default sentinel `()`.
         self.parse_modes = []
+        self.download_targets = []
 
     # --- the surface manager.py uses -----------------------------------------
 
@@ -138,7 +139,18 @@ class FakeClient:
 
     async def upload_file(self, file, **kwargs):
         """Telethon's public upload. The bytes arriving here are ciphertext."""
-        blob = file.read() if hasattr(file, "read") else bytes(file)
+        size = kwargs.get("file_size")
+        if size is not None:
+            # Telethon's contract for a stream: read(part) must return exactly `part`
+            # bytes on every part but the last (client/uploads.py, 1.45.0).
+            part, pieces = 512 * 1024, []
+            while sum(map(len, pieces)) < size:
+                piece = file.read(part)
+                assert piece and (len(piece) == part or sum(map(len, pieces)) + len(piece) == size)
+                pieces.append(piece)
+            blob = b"".join(pieces)
+        else:
+            blob = file.read() if hasattr(file, "read") else bytes(file)
         self.uploaded.append(blob)
         file_id = len(self.uploaded)
         # Both sides of a Wire share one store, as one Telegram CDN would.
@@ -148,6 +160,7 @@ class FakeClient:
         return types.InputFile(id=file_id, parts=1, name="upload.bin", md5_checksum="")
 
     async def download_file(self, location, out, **kwargs):
+        self.download_targets.append(type(out).__name__)
         out.write(self.stored[location.id])
         return out
 

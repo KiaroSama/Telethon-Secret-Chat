@@ -91,6 +91,13 @@ class StorageBackend(ABC):
     def take_in(self, chat_id: int) -> List[Message]:
         """Drain the gap queue in order, within the current transaction."""
 
+    def requeue_in(self, chat_id: int, messages: List[Message]) -> None:
+        """Put back what ``take_in`` drained and is still waiting; native backends
+        should do this in one write."""
+        with self.transaction():
+            for message in messages:
+                self.queue_in(chat_id, message)
+
 
 class MemoryStorage(StorageBackend):
     """Explicit volatile storage with the same transaction contract as FileStorage."""
@@ -99,21 +106,30 @@ class MemoryStorage(StorageBackend):
         self._state: Dict[str, Any] = {"chats": {}, "out": {}, "in": {}}
         self._lock = threading.RLock()
         self._depth = 0
+        self._snapshot = None
 
     @contextmanager
     def transaction(self):
         with self._lock:
-            previous = deepcopy(self._state)
+            # One snapshot per OUTER transaction: every storage call opens a nested
+            # scope, and copying the whole state at each made a message cost several
+            # full copies. A failure anywhere unwinds the whole outer transaction.
+            outermost = self._depth == 0
+            if outermost:
+                self._snapshot = deepcopy(self._state)
             self._depth += 1
             try:
                 yield self
-                if self._depth == 1 and self._state != previous:
+                if outermost and self._state != self._snapshot:
                     self._write()
             except BaseException:
-                self._state = previous
+                if outermost:
+                    self._state = self._snapshot
                 raise
             finally:
                 self._depth -= 1
+                if outermost:
+                    self._snapshot = None
 
     def _write(self) -> None:
         """Volatile storage has no durable commit step."""
@@ -170,6 +186,12 @@ class MemoryStorage(StorageBackend):
         with self.transaction():
             held = self._state["in"].pop(str(chat_id), [])
             return deepcopy(sorted(held, key=lambda m: m["seq_no"]))
+
+    def requeue_in(self, chat_id: int, messages: List[Message]) -> None:
+        with self.transaction():
+            held = self._state["in"].setdefault(str(chat_id), [])
+            known = {m["seq_no"] for m in held}
+            held.extend(deepcopy(m) for m in messages if m["seq_no"] not in known)
 
 
 class FileStorage(MemoryStorage):

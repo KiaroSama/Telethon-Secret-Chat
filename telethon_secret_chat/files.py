@@ -53,6 +53,8 @@ __all__ = [
 ]
 
 BLOCK = 16
+# protocol-reference.md §7.1: layer 143 made `size` a long (big files).
+SIZE_LONG_LAYER = 143
 TEMP_PREFIX = ".secret-chat-file-"
 
 # --- the eight kinds (§6.3's `attributes:Vector<DocumentAttribute>`) -----------
@@ -243,6 +245,91 @@ def verify_file_fingerprint(*, chat_id: int, key: bytes, iv: bytes, claimed: int
         )
 
 
+# Streamed in pieces of this size, a multiple of the cipher block. Telethon's own
+# `upload_file(key=, iv=)` cannot be used: it restarts the IV on every part, which is
+# not an IGE stream (telethon/client/uploads.py, 1.45.0).
+CHUNK = 64 * 1024
+
+
+def _check_file_key(key: bytes, iv: bytes) -> None:
+    if len(key) != 32 or len(iv) != 32:
+        raise ValueError("file key and IV must each contain exactly 32 bytes")
+
+
+class _Ige:
+    """AES-256-IGE carried across pieces: after each piece the IV becomes the last
+    ciphertext block followed by the last plaintext block, exactly as one call over
+    the whole buffer would have continued."""
+
+    def __init__(self, key: bytes, iv: bytes):
+        self._key, self._iv = key, iv
+
+    def encrypt(self, plain: bytes) -> bytes:
+        cipher = AES.encrypt_ige(plain, self._key, self._iv)
+        self._iv = cipher[-BLOCK:] + plain[-BLOCK:]
+        return cipher
+
+    def decrypt(self, cipher: bytes) -> bytes:
+        plain = AES.decrypt_ige(cipher, self._key, self._iv)
+        self._iv = cipher[-BLOCK:] + plain[-BLOCK:]
+        return plain
+
+
+class EncryptingReader:
+    """A readable stream of a file's ciphertext, for `upload_file`, without holding
+    the file in memory. ``size`` is the padded length the upload must declare."""
+
+    def __init__(self, source, key: bytes, iv: bytes, size: int, *, padding=None, name=None):
+        _check_file_key(key, iv)
+        self._source, self._left = source, size
+        self._pad = os.urandom(-size % BLOCK) if padding is None else padding
+        self._ige = _Ige(key, iv)
+        self._plain = b""
+        self._ready = b""
+        self.size = size + len(self._pad)
+        self.name = name
+
+    def read(self, count: int = -1) -> bytes:
+        if count is None or count < 0:
+            count = self.size
+        while len(self._ready) < count and (self._left or self._pad is not None):
+            piece = self._source.read(min(CHUNK, self._left)) if self._left else b""
+            if self._left and not piece:
+                raise ValueError("the file ended before its declared size")
+            self._left -= len(piece)
+            if not self._left:
+                piece += self._pad
+                self._pad = None
+            self._plain += piece
+            whole = len(self._plain) - len(self._plain) % BLOCK
+            if whole:
+                self._ready += self._ige.encrypt(self._plain[:whole])
+                self._plain = self._plain[whole:]
+        out, self._ready = self._ready[:count], self._ready[count:]
+        return out
+
+
+def decrypt_stream(pieces, key: bytes, iv: bytes, size: int):
+    """Plaintext pieces of a ciphertext stream, trimmed to the declared ``size``."""
+    _check_file_key(key, iv)
+    ige, pending, left = _Ige(key, iv), b"", size
+    for piece in pieces:
+        pending += piece
+        whole = len(pending) - len(pending) % BLOCK
+        if whole and left:
+            plain = ige.decrypt(pending[:whole])
+            yield plain[:left]
+            left -= min(left, len(plain))
+        pending = pending[whole:]
+
+
+def _check_lengths(total: int, size) -> None:
+    if type(size) is not int or size < 0:
+        raise ValueError("file size must be a nonnegative integer")
+    if total % BLOCK or not 0 <= total - size < BLOCK:
+        raise ValueError("ciphertext length does not match the declared file size")
+
+
 def encrypt_file(content: bytes, key: bytes, iv: bytes) -> bytes:
     """§6.1: AES-256-IGE "in like manner" to §2.4, but with this file's own key.
 
@@ -250,27 +337,20 @@ def encrypt_file(content: bytes, key: bytes, iv: bytes) -> bytes:
     travels inside the message (``size`` in the media constructor), which is how the
     padding comes off again.
     """
-    if len(key) != 32 or len(iv) != 32:
-        raise ValueError("file key and IV must each contain exactly 32 bytes")
-    padding = -len(content) % BLOCK
-    return AES.encrypt_ige(content + os.urandom(padding), key, iv)
+    return EncryptingReader(io.BytesIO(content), key, iv, len(content)).read()
 
 
 def decrypt_file(ciphertext: bytes, key: bytes, iv: bytes, size: int) -> bytes:
     """The reverse, trimmed to the length the message declared."""
-    if len(key) != 32 or len(iv) != 32:
-        raise ValueError("file key and IV must each contain exactly 32 bytes")
-    if type(size) is not int or size < 0:
-        raise ValueError("file size must be a nonnegative integer")
-    if len(ciphertext) % BLOCK or not 0 <= len(ciphertext) - size < BLOCK:
-        raise ValueError("ciphertext length does not match the declared file size")
-    return AES.decrypt_ige(ciphertext, key, iv)[:size]
+    _check_file_key(key, iv)
+    _check_lengths(len(ciphertext), size)
+    return b"".join(decrypt_stream([ciphertext], key, iv, size))
 
 
 def save(
     path,
     *,
-    ciphertext: bytes,
+    ciphertext,
     key: bytes,
     iv: bytes,
     size: int,
@@ -285,7 +365,13 @@ def save(
     for however long the failure takes to notice.
     """
     verify_file_fingerprint(chat_id=chat_id, key=key, iv=iv, claimed=claimed_fingerprint)
-    plaintext = decrypt_file(ciphertext, key, iv, size)
+    _check_file_key(key, iv)
+    # `ciphertext` is bytes or a readable binary file (a download on disk).
+    stream = io.BytesIO(ciphertext) if isinstance(ciphertext, (bytes, bytearray)) else ciphertext
+    start = stream.tell()
+    total = stream.seek(0, os.SEEK_END) - start
+    stream.seek(start)
+    _check_lengths(total, size)
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     # A kill mid-write leaves decrypted plaintext in a temp file; ours carry a prefix
@@ -298,7 +384,9 @@ def save(
     try:
         with os.fdopen(descriptor, "wb") as handle:
             descriptor = None
-            handle.write(plaintext)
+            pieces = iter(lambda: stream.read(CHUNK), b"")
+            for plain in decrypt_stream(pieces, key, iv, size):
+                handle.write(plain)
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, target)
@@ -337,23 +425,35 @@ async def send(
         header=_peek(source),
     )
     # An unreadable file refuses here, before a key is generated - contracts §2.
-    content = source.read_bytes()
-    if framing.outgoing_layer(chat.layer) < 143 and len(content) >= 2**31:
-        raise ValueError("the negotiated layer cannot encode this file size")
-    key, iv = new_file_key()
+    with source.open("rb") as handle:
+        size = os.fstat(handle.fileno()).st_size
+        if framing.outgoing_layer(chat.layer) < SIZE_LONG_LAYER and size >= 2**31:
+            raise ValueError("the negotiated layer cannot encode this file size")
+        key, iv = new_file_key()
+        reader = EncryptingReader(handle, key, iv, size, name=source.name)
+        uploaded = await manager._client.upload_file(
+            reader, file_size=reader.size, file_name=source.name
+        )
+    # The upload ran without the chat lock, so the chat may have moved on meanwhile.
+    async with manager._chat_lock(chat.id):
+        return await _send_uploaded(
+            manager, chat, source, uploaded, size, key, iv, caption, mime_type, kind, reply_to
+        )
 
-    uploaded = await manager._client.upload_file(
-        io.BytesIO(encrypt_file(content, key, iv)), file_name=source.name
-    )
+
+async def _send_uploaded(
+    manager, chat, source, uploaded, size, key, iv, caption, mime_type, kind, reply_to
+) -> int:
     chat.require_sendable()
     await manager._rekey_if_due(chat)
     random_id = secrets.randbits(63)
     media_type = (
         tl.DecryptedMessageMediaDocument
-        if framing.outgoing_layer(chat.layer) >= 143
+        if framing.outgoing_layer(chat.layer) >= SIZE_LONG_LAYER
         else tl.DecryptedMessageMediaDocument_7afe8ae2
     )
-    if media_type is tl.DecryptedMessageMediaDocument_7afe8ae2 and len(content) >= 2**31:
+    if media_type is tl.DecryptedMessageMediaDocument_7afe8ae2 and size >= 2**31:
+        # The layer can have dropped only if the chat was replaced while uploading.
         raise ValueError("the negotiated layer cannot encode this file size")
     message = tl.DecryptedMessage(
         random_id=random_id,
@@ -366,7 +466,7 @@ async def send(
             thumb_h=0,
             mime_type=mime_type,
             # Use size:long only when the peer supports the layer-143 shape.
-            size=len(content),
+            size=size,
             key=key,
             iv=iv,
             attributes=attributes_for(kind, source.name),
@@ -416,18 +516,22 @@ async def receive(manager, message, path) -> Path:
         or media.size < 0
     ):
         raise MessageRejected(chat_id=message.chat_id, reason="invalid encrypted-file metadata")
-    buffer = io.BytesIO()
-    await manager._client.download_file(
-        types.InputEncryptedFileLocation(id=attached.id, access_hash=attached.access_hash),
-        buffer,
-        dc_id=attached.dc_id,
-    )
-    return save(
-        path,
-        ciphertext=buffer.getvalue(),
-        key=media.key,
-        iv=media.iv,
-        size=media.size,
-        claimed_fingerprint=attached.key_fingerprint,
-        chat_id=message.chat_id,
-    )
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    # The ciphertext goes to disk, not memory; it is useless without the key.
+    with tempfile.TemporaryFile(dir=str(target.parent)) as download:
+        await manager._client.download_file(
+            types.InputEncryptedFileLocation(id=attached.id, access_hash=attached.access_hash),
+            download,
+            dc_id=attached.dc_id,
+        )
+        download.seek(0)
+        return save(
+            target,
+            ciphertext=download,
+            key=media.key,
+            iv=media.iv,
+            size=media.size,
+            claimed_fingerprint=attached.key_fingerprint,
+            chat_id=message.chat_id,
+        )

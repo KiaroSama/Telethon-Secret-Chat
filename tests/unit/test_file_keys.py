@@ -319,3 +319,103 @@ def test_an_interrupted_media_save_leaves_no_temp_file(tmp_path, monkeypatch):
     with pytest.raises(OSError):
         files.save(tmp_path / "out.bin", **_save_args())
     assert list(tmp_path.iterdir()) == []
+
+
+# --- plans/018: an upload does not make the chat deaf ------------------------------
+
+
+async def test_a_message_arrives_while_a_file_is_uploading(pair, tmp_path):
+    import asyncio
+
+    from .fake_client import establish
+
+    wire, a, b = pair
+    chat_a, chat_b = await establish(a, b, wire)
+    release = asyncio.Event()
+    original = wire.a.upload_file
+
+    async def held_upload(file, **kwargs):
+        await asyncio.wait_for(release.wait(), timeout=5)
+        return await original(file, **kwargs)
+
+    wire.a.upload_file = held_upload
+    got = []
+    a.on("MessageReceived", lambda e: got.append(e.text))
+    source = tmp_path / "big.bin"
+    source.write_bytes(b"x" * 1000)
+    upload = asyncio.ensure_future(a.send_file(chat_a.id, source))
+    await asyncio.sleep(0)
+    await b.send_message(chat_b.id, "while you upload")
+    assert got == ["while you upload"], "the upload held the chat lock"
+    release.set()
+    assert isinstance(await asyncio.wait_for(upload, timeout=5), int)
+
+
+async def test_a_text_sent_during_an_upload_lands_after_the_file(pair, tmp_path):
+    import asyncio
+
+    from .fake_client import establish
+
+    wire, a, b = pair
+    chat_a, _ = await establish(a, b, wire)
+    release = asyncio.Event()
+    original = wire.a.upload_file
+
+    async def held_upload(file, **kwargs):
+        await asyncio.wait_for(release.wait(), timeout=5)
+        return await original(file, **kwargs)
+
+    wire.a.upload_file = held_upload
+    order = []
+    b.on("MessageReceived", lambda e: order.append("file" if e.media else e.text))
+    source = tmp_path / "doc.bin"
+    source.write_bytes(b"y" * 100)
+    upload = asyncio.ensure_future(a.send_file(chat_a.id, source))
+    await asyncio.sleep(0)
+    text = asyncio.ensure_future(a.send_message(chat_a.id, "after the file"))
+    await asyncio.sleep(0)
+    assert not text.done()
+    release.set()
+    await asyncio.wait_for(asyncio.gather(upload, text), timeout=5)
+    assert order == ["file", "after the file"]
+
+
+# --- plans/019: streamed IGE must equal the one-shot cipher byte for byte ----------
+
+
+@pytest.mark.parametrize("size", [0, 1, 15, 16, 17, 1023, 1024, 1025, 150_007])
+@pytest.mark.parametrize("piece", [1024, 64 * 1024])
+def test_chunked_encryption_matches_the_one_shot_cipher(size, piece):
+    import io
+    import os
+
+    from telethon.crypto import AES
+
+    key, iv = files.new_file_key()
+    data = os.urandom(size)
+    pad = os.urandom(-size % 16)
+    reader = files.EncryptingReader(io.BytesIO(data), key, iv, size, padding=pad)
+    streamed = b"".join(iter(lambda: reader.read(piece), b""))
+    assert reader.size == size + len(pad)
+    assert streamed == AES.encrypt_ige(data + pad, key, iv)
+    pieces = [streamed[i : i + 1000] for i in range(0, len(streamed), 1000)]
+    assert b"".join(files.decrypt_stream(pieces, key, iv, size)) == data
+
+
+async def test_a_multi_part_file_streams_both_ways_without_a_memory_copy(pair, tmp_path):
+    """plans/019: parts are exact 512 KiB pieces, and the download lands on disk."""
+    from .fake_client import establish
+
+    wire, a, b = pair
+    chat_a, _ = await establish(a, b, wire)
+    got = []
+    b.on("MessageReceived", got.append)
+    source = tmp_path / "big.bin"
+    content = os.urandom(3 * 512 * 1024 + 11)
+    source.write_bytes(content)
+    await a.send_file(chat_a.id, source)
+
+    written = await b.save_file(got[-1], tmp_path / "out" / "big.bin")
+    assert written.read_bytes() == content
+    assert "BytesIO" not in b._client.download_targets
+    assert list((tmp_path / "out").iterdir()) == [written]
