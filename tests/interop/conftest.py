@@ -2,7 +2,7 @@
 
 It skips with the REASON stated rather than silently: a tier that quietly collects
 zero tests looks exactly like a tier that passed, and this is the tier carrying the
-only evidence that an official client can read what this package writes (SC-001).
+only evidence that an official client can read what this package writes (README, Correctness).
 
 ``pytest_collection_modifyitems`` is a SESSION hook even when it lives in a
 subdirectory's conftest - pytest hands it every item it collected, not the ones
@@ -59,15 +59,15 @@ from telethon.tl import types  # noqa: E402
 
 from telethon_secret_chat import MemoryStorage, SecretChatManager  # noqa: E402
 
-from ._live import Recorder, env  # noqa: E402
+from ._live import Recorder, env, write_capture  # noqa: E402
 
 
 @_pytest.fixture
 def announce(capsys):
     """Print an instruction to the operator, past pytest's capture.
 
-    Without `capsys.disabled()` the line telling them to open Telegram and tap
-    Accept is buffered until the test ends, which is after the deadline it was
+    Without `capsys.disabled()` the line telling them what to do (reply with a
+    code, open a file) is buffered until the test ends, which is after the deadline it was
     meant to beat.
     """
 
@@ -87,11 +87,18 @@ async def client():
     every construction, and a test that hard-coded someone else's would be signing
     in as an application its operator never registered.
     """
-    one = TelegramClient(
-        StringSession(env("TSC_TEST_SESSION")),
-        int(env("TSC_TEST_API_ID")),
-        env("TSC_TEST_API_HASH"),
-    )
+    # `from None` on both: the constructor's own error would carry the value as an
+    # argument, and pytest's long traceback prints arguments - a malformed session
+    # string would land in the operator's scrollback.
+    try:
+        session = StringSession(env("TSC_TEST_SESSION"))
+    except Exception:
+        raise RuntimeError("TSC_TEST_SESSION is not a valid StringSession") from None
+    try:
+        api_id = int(env("TSC_TEST_API_ID"))
+    except ValueError:
+        raise RuntimeError("TSC_TEST_API_ID is not an integer") from None
+    one = TelegramClient(session, api_id, env("TSC_TEST_API_HASH"))
     await one.connect()
     if not await one.is_user_authorized():
         _pytest.fail("TSC_TEST_SESSION is not authorized - the string is stale or was revoked")
@@ -127,6 +134,9 @@ async def manager(client):
         chat = getattr(update, "chat", None)
         if isinstance(update, types.UpdateEncryption) and isinstance(chat, types.EncryptedChat):
             recorder.peer_fingerprints[chat.id] = chat.key_fingerprint
+        if isinstance(update, types.UpdateNewEncryptedMessage):
+            message = update.message
+            recorder.frames.setdefault(message.chat_id, []).append(bytes(message.bytes))
 
     client.add_event_handler(watch)
     await one.start()
@@ -136,6 +146,33 @@ async def manager(client):
     finally:
         client.remove_event_handler(watch)
         await one.stop()
+
+
+@_pytest.fixture
+def capture(manager):
+    """Opt-in (``TSC_CAPTURE_DIR``): keep the official client's frames as a vector.
+
+    A test calls ``capture.arm(chat_id, reply_contains)`` once the reply arrived;
+    the file is written at teardown, after the test's own ``finally`` closed the chat,
+    and refused if it is not closed. It holds the chat's key - burned by that close,
+    so nothing it protected still exists - the direction, the frames the official
+    client wrote, and what this package read from each. No chat id, user, username
+    or session: ``tests/vectors/test_official_client_frames.py`` replays it offline.
+    """
+    target = os.environ.get("TSC_CAPTURE_DIR")
+    armed = {}
+
+    class Capture:
+        @staticmethod
+        def arm(chat_id: int, reply_contains: str) -> None:
+            if target:
+                chat = manager._chats[chat_id]
+                armed.update(chat_id=chat_id, key=chat.key, is_outbound=chat.is_outbound)
+                armed["reply_contains"] = reply_contains
+
+    yield Capture
+    if target and armed:
+        write_capture(manager, armed, Path(target))
 
 
 @_pytest.fixture

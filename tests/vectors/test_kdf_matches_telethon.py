@@ -11,7 +11,7 @@ Why the KDF is vendored rather than called: ``_calc_key`` is PRIVATE. A Telethon
 release may change it without notice, and a cryptographic step that changes without
 notice is the failure this package exists to avoid. So the ten lines live in
 ``crypto.py`` and the private method is used HERE, where a divergence fails loudly
-and says which input produced it - research.md Q2, oracle 2.
+and says which input produced it (docs/protocol-reference.md §9, item 7).
 
 This tier runs with no account and no network.
 """

@@ -1,3 +1,4 @@
+#Requires -Version 7.0
 <#
 .SYNOPSIS
     Run real-client interop using a private .env without exposing session values.
@@ -9,6 +10,9 @@
     successful subset, skipped suite, or missing media never proves full interop.
     Each run also writes logs/run_interop_YYYY-MM-DD_HH-mm-ss_UTC.log under the
     repository root (UTF-8, one file per run, never overwritten, no secret values).
+.PARAMETER McpRoot
+    The telegram-mcp checkout whose .env holds the account. Defaults to
+    $env:TSC_MCP_ROOT, else a `Telegram-mcp` directory beside this repository.
 #>
 [CmdletBinding()]
 param(
@@ -17,7 +21,8 @@ param(
     [string]$MediaDir,
     [string]$Only,
     [string]$Nonce,
-    [string]$McpRoot = 'G:\Program Files\Portable\Scripts\Telegram-mcp'
+    [string]$McpRoot = $(if ($env:TSC_MCP_ROOT) { $env:TSC_MCP_ROOT } else {
+            Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'Telegram-mcp' })
 )
 
 $ErrorActionPreference = 'Stop'
@@ -66,15 +71,21 @@ $pushed = $false
 $record = $null
 $code = 1
 $failure = 'Preflight validation failed; no session was started.'
+# The one pattern for "a live interop module", used for the selector and the evidence.
+$liveModule = 'test_live_[a-z_]+'
 try {
     $envFile = Join-Path $McpRoot '.env'
-    if (-not (Test-Path -LiteralPath $envFile -PathType Leaf)) { throw 'Missing .env' }
+    if (-not (Test-Path -LiteralPath $envFile -PathType Leaf)) {
+        # The path is not a secret; the values inside the file are.
+        $failure = 'No .env was found under the telegram-mcp root; pass -McpRoot or set TSC_MCP_ROOT.'
+        throw 'Missing .env'
+    }
     if ($MediaDir -and -not (Test-Path -LiteralPath $MediaDir -PathType Container)) {
         $failure = 'MediaDir is not a directory; no session was started.'
         throw 'Invalid media directory'
     }
     $target = if ($Only) { $Only.Replace('\', '/') } else { 'tests/interop' }
-    if ($target -notmatch '^tests/interop(?:/test_live_(?:roundtrip|media|rekey)\.py(?:::[A-Za-z_][A-Za-z0-9_]*)?)?$') {
+    if ($target -notmatch "^tests/interop(?:/$liveModule\.py(?:::[A-Za-z_][A-Za-z0-9_]*)?)?$") {
         $failure = 'Only must select this repository''s live interop tier, not arbitrary pytest arguments.'
         throw 'Invalid selector'
     }
@@ -120,7 +131,9 @@ try {
     Push-Location -LiteralPath (Split-Path -Parent $PSScriptRoot)
     $pushed = $true
     Write-InteropLog INFO ('Running pytest on {0}; media directory given: {1}' -f $target, [bool]$MediaDir)
-    & uv run --locked python -m pytest $target -q -s "--junitxml=$record"
+    # --tb=short: a long traceback prints call arguments, and a fixture's arguments
+    # can be the very values this launcher keeps out of the console.
+    & uv run --locked python -m pytest $target -q -s --tb=short "--junitxml=$record"
     $code = $LASTEXITCODE
     Write-InteropLog INFO ('pytest exited with code {0}' -f $code)
     if ($code -ne 0) { throw 'Pytest did not succeed' }
@@ -129,7 +142,7 @@ try {
     $cases = @($xml.SelectNodes('//testcase'))
     if (-not $cases.Count) { throw 'No executed cases' }
     foreach ($case in $cases) {
-        if ($case.classname -notmatch '^tests\.interop\.test_live_(roundtrip|media|rekey)$' -or
+        if ($case.classname -notmatch "^tests\.interop\.$liveModule$" -or
             $case.SelectSingleNode('skipped|failure|error')) { throw 'Invalid test evidence' }
     }
     Write-InteropLog INFO ("The selected {0} live case(s) passed; record this exact selection and media coverage." -f $cases.Count)

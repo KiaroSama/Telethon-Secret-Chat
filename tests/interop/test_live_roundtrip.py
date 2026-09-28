@@ -1,4 +1,4 @@
-"""T042 / SC-001: a real chat with a real account, read by an official client.
+"""A real chat with a real account, read by an official client.
 
 Everything else in this repository proves the package agrees with itself or with
 Telethon's own primitives. This file is the only one that proves the thing the
@@ -22,8 +22,7 @@ Three assertions, in the order the protocol produces them:
    sequence number the package assigned rather than one it was handed.
 
 The chat is closed in ``finally``. An interop run that leaves chats behind fills the
-operator's account with them, and the next run's "accept the new secret chat" becomes
-an instruction they cannot follow.
+operator's account with them, and the next run's chat is lost among the leftovers.
 """
 
 import os
@@ -57,7 +56,7 @@ async def test_both_ends_agree_on_the_key_fingerprint(manager, peer, announce):
         await manager.close(chat.id, reason="interop fingerprint check finished")
 
 
-async def test_a_message_crosses_in_both_directions(manager, peer, announce):
+async def test_a_message_crosses_in_both_directions(manager, peer, announce, capture):
     chat, _ = await ready_chat(manager, peer, announce, "message round trip")
     # Fixed by `TSC_TEST_NONCE` when set, so the operator can be told the code
     # BEFORE the run starts instead of watching for it and racing the deadline.
@@ -81,6 +80,7 @@ async def test_a_message_crosses_in_both_directions(manager, peer, announce):
             ),
         )
 
+        capture.arm(chat.id, nonce)
         assert received.seq_no >= 0, "a decrypted message with no sequence number"
         assert received.random_id, "a decrypted message with no random_id"
 

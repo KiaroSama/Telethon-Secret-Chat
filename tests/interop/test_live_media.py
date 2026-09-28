@@ -1,4 +1,4 @@
-"""T043 / US5: encrypted files, uploaded here and opened by an official client.
+"""Encrypted files, uploaded here and opened by an official client.
 
 §6.4 is the claim under test: the bytes are IGE-encrypted client-side before
 ``upload.saveFilePart``, so the server stores ciphertext only. Nothing local can
