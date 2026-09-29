@@ -217,5 +217,9 @@ class Establishment(ManagerHost):
             await self._client(
                 functions.messages.DiscardEncryptionRequest(chat_id=chat_id, delete_history=False)
             )
-        except Exception:
-            log.debug("discardEncryption failed for chat %s", chat_id)
+        except Exception as failure:
+            # The local close already happened; the peer only learns of it from this
+            # call, so a failure is worth a warning. The type only, never the text.
+            log.warning(
+                "discardEncryption failed for chat %s: %s", chat_id, type(failure).__name__
+            )
