@@ -7,6 +7,10 @@ package by commit and reads this file before moving its pin. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-29
+
+Tagged `v0.2.0`.
+
 ### Added
 
 - A pair test tier (`tests/live_pair`): this package on both ends over the real Telegram
