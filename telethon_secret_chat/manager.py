@@ -255,29 +255,86 @@ class SecretChatManager(ChatLocking, EventDispatch, RetainedOutbox, Establishmen
             await rekey_module.start(self, chat)
 
     async def send_file(
-        self, chat_id, path, *, caption="", mime_type=None, kind=None, reply_to=None
+        self,
+        chat_id,
+        source,
+        *,
+        file_name=None,
+        caption="",
+        mime_type=None,
+        kind=None,
+        reply_to=None,
+        duration=None,
+        width=None,
+        height=None,
+        thumbnail=None,
+        thumbnail_size=None,
+        waveform=None,
+        title=None,
+        performer=None,
+        sticker_alt=None,
     ):
         """Encrypt and upload a file, then send it as a document message.
 
-        The file is read and encrypted in pieces; ``kind`` (``MEDIA_KINDS``) picks the
-        media shape, guessed from the file when omitted. Messages sent meanwhile keep
-        their call order.
+        ``source`` is a path, bytes, or a seekable binary stream; bytes and streams need
+        ``file_name``. The file is read and encrypted in pieces; ``kind`` (``MEDIA_KINDS``)
+        picks the media shape, guessed from the file when omitted. The media metadata -
+        ``duration`` (s), ``width``/``height`` (px), ``thumbnail`` (JPEG, WEBP for a sticker,
+        under 200 KB) with ``thumbnail_size`` ``(w, h)`` each 1..320, ``waveform`` (voice note,
+        5-bit samples, at most 63 bytes), ``title``/``performer`` (audio), ``sticker_alt`` -
+        is what the peer's client shows before download; each applies only to its kinds.
+        Messages sent meanwhile keep their call order.
 
         Returns: the message's ``random_id``.
-        Raises: as ``send_message``, plus ValueError for an unreadable file or a
-        size the peer's layer cannot encode.
+        Raises: as ``send_message``, plus ValueError, before any upload, for an unusable
+        source, metadata the kind cannot carry, or a size the peer's layer cannot encode.
         """
+        metadata = {
+            "duration": duration,
+            "width": width,
+            "height": height,
+            "thumbnail": thumbnail,
+            "thumbnail_size": thumbnail_size,
+            "waveform": waveform,
+            "title": title,
+            "performer": performer,
+            "sticker_alt": sticker_alt,
+        }
         # Outbound order only: the upload runs without the chat lock (files.send).
         async with self._outbound_lock(chat_id):
             return await files.send(
-                self, self._sendable(chat_id), path, caption, mime_type, kind, reply_to
+                self,
+                self._sendable(chat_id),
+                source,
+                caption,
+                mime_type,
+                kind,
+                reply_to,
+                file_name=file_name,
+                metadata=metadata,
             )
+
+    async def forward_file(self, chat_id, source, *, caption="", reply_to=None):
+        """Send a received file into a chat again without downloading or uploading it.
+
+        ``source`` is a ``MessageReceived`` with a file or a ``MediaReference``; the chat may
+        be another one than it arrived in. The copy is encrypted with the file's ORIGINAL
+        one-time key, so everyone who held that key can read it too (ADR 0006); send the
+        file with ``send_file`` for a fresh key.
+
+        Returns: the message's ``random_id``.
+        Raises: as ``send_message``; MessageRejected for a source without a file;
+        ValueError for a file over 2000 MB when the peer is below layer 143.
+        """
+        async with self._outbound_lock(chat_id):
+            return await files.forward(self, self._sendable(chat_id), source, caption, reply_to)
 
     async def save_file(self, message, path) -> Path:
         """Download, verify and decrypt a received file to ``path``.
 
-        The key's fingerprint is checked before a byte is written; a partial file is
-        never left behind.
+        ``message`` is a ``MessageReceived`` or a ``MediaReference`` (for a file received
+        before a restart). The key's fingerprint is checked before a byte is written; a
+        partial file is never left behind.
 
         Returns: the written path.
         Raises: MessageRejected for a message without a file, a fingerprint mismatch

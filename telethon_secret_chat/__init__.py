@@ -46,6 +46,8 @@ from .events import (
 from . import ogg_tags  # noqa: F401
 from .files import CAPTIONLESS_KINDS, MEDIA_KINDS
 from .manager import SecretChatManager
+from .media import MediaReference
+from .visualization import PALETTE, KeyVisualization, key_visualization
 from .storage import FileStorage, MemoryStorage, StorageBackend
 
 try:
@@ -88,4 +90,8 @@ __all__ = [
     "ServiceActionReceived",
     "DecryptFailed",
     "SendFailed",
+    "MediaReference",
+    "KeyVisualization",
+    "key_visualization",
+    "PALETTE",
 ]

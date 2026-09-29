@@ -22,6 +22,7 @@ from .chat import ChatState
 from .errors import SecretChatError
 from .events import DecryptFailed, MessageAcknowledged, MessageReceived, ServiceActionReceived
 from .locking import serialized
+from .media import MediaReference
 from .schema import secret_tl as tl
 from .host import ManagerHost
 
@@ -177,6 +178,7 @@ class Receiving(ManagerHost):
             file=attached,
             reply_to=getattr(inner, "reply_to_random_id", None),
         )
+        event.media_reference = MediaReference.from_message(event)
         history = self._history.setdefault(chat.id, collections.deque(maxlen=self._history_limit))
         seen = self._history_ids.setdefault(chat.id, set())
         if event.random_id not in seen and self._history_limit:

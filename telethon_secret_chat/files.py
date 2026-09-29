@@ -32,9 +32,10 @@ from pathlib import Path
 from typing import Optional
 
 from telethon.crypto import AES
+from telethon.extensions import BinaryReader
 from telethon.tl import types
 
-from . import framing, ogg_tags
+from . import framing, media as media_module, ogg_tags
 from .errors import MessageRejected
 from .schema import secret_tl as tl
 
@@ -51,6 +52,7 @@ __all__ = [
     "CAPTIONLESS_KINDS",
     "resolve_kind",
     "attributes_for",
+    "forward",
 ]
 
 BLOCK = 16
@@ -97,21 +99,6 @@ _KIND_NEEDS = {
     # sides agree name for name, so they agree here too.
     "voice_note": ("audio/ogg", "audio/opus", "audio/x-opus"),
 }
-
-
-def _peek(source: Path) -> bytes:
-    """The head of the file, or nothing at all.
-
-    Read errors are swallowed on purpose: the kind refusal must stay the FIRST
-    thing that can fail, exactly as it is without this, so an unreadable file
-    still reports being unreadable at the read below rather than here. An empty
-    result simply means the caller decides on the name, as it always did.
-    """
-    try:
-        with source.open("rb") as handle:
-            return handle.read(ogg_tags.HEADER_BYTES)
-    except OSError:
-        return b""
 
 
 def guess_mime(file_name: str) -> str:
@@ -179,29 +166,54 @@ def resolve_kind(
     return kind
 
 
-def attributes_for(kind: str, file_name: str) -> list:
+def attributes_for(
+    kind: str,
+    file_name: str,
+    *,
+    duration: int = 0,
+    width: int = 0,
+    height: int = 0,
+    waveform=None,
+    title=None,
+    performer=None,
+    sticker_alt: str = "",
+) -> list:
     """The kind's own attributes, always alongside the filename.
 
-    The numbers - duration, width, height - are left at zero: reading them means
-    decoding the media, and this package holds ciphertext and a schema, not a codec.
-    A client shows the kind from the attribute's presence and its flags; the
-    dimensions refine the preview it draws.
+    The numbers come from the sender (``media.check_metadata`` has already refused a value
+    for the wrong kind) and default to zero: reading them means decoding the media, and this
+    package holds ciphertext and a schema, not a codec. A client shows the kind from the
+    attribute's presence and its flags; the numbers and the waveform refine what it draws.
     """
     attributes = [tl.DocumentAttributeFilename(file_name=file_name)]
     if kind == "photo":
-        attributes.append(tl.DocumentAttributeImageSize(w=0, h=0))
+        attributes.append(tl.DocumentAttributeImageSize(w=width, h=height))
     elif kind in ("video", "video_note"):
         attributes.append(
-            tl.DocumentAttributeVideo(round_message=kind == "video_note", duration=0, w=0, h=0)
+            tl.DocumentAttributeVideo(
+                round_message=kind == "video_note", duration=duration, w=width, h=height
+            )
         )
     elif kind in ("audio", "voice_note"):
-        attributes.append(tl.DocumentAttributeAudio(voice=kind == "voice_note", duration=0))
+        attributes.append(
+            tl.DocumentAttributeAudio(
+                voice=kind == "voice_note",
+                duration=duration,
+                title=title,
+                performer=performer,
+                waveform=waveform,
+            )
+        )
     elif kind == "animation":
         attributes.append(tl.DocumentAttributeAnimated())
+        if width or height:
+            attributes.append(tl.DocumentAttributeImageSize(w=width, h=height))
     elif kind == "sticker":
         attributes.append(
-            tl.DocumentAttributeSticker(alt="", stickerset=tl.InputStickerSetEmpty())
+            tl.DocumentAttributeSticker(alt=sticker_alt, stickerset=tl.InputStickerSetEmpty())
         )
+        if width or height:
+            attributes.append(tl.DocumentAttributeImageSize(w=width, h=height))
     return attributes
 
 
@@ -407,70 +419,84 @@ def save(
 
 
 async def send(
-    manager, chat, path, caption: str = "", mime_type=None, kind=None, reply_to=None
+    manager,
+    chat,
+    source,
+    caption: str = "",
+    mime_type=None,
+    kind=None,
+    reply_to=None,
+    *,
+    file_name=None,
+    metadata=None,
 ) -> int:
     """§6.3-§6.4: encrypt with a one-time key, upload the ciphertext, send the
     address outside the message and the key inside it.
 
     §6.4: "the bytes are IGE-encrypted client-side BEFORE upload.saveFilePart, so
-    the server stores ciphertext only".
+    the server stores ciphertext only". ``source`` is a path, bytes or a seekable
+    stream (``media.Source``); ``metadata`` is the sender's media metadata.
     """
-    source = Path(path)
-    mime_type = mime_type or guess_mime(source.name)
-    # Before the read, the key and the upload: a kind the file cannot be costs
-    # nothing to refuse here and an encrypted round trip to refuse later.
+    origin = media_module.Source(source, file_name)
+    mime_type = mime_type or guess_mime(origin.name)
+    # Before the read, the key and the upload: a kind the file cannot be, or
+    # metadata it cannot carry, costs nothing to refuse here.
     kind = resolve_kind(
         kind,
-        file_name=source.name,
+        file_name=origin.name,
         mime_type=mime_type,
         caption=caption,
-        header=_peek(source),
+        header=origin.peek(),
     )
+    given = media_module.check_metadata(kind, metadata or {})
+    thumb = given.pop("thumbnail", b"")
+    thumb_w, thumb_h = given.pop("thumbnail_size", (0, 0))
+    attributes = attributes_for(kind, origin.name, **given)
     # An unreadable file refuses here, before a key is generated - the README's API reference.
-    with source.open("rb") as handle:
-        size = os.fstat(handle.fileno()).st_size
+    with origin.open() as (handle, size):
         if framing.outgoing_layer(chat.layer) < SIZE_LONG_LAYER and size >= 2**31:
             raise ValueError("the negotiated layer cannot encode this file size")
         key, iv = new_file_key()
-        reader = EncryptingReader(handle, key, iv, size, name=source.name)
+        reader = EncryptingReader(handle, key, iv, size, name=origin.name)
         uploaded = await manager._client.upload_file(
-            reader, file_size=reader.size, file_name=source.name
+            reader, file_size=reader.size, file_name=origin.name
         )
+    document = _document_type(chat)(
+        thumb=thumb,
+        thumb_w=thumb_w,
+        thumb_h=thumb_h,
+        mime_type=mime_type,
+        # Use size:long only when the peer supports the layer-143 shape.
+        size=size,
+        key=key,
+        iv=iv,
+        attributes=attributes,
+        caption=caption,
+    )
     # The upload ran without the chat lock, so the chat may have moved on meanwhile.
     async with manager._chat_lock(chat.id):
-        return await _send_uploaded(
-            manager, chat, source, uploaded, size, key, iv, caption, mime_type, kind, reply_to
-        )
+        return await _send_uploaded(manager, chat, uploaded, document, caption, reply_to)
 
 
-async def _send_uploaded(
-    manager, chat, source, uploaded, size, key, iv, caption, mime_type, kind, reply_to
-) -> int:
-    chat.require_sendable()
-    await manager._rekey_if_due(chat)
-    random_id = secrets.randbits(63)
-    media_type = (
+def _document_type(chat):
+    return (
         tl.DecryptedMessageMediaDocument
         if framing.outgoing_layer(chat.layer) >= SIZE_LONG_LAYER
         else tl.DecryptedMessageMediaDocument_7afe8ae2
     )
+
+
+async def _send_uploaded(manager, chat, uploaded, document, caption, reply_to) -> int:
+    chat.require_sendable()
+    await manager._rekey_if_due(chat)
+    random_id = secrets.randbits(63)
+    key, iv = document.key, document.iv
     message = tl.DecryptedMessage(
         random_id=random_id,
         ttl=chat.ttl,
         message=caption,
         reply_to_random_id=reply_to,
-        media=media_type(
-            thumb=b"",
-            thumb_w=0,
-            thumb_h=0,
-            mime_type=mime_type,
-            # Use size:long only when the peer supports the layer-143 shape.
-            size=size,
-            key=key,
-            iv=iv,
-            attributes=attributes_for(kind, source.name),
-            caption=caption,
-        ),
+        media=document,
     )
     await manager._send(
         chat,
@@ -496,15 +522,8 @@ async def _send_uploaded(
 async def receive(manager, message, path) -> Path:
     """§6.3: the key comes from INSIDE the decrypted message, the fingerprint from
     OUTSIDE it. Comparing them is what says the two belong together - and it happens
-    before a byte is written."""
-    media, attached = message.media, message.file
-    if (
-        media is None
-        or attached is None
-        or not all(hasattr(media, name) for name in ("key", "iv", "size"))
-        or not isinstance(attached, types.EncryptedFile)
-    ):
-        raise MessageRejected(chat_id=message.chat_id, reason="this message carries no file")
+    before a byte is written. ``message`` may also be a ``MediaReference``."""
+    media, attached = _file_of(message)
     verify_file_fingerprint(
         chat_id=message.chat_id, key=media.key, iv=media.iv, claimed=attached.key_fingerprint
     )
@@ -534,3 +553,59 @@ async def receive(manager, message, path) -> Path:
             claimed_fingerprint=attached.key_fingerprint,
             chat_id=message.chat_id,
         )
+
+
+def _file_of(source):
+    """The media and the server file of a received message or a ``MediaReference``."""
+    if isinstance(source, media_module.MediaReference):
+        return source.decoded(), source.encrypted_file()
+    media, attached = media_module.media_of(source)
+    if media is None:
+        raise MessageRejected(chat_id=source.chat_id, reason="this message carries no file")
+    return media, attached
+
+
+# The largest size the pre-143 `int` size field can carry (protocol-reference.md §7.1).
+_INT_SIZE_LIMIT = 2**31
+
+
+async def forward(manager, chat, source, caption: str = "", reply_to=None) -> int:
+    """Send a received file into ``chat`` again, by its server handle (ADR 0006).
+
+    Telegram's end-to-end guide: files "can be forwarded to other secret chats using the
+    constructor inputEncryptedFile". TDLib does the same with the ORIGINAL key and iv
+    (``DocumentsManager::get_secret_input_media``, ``SecretInputMedia.cpp``, tdlib/td 42e6a52).
+    So the new message repeats the source's media - key, iv, size, preview, attributes,
+    photo or document - with its own caption; nothing is downloaded or uploaded. Whoever held
+    the original key can read the forwarded copy too.
+    """
+    media, attached = _file_of(source)
+    media = _with_caption(media, caption)
+    if framing.outgoing_layer(chat.layer) < SIZE_LONG_LAYER:
+        if media.size >= _INT_SIZE_LIMIT:
+            raise ValueError("the negotiated layer cannot encode this file size")
+        if isinstance(media, tl.DecryptedMessageMediaDocument):
+            media = tl.DecryptedMessageMediaDocument_7afe8ae2(**vars(media))
+    handle = types.InputEncryptedFile(id=attached.id, access_hash=attached.access_hash)
+    async with manager._chat_lock(chat.id):
+        chat.require_sendable()
+        await manager._rekey_if_due(chat)
+        random_id = secrets.randbits(63)
+        message = tl.DecryptedMessage(
+            random_id=random_id,
+            ttl=chat.ttl,
+            message=caption,
+            reply_to_random_id=reply_to,
+            media=media,
+        )
+        await manager._send(chat, message, file=handle)
+    return random_id
+
+
+def _with_caption(media, caption):
+    """A copy of ``media`` carrying the new caption, rebuilt from its bytes."""
+    with BinaryReader(bytes(media)) as reader:
+        copy = tl.read_object(reader)
+    if hasattr(copy, "caption"):
+        copy.caption = caption
+    return copy
