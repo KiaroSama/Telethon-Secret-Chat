@@ -23,12 +23,20 @@ function global:uv {
     if ($global:InteropMode -eq 'invoke-error') { throw 'Synthetic process failure' }
     $arg = @($args | Where-Object { $_ -like '--junitxml=*' })[0]
     $path = $arg.Substring('--junitxml='.Length)
-    $target = @($args | Where-Object { $_ -like 'tests/interop*' })[0]
-    $module = if ($target -match 'test_live_([a-z_]+)\.py') { 'test_live_' + $Matches[1] } else { 'test_live_roundtrip' }
-    $classname = if ($global:InteropMode -eq 'foreign-evidence') { 'tests.unit.example' } else { "tests.interop.$module" }
+    $target = @($args | Where-Object { $_ -like 'tests/*' })[0]
+    $pairRun = $target -like 'tests/live_pair*'
+    $module = if ($target -match '(test_(?:live|pair)_[a-z_]+)\.py') { $Matches[1] }
+        elseif ($pairRun) { 'test_pair_chat' } else { 'test_live_roundtrip' }
+    $classname = if ($global:InteropMode -eq 'foreign-evidence') { 'tests.unit.example' }
+        elseif ($global:InteropMode -eq 'pair-foreign-evidence') { 'tests.interop.test_live_roundtrip' }
+        elseif ($pairRun) { "tests.live_pair.$module" } else { "tests.interop.$module" }
     # The launcher must hand the test process what it was given; a mismatch is a failure.
     $wrongEnv = ($global:InteropMode -eq 'nonce' -and $env:TSC_TEST_NONCE -ne $global:InteropNonce) -or
-        ($global:InteropMode -eq 'media-ok' -and $env:TSC_TEST_MEDIA_DIR -ne $global:InteropMedia)
+        ($global:InteropMode -eq 'media-ok' -and $env:TSC_TEST_MEDIA_DIR -ne $global:InteropMedia) -or
+        # Pair mode: each account's session under its own name; no interop session is exported.
+        ($global:InteropMode -eq 'pair-ok' -and ($env:TSC_PAIR_SESSION_A -ne 'SYNTHETIC_NEVER_LOGIN' -or
+            $env:TSC_PAIR_SESSION_B -ne 'SYNTHETIC_PEER_LOGIN' -or $env:TSC_PAIR_PEER -ne '@synthetic' -or
+            $env:TSC_TEST_SESSION))
     $status = if ($global:InteropMode -eq 'skip') { '<skipped/>' }
         elseif ($global:InteropMode -eq 'failed' -or $wrongEnv) { '<failure/>' } else { '' }
     $case = if ($global:InteropMode -eq 'empty') { '' } else {
@@ -45,11 +53,12 @@ $logLine = '^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} UTC\] \[(DEBUG|INFO|WARNING|E
 $created = [Collections.Generic.List[string]]::new()
 function Get-RunLogs { @(Get-ChildItem -LiteralPath $logDir -Filter 'run_interop_*_UTC*.log' -File -ErrorAction SilentlyContinue | ForEach-Object FullName) }
 $existing = Get-RunLogs
-$names = @('TSC_TEST_SESSION', 'TSC_TEST_API_ID', 'TSC_TEST_API_HASH', 'TSC_TEST_PEER', 'TSC_TEST_MEDIA_DIR', 'TSC_TEST_NONCE')
+$names = @('TSC_TEST_SESSION', 'TSC_TEST_API_ID', 'TSC_TEST_API_HASH', 'TSC_TEST_PEER', 'TSC_TEST_MEDIA_DIR', 'TSC_TEST_NONCE',
+    'TSC_PAIR_SESSION_A', 'TSC_PAIR_SESSION_B', 'TSC_PAIR_PEER')
 $before = @{}
 foreach ($name in $names + 'TSC_MCP_ROOT') { $before[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
 $envFile = Join-Path $root '.env'
-$fullEnv = "TELEGRAM_SESSION_STRING_TEST='SYNTHETIC_NEVER_LOGIN'`nTELEGRAM_API_ID=1`nTELEGRAM_API_HASH='SYNTHETIC_HASH'`n"
+$fullEnv = "TELEGRAM_SESSION_STRING_TEST='SYNTHETIC_NEVER_LOGIN'`nTELEGRAM_SESSION_STRING_PEER='SYNTHETIC_PEER_LOGIN'`nTELEGRAM_API_ID=1`nTELEGRAM_API_HASH='SYNTHETIC_HASH'`n"
 $global:InteropNonce = 'SYNTHETIC_NONCE_7f3a'
 $mediaDir = Join-Path $root 'media'
 New-Item -ItemType Directory -Path $mediaDir | Out-Null
@@ -70,14 +79,19 @@ $refusals = [ordered]@{
     'empty' = $evidence
     'skip' = $evidence
     'foreign-evidence' = $evidence
+    'pair-same-account' = 'PeerAccount must be a different account from Account.'
+    'pair-interop-selector' = 'Only must select this repository''s live interop tier, not arbitrary pytest arguments.'
+    'pair-selector-alone' = 'Only must select this repository''s live interop tier, not arbitrary pytest arguments.'
+    'pair-foreign-evidence' = $evidence
 }
-$preflightModes = @('no-env', 'missing-field', 'guard-error', 'listener', 'bad-media', 'bad-selector')
+$preflightModes = @('no-env', 'missing-field', 'guard-error', 'listener', 'bad-media', 'bad-selector',
+    'pair-same-account', 'pair-interop-selector', 'pair-selector-alone')
 $selectors = @{
     'success-roundtrip' = 'tests/interop/test_live_roundtrip.py::test_both_ends_agree_on_the_key_fingerprint'
     'success-media' = 'tests/interop/test_live_media.py'
     'success-rekey' = 'tests/interop/test_live_rekey.py'
 }
-$successes = @('success-roundtrip', 'success-media', 'success-rekey', 'success-all', 'media-ok', 'nonce', 'env-root')
+$successes = @('success-roundtrip', 'success-media', 'success-rekey', 'success-all', 'media-ok', 'nonce', 'env-root', 'pair-ok')
 try {
     foreach ($name in $names) { [Environment]::SetEnvironmentVariable($name, 'PREEXISTING_' + $name, 'Process') }
     [Environment]::SetEnvironmentVariable('TSC_MCP_ROOT', $null, 'Process')
@@ -101,6 +115,10 @@ try {
         if ($mode -eq 'nonce') { $arguments.Nonce = $global:InteropNonce }
         if ($mode -eq 'bad-selector') { $arguments.Only = 'tests/unit' }
         if ($selectors.ContainsKey($mode)) { $arguments.Only = $selectors[$mode] }
+        if ($mode -in @('pair-ok', 'pair-interop-selector', 'pair-foreign-evidence')) { $arguments.PeerAccount = 'peer' }
+        if ($mode -eq 'pair-same-account') { $arguments.PeerAccount = 'test' }
+        if ($mode -eq 'pair-interop-selector') { $arguments.Only = 'tests/interop/test_live_rekey.py' }
+        if ($mode -eq 'pair-selector-alone') { $arguments.Only = 'tests/live_pair' }
         $output = (& $launcher @arguments 6>&1 | Out-String)
         $result = $LASTEXITCODE
         [Environment]::SetEnvironmentVariable('TSC_MCP_ROOT', $null, 'Process')
@@ -110,7 +128,7 @@ try {
         foreach ($name in $names) {
             Assert-Contract ([Environment]::GetEnvironmentVariable($name, 'Process') -eq ('PREEXISTING_' + $name)) 'A process environment value was not restored'
         }
-        Assert-Contract ($output -notmatch "SYNTHETIC_NEVER_LOGIN|SYNTHETIC_HASH|$($global:InteropNonce)") 'Credential or nonce appeared in output'
+        Assert-Contract ($output -notmatch "SYNTHETIC_NEVER_LOGIN|SYNTHETIC_PEER_LOGIN|SYNTHETIC_HASH|$($global:InteropNonce)") 'Credential or nonce appeared in output'
         # One new log file per run, never an overwrite: runs in the same second get a suffix.
         $new = @(Get-RunLogs | Where-Object { $_ -notin $existing -and $_ -notin $created })
         Assert-Contract ($new.Count -eq 1) ('Expected exactly one new run log for ' + $mode)
@@ -118,7 +136,7 @@ try {
         $lines = [IO.File]::ReadAllLines($new[0], [Text.UTF8Encoding]::new($false, $true))
         Assert-Contract ($lines.Count -ge 2) 'The run log records neither start nor outcome'
         Assert-Contract (@($lines | Where-Object { $_ -notmatch $logLine }).Count -eq 0) 'A run log line is not [UTC time] [LEVEL] [run_interop] message'
-        Assert-Contract (($lines -join "`n") -notmatch "SYNTHETIC_NEVER_LOGIN|SYNTHETIC_HASH|@synthetic|$($global:InteropNonce)") 'A private value reached the run log'
+        Assert-Contract (($lines -join "`n") -notmatch "SYNTHETIC_NEVER_LOGIN|SYNTHETIC_PEER_LOGIN|SYNTHETIC_HASH|@synthetic|$($global:InteropNonce)") 'A private value reached the run log'
         Assert-Contract ($lines[-1] -match ('exit code ' + $result + '$')) 'The run log does not end with the exit code'
         if (-not $succeeds) {
             $expected = '[ERROR] [run_interop] ' + $refusals[$mode]
@@ -131,7 +149,9 @@ try {
             $subset = [bool]($lines -match 'This was a subset')
             Assert-Contract ($subset -eq $arguments.ContainsKey('Only')) ('Subset warning wrong for ' + $mode)
             $noMedia = [bool]($lines -match 'video/audio interoperability is NOT covered')
-            Assert-Contract ($noMedia -eq ($mode -ne 'media-ok')) ('Media coverage warning wrong for ' + $mode)
+            Assert-Contract ($noMedia -eq ($mode -notin @('media-ok', 'pair-ok'))) ('Media coverage warning wrong for ' + $mode)
+            $pairNote = [bool]($lines -match 'not interop evidence')
+            Assert-Contract ($pairNote -eq ($mode -eq 'pair-ok')) ('Pair-mode warning wrong for ' + $mode)
         }
         Write-TestLog INFO ('Launcher contract passed: ' + $mode)
     }

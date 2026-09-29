@@ -76,17 +76,18 @@ def test_the_summary_counts_the_live_cases_it_skipped(tmp_path, caplog):
 
 
 def test_the_live_case_list_matches_the_interop_tier():
-    """The gate's explicit list must be exactly what tests/interop defines, so a new
+    """The gate's explicit list must be exactly what tests/interop and tests/live_pair define, so a new
     live test fails here in the same change instead of on the next CI run. Parsed,
     not imported: the interop modules need a real client to import cleanly."""
     discovered = set()
-    for module in sorted((ROOT / "tests/interop").glob("test_live_*.py")):
-        tree = ast.parse(module.read_text(encoding="utf-8"))
-        for node in tree.body:
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith(
-                "test_"
-            ):
-                discovered.add(f"tests.interop.{module.stem}::{node.name}")
+    for tier, pattern in (("interop", "test_live_*.py"), ("live_pair", "test_pair_*.py")):
+        for module in sorted((ROOT / "tests" / tier).glob(pattern)):
+            tree = ast.parse(module.read_text(encoding="utf-8"))
+            for node in tree.body:
+                if isinstance(
+                    node, (ast.FunctionDef, ast.AsyncFunctionDef)
+                ) and node.name.startswith("test_"):
+                    discovered.add(f"tests.{tier}.{module.stem}::{node.name}")
     assert discovered == gate.LIVE_SKIPS
 
 

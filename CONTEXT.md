@@ -97,3 +97,10 @@ _Avoid_: live tests, integration tests, e2e tests
 **Operator**:
 The person driving the official client during an interop-tier run.
 _Avoid_: user, tester, peer (the peer is the account, not the person)
+
+**Pair tier**:
+The tests where this package is on BOTH ends of a secret chat, between two of the
+owner's accounts over the real Telegram server; no person takes part and they never run in
+CI. They show the package survives the real server, not that it agrees with an official
+client: both ends are the same code, so only the interop tier is interop evidence.
+_Avoid_: interop (for these), two-account interop, self test
