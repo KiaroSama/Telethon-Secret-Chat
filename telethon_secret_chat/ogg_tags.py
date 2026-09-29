@@ -75,7 +75,8 @@ def _first_packets(data: bytes, wanted: int):
     and a packet may run on into the next page, which then sets flag 0x01. The CRC
     is not checked: this classifies, it does not validate.
     """
-    packets, current, serial, position = [], b"", None, 0
+    packets: list = []
+    current, serial, position = b"", None, 0
     while len(packets) < wanted:
         page = data[position : position + 27]
         if len(page) < 27 or page[:4] != b"OggS" or page[4] != 0:

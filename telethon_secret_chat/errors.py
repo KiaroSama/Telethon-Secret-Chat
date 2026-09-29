@@ -49,6 +49,9 @@ class SecretChatError(Exception):
     manager's ``close`` is the one place that acts on it.
     """
 
+    # What a close or a DecryptFailed reports; subclasses set a specific phrase.
+    reason: str = "refused"
+
     def __init__(self, message: str, *, chat_id: Optional[int] = None, fatal: bool = False):
         self.chat_id = chat_id
         self.fatal = fatal

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import secrets
+from typing import Optional
 
 from telethon import errors as telethon_errors
 from telethon.tl import functions, types
@@ -19,13 +20,14 @@ from .chat import ChatState, SecretChat
 from .errors import ChatClosed, ChatNotReady, ParameterRejected, SecretChatError
 from .events import ChatReady, ChatRequested
 from .locking import serialized
+from .host import ManagerHost
 
 log = logging.getLogger("telethon_secret_chat")
 
 __all__ = ["Establishment"]
 
 
-class Establishment:
+class Establishment(ManagerHost):
     async def create(self, user):
         g, p = await self._dh_config()
         secret = handshake.generate_secret()
@@ -108,14 +110,20 @@ class Establishment:
         with self._atomic(chat):
             chat.adopt_key(key)
             chat.handshake = {}
-        self._emit(
-            ChatReady(chat.id, chat.peer_user_id, chat.key_fingerprint, chat.initial_key_hash)
-        )
+        self._emit_ready(chat)
         await self._notify_layer(chat)
         return chat.snapshot()
 
+    def _emit_ready(self, chat):
+        # adopt_key has just run, so the fingerprint is set.
+        assert chat.key_fingerprint is not None
+        self._emit(
+            ChatReady(chat.id, chat.peer_user_id, chat.key_fingerprint, chat.initial_key_hash)
+        )
+
     @serialized
     async def _on_encryption(self, encrypted):
+        chat: Optional[SecretChat]
         if isinstance(encrypted, types.EncryptedChatRequested):
             if encrypted.id in self._chats:
                 return  # Duplicate requests cannot replace a keyed chat or a tombstone.
@@ -174,9 +182,7 @@ class Establishment:
             with self._atomic(chat):
                 chat.adopt_key(key)
                 chat.handshake = {}
-            self._emit(
-                ChatReady(chat.id, chat.peer_user_id, chat.key_fingerprint, chat.initial_key_hash)
-            )
+            self._emit_ready(chat)
             await self._notify_layer(chat)
         elif isinstance(encrypted, types.EncryptedChatDiscarded):
             chat = self._chats.get(encrypted.id)
