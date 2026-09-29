@@ -153,7 +153,6 @@ class SecretChatManager(ChatLocking, EventDispatch, RetainedOutbox, Establishmen
         with self._atomic(chat):
             # Scrub legacy closed records too, while preserving their first reason.
             reason = chat.closed_reason or reason
-            chat.state = ChatState.READY
             chat.close(reason)
             self._storage.delete(chat.id)
         self._forget_history(chat.id)
@@ -161,6 +160,8 @@ class SecretChatManager(ChatLocking, EventDispatch, RetainedOutbox, Establishmen
 
     @serialized
     async def close(self, chat_id, reason="closed by this application"):
+        """End a chat: the only closer. Every failure that ends a chat (a fatal
+        ``SecretChatError``, a peer's discard, an aborted rekey) routes here."""
         chat = self._require(chat_id)
         if chat.state is ChatState.CLOSED:
             return

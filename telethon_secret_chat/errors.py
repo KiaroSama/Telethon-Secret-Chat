@@ -45,11 +45,13 @@ class SecretChatError(Exception):
     covers.
 
     ``chat_id`` is optional because one failure (a missing storage backend) happens
-    before any chat exists.
+    before any chat exists. ``fatal`` marks a failure that ends the chat; the
+    manager's ``close`` is the one place that acts on it.
     """
 
-    def __init__(self, message: str, *, chat_id: Optional[int] = None):
+    def __init__(self, message: str, *, chat_id: Optional[int] = None, fatal: bool = False):
         self.chat_id = chat_id
+        self.fatal = fatal
         # The id is safe to carry: Telegram assigns it, both ends know it, and an
         # operator cannot correlate a refusal with a conversation without it.
         self._message = f"[chat {chat_id}] {message}" if chat_id is not None else message
@@ -90,9 +92,9 @@ class MessageRejected(SecretChatError):
     checks were written to close.
     """
 
-    def __init__(self, *, chat_id: Optional[int] = None, reason: str):
+    def __init__(self, *, chat_id: Optional[int] = None, reason: str, fatal: bool = False):
         self.reason = reason
-        super().__init__(f"rejected a received message: {reason}", chat_id=chat_id)
+        super().__init__(f"rejected a received message: {reason}", chat_id=chat_id, fatal=fatal)
 
 
 class ChatNotReady(SecretChatError):
@@ -164,7 +166,14 @@ class ResendUnsatisfiable(SecretChatError):
     positions, not content.
     """
 
-    def __init__(self, *, chat_id: int, requested: Tuple[int, int], retained_from: int):
+    def __init__(
+        self,
+        *,
+        chat_id: int,
+        requested: Tuple[int, int],
+        retained_from: int,
+        fatal: bool = False,
+    ):
         self.requested = requested
         # The close reason the manager records; every refusal that ends a chat has one.
         self.reason = "a resend request could not be satisfied"
@@ -175,6 +184,7 @@ class ResendUnsatisfiable(SecretChatError):
             f"{retained_from}. The protocol requires the chat to end rather than "
             "answer a resend it cannot satisfy",
             chat_id=chat_id,
+            fatal=fatal,
         )
 
 

@@ -79,9 +79,9 @@ def test_a_parity_violation_ends_the_chat(is_outbound, in_seq_no, out_seq_no):
     """ "the client is required to immediately abort the secret chat". Not a dropped
     message - the chat."""
     chat = a_chat(is_outbound=is_outbound)
-    with pytest.raises(MessageRejected):
+    with pytest.raises(MessageRejected) as caught:
         deliver(chat, wrapper(in_seq_no=in_seq_no, out_seq_no=out_seq_no))
-    assert chat.state is ChatState.CLOSED
+    assert caught.value.fatal is True
 
 
 def test_our_own_message_reflected_back_is_refused():
@@ -95,9 +95,9 @@ def test_our_own_message_reflected_back_is_refused():
         in_seq_no=framing.transform_in_seq_no(0, True),
         out_seq_no=framing.transform_out_seq_no(0, True),
     )
-    with pytest.raises(MessageRejected):
+    with pytest.raises(MessageRejected) as caught:
         deliver(chat, mine)
-    assert chat.state is ChatState.CLOSED
+    assert caught.value.fatal is True
 
 
 def test_the_refusal_does_not_deliver_the_message():
@@ -117,9 +117,9 @@ def test_a_peer_walking_its_layer_backwards_is_refused():
     lower its announced layer can lower it below 73 and out of MTProto 2.0."""
     chat = a_chat(is_outbound=True)
     deliver(chat, wrapper(in_seq_no=1, out_seq_no=0, layer=144))
-    with pytest.raises(MessageRejected):
+    with pytest.raises(MessageRejected) as caught:
         deliver(chat, wrapper(in_seq_no=1, out_seq_no=2, layer=101))
-    assert chat.state is ChatState.CLOSED
+    assert caught.value.fatal is True
 
 
 def test_a_peer_raising_its_layer_is_accepted():
@@ -168,3 +168,20 @@ def test_a_notify_layer_does_not_raise_the_bar_the_next_wrapper_must_clear():
         "a wrapper below the peer's announced CAPABILITY closed the chat - the "
         "monotonic check is reading the capability instead of the last wrapper"
     )
+
+
+async def test_a_fatal_refusal_closes_the_chat_through_the_manager(pair):
+    """plans/028: ``sequence`` only raises; the manager's ``close`` ends the chat,
+    then the refusal is reported. Triggered by an echo past what B ever sent."""
+    from .fake_client import establish
+
+    wire, a, b = pair
+    chat_a, chat_b = await establish(a, b, wire)
+    order = []
+    for name in ("ChatClosed", "DecryptFailed"):
+        b.on(name, lambda event, name=name: order.append(name))
+    sender = a._entity(chat_a.id)
+    sender.in_seq_no += 50  # claims to have received messages B never sent
+    await a.send_message(chat_a.id, "forged echo")
+    assert b._entity(chat_b.id).state is ChatState.CLOSED
+    assert order == ["ChatClosed", "DecryptFailed"]

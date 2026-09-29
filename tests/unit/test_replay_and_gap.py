@@ -154,9 +154,9 @@ def test_an_echo_that_goes_backwards_ends_the_chat():
     numbers.\" """
     chat, store = a_chat(sent=5), MemoryStorage()
     sequence.accept(chat, peer_message(0, raw_in=3), store)
-    with pytest.raises(MessageRejected):
+    with pytest.raises(MessageRejected) as caught:
         sequence.accept(chat, peer_message(1, raw_in=1), store)
-    assert chat.state is ChatState.CLOSED
+    assert caught.value.fatal is True
 
 
 def test_an_echo_past_what_we_have_sent_ends_the_chat():
@@ -168,18 +168,18 @@ def test_an_echo_past_what_we_have_sent_ends_the_chat():
     """
     chat, store = a_chat(sent=2), MemoryStorage()
     sequence.accept(chat, peer_message(0, raw_in=2), store)  # exactly D+1, allowed
-    with pytest.raises(MessageRejected):
+    with pytest.raises(MessageRejected) as caught:
         sequence.accept(chat, peer_message(1, raw_in=3), store)
-    assert chat.state is ChatState.CLOSED
+    assert caught.value.fatal is True
 
 
 def test_the_echo_is_checked_before_the_message_is_queued():
     """A message held for a gap is a message whose §3.6 fields were already checked;
     holding one that violates them would defer the abort until the hole closed."""
     chat, store = a_chat(sent=1), MemoryStorage()
-    with pytest.raises(MessageRejected):
+    with pytest.raises(MessageRejected) as caught:
         sequence.accept(chat, peer_message(4, raw_in=9), store)
-    assert chat.state is ChatState.CLOSED
+    assert caught.value.fatal is True
     assert store.take_in(chat.id) == []
 
 
@@ -282,8 +282,10 @@ async def test_an_unsatisfiable_resend_request_ends_the_chat():
     await b.start()
     try:
         chat_a, chat_b = await establish(a, b, wire)
-        closed = []
+        closed, order = [], []
         b.on("ChatClosed", closed.append)
+        for name in ("ChatClosed", "DecryptFailed"):
+            b.on(name, lambda event, name=name: order.append(name))
         # B is the recipient, so its own out_seq_no is even (§3.4). It never sent 200.
         await a._send(
             a._entity(chat_a.id),
@@ -294,6 +296,7 @@ async def test_an_unsatisfiable_resend_request_ends_the_chat():
         )
         assert b._entity(chat_b.id).state is ChatState.CLOSED
         assert [event.reason for event in closed] == ["a resend request could not be satisfied"]
+        assert order == ["ChatClosed", "DecryptFailed"]
     finally:
         await a.stop()
         await b.stop()

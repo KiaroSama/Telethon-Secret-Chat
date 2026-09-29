@@ -214,8 +214,10 @@ class SecretChat:
 
     def close(self, reason: str) -> None:
         """Terminal, and idempotent - a chat closed twice keeps the FIRST reason,
-        because that is the one describing what actually failed."""
+        because that is the one describing what actually failed. A closed chat that
+        still holds material (an old store) is scrubbed all the same."""
         if self.state is ChatState.CLOSED:
+            self.scrub()
             return
         self.state = ChatState.CLOSED
         self.closed_reason = reason

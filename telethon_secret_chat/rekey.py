@@ -208,7 +208,7 @@ async def start(manager, chat) -> None:
         chat.exchange_id = exchange_id
         chat.exchange_secret = secret
         chat.rekey_role = "requested"
-        chat.state = type(chat.state).REKEYING
+        chat.transition_to(type(chat.state).REKEYING)
 
     await manager._send_action(
         chat,
@@ -280,7 +280,9 @@ async def _on_request(manager, chat, action) -> bool:
         chat.exchange_secret = None
         chat.pending_key = key
         chat.rekey_role = "accepted"
-        chat.state = type(chat.state).REKEYING
+        # A collision (§4.2) drops our own exchange for the peer's: already REKEYING.
+        if chat.state is not type(chat.state).REKEYING:
+            chat.transition_to(type(chat.state).REKEYING)
 
     await manager._send_action(
         chat,
@@ -317,7 +319,7 @@ async def _on_accept(manager, chat, action) -> bool:
 
     def prepared():
         adopt_new_key(chat, key)
-        chat.state = type(chat.state).READY
+        chat.transition_to(type(chat.state).READY)
 
     # The commit is serialized/encrypted using the OLD key. Adoption and its
     # exact old-key ciphertext are then persisted together, before the RPC.
@@ -344,7 +346,7 @@ async def _on_commit(manager, chat, action) -> bool:
 
     def prepared():
         adopt_new_key(chat, key)
-        chat.state = type(chat.state).READY
+        chat.transition_to(type(chat.state).READY)
         # B may retire after the authenticated CommitKey and all preceding gaps.
         # A, unlike B, must wait for a new-key packet (the Noop below).
         chat.new_key_confirmed = True
