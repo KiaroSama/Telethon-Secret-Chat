@@ -17,31 +17,10 @@ refuses a bad fingerprint before the write: the failure that costs nothing is th
 one that happens before the bytes move.
 """
 
-import os
-
 import pytest
 
 from telethon_secret_chat import files
 from telethon_secret_chat.schema import secret_tl as tl
-
-
-@pytest.fixture
-async def chat(pair):
-    """Two established managers, plus a sender that returns what arrived."""
-    from .fake_client import establish
-
-    wire, a, b = pair
-    chat_a, _ = await establish(a, b, wire)
-    got = []
-    b.on("MessageReceived", got.append)
-
-    async def send(tmp_path, name, **kwargs):
-        source = tmp_path / name
-        source.write_bytes(os.urandom(64))
-        await a.send_file(chat_a.id, source, **kwargs)
-        return got[-1]
-
-    return wire, a, chat_a, send
 
 
 def of_type(message, attribute_type):

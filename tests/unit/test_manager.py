@@ -290,6 +290,10 @@ def test_the_package_exports_exactly_the_contract():
         "SendFailed",
         "MEDIA_KINDS",
         "CAPTIONLESS_KINDS",
+        "MediaReference",
+        "KeyVisualization",
+        "key_visualization",
+        "PALETTE",
     }
 
 

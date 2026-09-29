@@ -86,6 +86,9 @@ class MessageReceived:
     #: The ``random_id`` this message replies to, or ``None``. The encrypted layer
     #: has no message ids, so a reply points at the random id its sender chose.
     reply_to: Optional[int] = None
+    #: A ``MediaReference`` when the message carries a file, else ``None``: what an
+    #: application keeps to save or forward the file after a restart. Key material.
+    media_reference: Optional[Any] = None
 
     def __repr__(self) -> str:
         return (

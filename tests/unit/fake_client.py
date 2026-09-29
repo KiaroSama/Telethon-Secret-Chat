@@ -47,7 +47,11 @@ class FakeClient:
         # Every blob handed to the server, so a test can assert the plaintext never
         # was one (§6.4: the bytes are encrypted client-side BEFORE upload).
         self.uploaded = []
+        self.sent_files = []  # the file handle of every sendEncryptedFile, in order
         self.stored = {}  # file id -> ciphertext, standing in for the CDN
+        # file id -> the fingerprint given at upload: the server keeps it with the file,
+        # so a forward by `inputEncryptedFile` (which carries none) still reports it.
+        self.fingerprints = {}
         # A request with no branch below. It also raises, but a raise inside an update
         # handler becomes a silent DecryptFailed, so teardown checks this list too.
         self.unanswered = []
@@ -101,6 +105,12 @@ class FakeClient:
                 await self.peer.deliver(request.peer.chat_id, request.data)
             return types.messages.SentEncryptedMessage(date=0)
         if isinstance(request, functions.messages.SendEncryptedFileRequest):
+            given = getattr(request.file, "key_fingerprint", None)
+            if given is not None:
+                self.fingerprints[request.file.id] = given
+                if self.peer is not None:
+                    self.peer.fingerprints[request.file.id] = given
+            self.sent_files.append(request.file)
             if self.hold:
                 self.held.append((request.peer.chat_id, request.data, request.file))
             elif self.peer is not None:
@@ -114,7 +124,7 @@ class FakeClient:
                     access_hash=0,
                     size=len(self.stored.get(request.file.id, b"")),
                     dc_id=1,
-                    key_fingerprint=getattr(request.file, "key_fingerprint", 0),
+                    key_fingerprint=self.fingerprints.get(request.file.id, 0),
                 ),
             )
         if isinstance(request, functions.messages.DiscardEncryptionRequest):
@@ -198,7 +208,9 @@ class FakeClient:
                 access_hash=0,
                 size=len(self.stored.get(file.id, b"")),
                 dc_id=1,
-                key_fingerprint=file.key_fingerprint,
+                key_fingerprint=getattr(
+                    file, "key_fingerprint", self.fingerprints.get(file.id, 0)
+                ),
             )
         update = types.UpdateNewEncryptedMessage(
             message=types.EncryptedMessage(
