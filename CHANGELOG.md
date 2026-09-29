@@ -5,9 +5,11 @@ package by commit and reads this file before moving its pin. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/) with the pre-1.0 rule that a minor bump may break.
 
-## [Unreleased] - 0.1.0
+## [Unreleased]
 
-`pyproject.toml` already carries 0.1.0; the date is set when the release is tagged.
+## [0.1.0] - 2026-09-29
+
+Tagged `v0.1.0`.
 
 ### Changed
 
