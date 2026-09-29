@@ -17,6 +17,8 @@ tests/vectors (Telethon's primitives) and tests/interop (a real client).
 
 from __future__ import annotations
 
+import asyncio
+
 from telethon.tl import functions, types
 
 from .dh_material import SAFE_PRIME
@@ -53,6 +55,10 @@ class FakeClient:
         # was asked for, so a test can pin the client-default sentinel `()`.
         self.parse_modes = []
         self.download_targets = []
+        # Deferred: each handler runs as its own task, as Telethon dispatches updates
+        # concurrently, instead of inline inside the sender's RPC (plans/031).
+        self.deferred = False
+        self.tasks = []
 
     # --- the surface manager.py uses -----------------------------------------
 
@@ -200,12 +206,14 @@ class FakeClient:
             ),
             qts=0,
         )
-        for handler in list(self.handlers):
-            await handler(update)
+        await self.deliver_update(update)
 
     async def deliver_update(self, update):
         for handler in list(self.handlers):
-            await handler(update)
+            if self.deferred:
+                self.tasks.append(asyncio.ensure_future(handler(update)))
+            else:
+                await handler(update)
 
     async def release(self):
         """Deliver everything held, in the order it was sent."""
@@ -221,6 +229,22 @@ class Wire:
         self.a = FakeClient(user_id=1000)
         self.b = FakeClient(user_id=2000)
         self.a.peer, self.b.peer = self.b, self.a
+
+    def defer(self):
+        """From now on, every delivered update runs as a concurrent task."""
+        self.a.deferred = self.b.deferred = True
+
+    async def settle(self):
+        """Await delivery tasks, and the ones they start, until none remain."""
+        for _ in range(100):
+            pending = [task for task in self.a.tasks + self.b.tasks if not task.done()]
+            if not pending:
+                break
+            await asyncio.wait_for(asyncio.gather(*pending), 5)
+        else:
+            raise AssertionError("delivery never settled")
+        for task in self.a.tasks + self.b.tasks:
+            task.result()  # re-raise a handler failure here, not as a warning
 
 
 async def establish(manager_a, manager_b, wire):
