@@ -325,8 +325,9 @@ So a round trip through our own encrypt/decrypt pair is **not** evidence. The ev
 that exists today is of two kinds: the interop tier, a live exchange with an official
 Telegram client on real accounts that the operator runs by hand (dated runs, never in CI),
 and `tests/vectors/`, which checks the key derivation against Telethon's own primitives.
-Frames captured from an official client (above) join the vectors once the operator has
-captured them; none are in the tree yet.
+A third kind joined on 2026-09-29: `tests/vectors/fixtures/official-client-2026-09-29.json`,
+three frames an official mobile client wrote in a closed throwaway chat (above), replayed
+offline on every CI run.
 
 Module boundaries, the storage contract and the event contract are in
 [docs/architecture.md](docs/architecture.md); the protocol itself, with the decisions this
