@@ -3,7 +3,7 @@
 # resolver that consulted the index reported this one as outdated. The import name
 # stays `telethon_secret_chat`.
 name = "kiaro-telethon-secret-chat"
-version = "0.1.0"
+version = "0.2.0"
 description = "Telegram MTProto 2.0 end-to-end encryption (secret chats) for Telethon"
 readme = "README.md"
 requires-python = ">=3.11"
