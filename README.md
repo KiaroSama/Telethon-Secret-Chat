@@ -129,6 +129,11 @@ Failures that must end a chat also produce `ChatClosedEvent`: a sequence violati
 resend this side cannot satisfy, and a message that authenticates but will not parse
 (as in TDLib; skipping it would leave a hole no resend can fill).
 
+When the PEER closes a chat, Telegram does not push that to this side in real time
+(measured 2026-09-29: nothing within 60 s). `ChatClosedEvent` fires when your client next
+fetches missed updates - on reconnect, or when you call `await client.catch_up()` - or on
+your next send into that chat, which the server refuses and which then raises `ChatClosed`.
+
 A synchronous handler runs before the message leaves the durable mailbox, so after a crash
 it can run again (at-least-once); an asynchronous handler is scheduled, and scheduling is
 not completion. Handlers own their own idempotency.
@@ -250,6 +255,7 @@ shell:
 | `-MediaDir` | real media samples (`TSC_TEST_MEDIA_DIR`); without it video/audio are reported as not covered |
 | `-Only` | one live module or test, e.g. `tests/interop/test_live_media.py`; a subset is reported as a subset, never as the full tier |
 | `-Nonce` | the code to reply with, fixed in advance (`TSC_TEST_NONCE`) so the operator knows it before the run |
+| `-PeerAccount` | pair mode: the second account's `.env` entry; see the pair tier below |
 
 Typing a StringSession at a prompt puts a full login into shell history, scrollback
 and any terminal logging you have on; this reads it into the one process that needs
@@ -257,6 +263,17 @@ it and prints nothing, and pytest runs with `--tb=short` so no traceback prints 
 arguments. It also REFUSES while the telegram-mcp server is listening, because that server
 already holds the session and Telegram permanently invalidates an auth key used from two
 clients at once - stop it (and its keepalive supervisor), run this, start it again.
+
+**The pair tier** (`tests/live_pair`) puts this package on BOTH ends: two of your
+accounts, the real Telegram server, no person. It checks what the offline tiers only
+imitate - the server's answers, real uploads and downloads, a rekey over the real network,
+a restart from the store - and it is NOT interop evidence, because two copies of the same
+code agree with each other whatever they get wrong. The second account needs a public
+username, and the same telegram-mcp rule applies:
+
+```powershell
+.\scripts\run_interop.ps1 -Account kgb_verifier -Peer SecondAccountUsername -PeerAccount second_account
+```
 
 Each run also writes its own log to `logs/run_interop_YYYY-MM-DD_HH-mm-ss_UTC.log` under
 the repository root: UTF-8, one file per run (a run in the same second gets a `_2`

@@ -7,7 +7,7 @@ nothing from passing unnoticed.
 
 Skips are allowed in exactly three places, and every other skip rejects the matrix:
 
-- ``LIVE_SKIPS``: the live interop tier, which needs a real account and never runs in
+- ``LIVE_SKIPS``: the interop tier and the pair tier, which need real accounts and never run in
   CI. The list is explicit so the gate still fails closed if discovery breaks, and
   ``tests/unit/test_audit_ci.py`` derives the same list from ``tests/interop`` so a
   new live test that is not listed here fails in the same change.
@@ -35,6 +35,10 @@ LIVE_SKIPS = {
     "tests.interop.test_live_media::test_every_media_kind_is_sent_and_opens_on_the_far_side",
     "tests.interop.test_live_media::test_a_file_from_the_far_side_decrypts_and_is_written",
     "tests.interop.test_live_rekey::test_a_rekey_started_here_is_accepted_by_the_official_client",
+    # The pair tier: this package on both ends, two real accounts; local-only as well.
+    "tests.live_pair.test_pair_chat::test_one_chat_through_text_rekey_files_and_a_restart",
+    "tests.live_pair.test_pair_close::test_a_close_reaches_the_other_side_on_its_next_update_sync",
+    "tests.live_pair.test_pair_close::test_sending_into_a_chat_the_peer_closed_closes_it_here",
 }
 PLATFORM_SKIPS = {
     "cases-windows-latest-py3.13": {

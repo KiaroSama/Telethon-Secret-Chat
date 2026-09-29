@@ -7,6 +7,17 @@ package by commit and reads this file before moving its pin. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- A pair test tier (`tests/live_pair`): this package on both ends over the real Telegram
+  server, two of the owner's accounts, run by `scripts/run_interop.ps1 -PeerAccount`.
+  Real-server evidence, not interop evidence.
+
+### Changed
+
+- A failed `discardEncryption` is logged as a warning with its error type.
+- Documented: a peer's close reaches this side on its next update sync or its next send.
+
 ## [0.1.0] - 2026-09-29
 
 Tagged `v0.1.0`.

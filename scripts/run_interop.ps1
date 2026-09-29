@@ -10,6 +10,10 @@
     successful subset, skipped suite, or missing media never proves full interop.
     Each run also writes logs/run_interop_YYYY-MM-DD_HH-mm-ss_UTC.log under the
     repository root (UTF-8, one file per run, never overwritten, no secret values).
+.PARAMETER PeerAccount
+    Pair mode: the second of the owner's accounts, driven by this package too, so no
+    person takes part. Selects tests/live_pair instead of tests/interop. This is
+    real-server evidence, never interop evidence (Principle I): both ends are this code.
 .PARAMETER McpRoot
     The telegram-mcp checkout whose .env holds the account. Defaults to
     $env:TSC_MCP_ROOT, else a `Telegram-mcp` directory beside this repository.
@@ -21,6 +25,7 @@ param(
     [string]$MediaDir,
     [string]$Only,
     [string]$Nonce,
+    [ValidatePattern('^[A-Za-z0-9_]*$')][string]$PeerAccount,
     [string]$McpRoot = $(if ($env:TSC_MCP_ROOT) { $env:TSC_MCP_ROOT } else {
             Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'Telegram-mcp' })
 )
@@ -63,7 +68,8 @@ function Write-InteropLog {
 Write-InteropLog INFO ('Interop launcher started; run log: ' + $(if ($script:LogPath) { $script:LogPath } else { 'none' }))
 
 $names = @('TSC_TEST_SESSION', 'TSC_TEST_API_ID', 'TSC_TEST_API_HASH',
-    'TSC_TEST_PEER', 'TSC_TEST_MEDIA_DIR', 'TSC_TEST_NONCE')
+    'TSC_TEST_PEER', 'TSC_TEST_MEDIA_DIR', 'TSC_TEST_NONCE',
+    'TSC_PAIR_SESSION_A', 'TSC_PAIR_SESSION_B', 'TSC_PAIR_PEER')
 $previous = @{}
 foreach ($name in $names) { $previous[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
 $changed = $false
@@ -73,6 +79,10 @@ $code = 1
 $failure = 'Preflight validation failed; no session was started.'
 # The one pattern for "a live interop module", used for the selector and the evidence.
 $liveModule = 'test_live_[a-z_]+'
+# Pair mode (-PeerAccount) runs a different folder and accepts only its own evidence.
+$pair = [bool]$PeerAccount
+$tier = if ($pair) { 'live_pair' } else { 'interop' }
+if ($pair) { $liveModule = 'test_pair_[a-z_]+' }
 try {
     $envFile = Join-Path $McpRoot '.env'
     if (-not (Test-Path -LiteralPath $envFile -PathType Leaf)) {
@@ -84,8 +94,12 @@ try {
         $failure = 'MediaDir is not a directory; no session was started.'
         throw 'Invalid media directory'
     }
-    $target = if ($Only) { $Only.Replace('\', '/') } else { 'tests/interop' }
-    if ($target -notmatch "^tests/interop(?:/$liveModule\.py(?:::[A-Za-z_][A-Za-z0-9_]*)?)?$") {
+    if ($pair -and $PeerAccount -eq $Account) {
+        $failure = 'PeerAccount must be a different account from Account.'
+        throw 'Same account twice'
+    }
+    $target = if ($Only) { $Only.Replace('\', '/') } else { "tests/$tier" }
+    if ($target -notmatch "^tests/$tier(?:/$liveModule\.py(?:::[A-Za-z_][A-Za-z0-9_]*)?)?$") {
         $failure = 'Only must select this repository''s live interop tier, not arbitrary pytest arguments.'
         throw 'Invalid selector'
     }
@@ -97,9 +111,14 @@ try {
     }
     $failure = 'Could not read the required private account configuration.'
     $wanted = @{
-        ('TELEGRAM_SESSION_STRING_' + $Account.ToUpperInvariant()) = 'TSC_TEST_SESSION'
         'TELEGRAM_API_ID' = 'TSC_TEST_API_ID'
         'TELEGRAM_API_HASH' = 'TSC_TEST_API_HASH'
+    }
+    if ($pair) {
+        $wanted[('TELEGRAM_SESSION_STRING_' + $Account.ToUpperInvariant())] = 'TSC_PAIR_SESSION_A'
+        $wanted[('TELEGRAM_SESSION_STRING_' + $PeerAccount.ToUpperInvariant())] = 'TSC_PAIR_SESSION_B'
+    } else {
+        $wanted[('TELEGRAM_SESSION_STRING_' + $Account.ToUpperInvariant())] = 'TSC_TEST_SESSION'
     }
     $found = @{}
     foreach ($line in [IO.File]::ReadAllLines($envFile, [Text.UTF8Encoding]::new($false))) {
@@ -118,13 +137,14 @@ try {
     if (@($wanted.Values | Where-Object { -not $found.ContainsKey($_) }).Count) {
         throw 'Missing required account fields'
     }
-    $found['TSC_TEST_PEER'] = $Peer
+    $found[$(if ($pair) { 'TSC_PAIR_PEER' } else { 'TSC_TEST_PEER' })] = $Peer
     $found['TSC_TEST_MEDIA_DIR'] = if ($MediaDir) { (Resolve-Path -LiteralPath $MediaDir).Path } else { $null }
     $found['TSC_TEST_NONCE'] = if ($Nonce) { $Nonce } else { $null }
     $changed = $true
     foreach ($name in $names) { [Environment]::SetEnvironmentVariable($name, $found[$name], 'Process') }
     Write-InteropLog INFO 'Starting the selected live cases. Follow the official-client instructions.'
-    if (-not $MediaDir) { Write-InteropLog WARNING 'No real media directory: video/audio interoperability is NOT covered.' }
+    if ($pair) { Write-InteropLog WARNING 'Pair mode: both ends are this package. Real-server evidence, not interop evidence.' }
+    elseif (-not $MediaDir) { Write-InteropLog WARNING 'No real media directory: video/audio interoperability is NOT covered.' }
     Write-InteropLog DEBUG 'Process-only configuration prepared; values are intentionally not logged.'
     $failure = 'The test process could not complete; interoperability is not confirmed.'
     $record = [IO.Path]::GetTempFileName()
@@ -142,7 +162,7 @@ try {
     $cases = @($xml.SelectNodes('//testcase'))
     if (-not $cases.Count) { throw 'No executed cases' }
     foreach ($case in $cases) {
-        if ($case.classname -notmatch "^tests\.interop\.$liveModule$" -or
+        if ($case.classname -notmatch "^tests\.$tier\.$liveModule$" -or
             $case.SelectSingleNode('skipped|failure|error')) { throw 'Invalid test evidence' }
     }
     Write-InteropLog INFO ("The selected {0} live case(s) passed; record this exact selection and media coverage." -f $cases.Count)
