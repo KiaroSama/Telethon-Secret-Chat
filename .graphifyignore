@@ -1,0 +1,36 @@
+# Graphify exclusions. The graph is built with .gitignore switched off so the local
+# Markdown folders are included; this file is then the only exclusion list.
+.git/
+.venv/
+venv/
+node_modules/
+dist/
+build/
+*.egg-info/
+coverage/
+htmlcov/
+.coverage
+coverage.xml
+junit.xml
+logs/
+.ci-*/
+.pytest_cache/
+.mypy_cache/
+__pycache__/
+.codebase-memory/
+graphify-out/
+.claude/
+.codex/
+.agents/
+.kiro/
+.cursor/
+.cline/
+.ai/.cross-project-sync/
+secrets.md
+.env
+.env.*
+!.env.example
+.ignoreme
+**/.ignoreme
+explain-AI.md
+tests/vectors/fixtures/*.json
