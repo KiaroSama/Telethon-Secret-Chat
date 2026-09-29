@@ -25,13 +25,24 @@ package by commit and reads this file before moving its pin. The format follows
 - The in-memory history keeps the most recent `history_limit` messages per chat (default
   1000, a new keyword of `SecretChatManager`).
 - Telethon is capped below 2; the build backend is capped below setuptools 86.
+- `create()` and `accept()` return a `ChatSnapshot`.
+- A message that authenticates but will not parse ends the chat, as TDLib does; a stored
+  mailbox item that no longer parses is dropped with `DecryptFailed` instead of blocking
+  the messages behind it.
+- Files are encrypted and decrypted in pieces (chained IGE) instead of in memory, and a
+  download is written to a temporary file beside the target.
+- A file upload no longer holds the chat lock: the chat keeps receiving meanwhile, and
+  messages sent during the upload still land after the file.
+- `retry_pending` sends the records behind a failing one instead of stopping at it.
 
 ### Added
 
 - `forget(chat_id)` drops a closed chat's record.
 - `UnknownChat` (also a `KeyError`) and `ManagerStopping` (also a `RuntimeError`), so every
   failure is inside `SecretChatError`.
-- The `SendFailed` event for a message the server permanently rejected.
+- The `SendFailed(chat_id, random_id, cause)` event for a message Telegram permanently
+  rejected; the message is withdrawn as a self-delete that keeps its sequence slot. A send
+  answered with a chat-ending error (`ENCRYPTION_DECLINED` and similar) closes the chat.
 - The `fast` extra (`cryptg`) for native AES.
 - `py.typed`; CI runs a lenient mypy check.
 - Crash-leftover temporary files beside the store (`.secret-chat-store-*.tmp`) and beside a
