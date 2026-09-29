@@ -73,6 +73,19 @@ def wrap(message, *, layer: int, in_seq_no: int, out_seq_no: int) -> tl.Decrypte
     )
 
 
+def _header_parses(body: bytes) -> bool:
+    """Whether ``body`` opens with a whole decryptedMessageLayer header."""
+    try:
+        with BinaryReader(body) as reader:
+            if reader.read_int(signed=False) != tl.DecryptedMessageLayer.CONSTRUCTOR_ID:
+                return False
+            reader.tgread_bytes()
+            reader.read_int(), reader.read_int(), reader.read_int()
+            return reader.tell_position() < len(body)
+    except Exception:
+        return False
+
+
 def unwrap(body: bytes, *, chat_id: int | None = None) -> tl.DecryptedMessageLayer:
     """Parse a decrypted body into its wrapper. Raises ``MessageRejected``.
 
@@ -90,12 +103,20 @@ def unwrap(body: bytes, *, chat_id: int | None = None) -> tl.DecryptedMessageLay
         raise MessageRejected(
             chat_id=chat_id,
             reason="the message names a constructor this schema does not define",
+            fatal=_header_parses(body),
         ) from None
     except Exception:
         # Deliberately broad, and deliberately silent about the cause: a parser
         # error names an offset, and an offset is the length oracle §2.7 warns
         # about. `from None` keeps the underlying traceback out of the chain.
-        raise MessageRejected(chat_id=chat_id, reason="the message could not be parsed") from None
+        # A body that authenticated and carries a well-formed wrapper header but an
+        # inner message that will not parse ends the chat, as TDLib does
+        # (SecretChatActor.cpp `do_inbound_message_encrypted` -> `check_status` ->
+        # `on_fatal_error`, tdlib/td 42e6a52): skipping it would leave a hole the
+        # §3.7 resend can never fill.
+        raise MessageRejected(
+            chat_id=chat_id, reason="the message could not be parsed", fatal=_header_parses(body)
+        ) from None
 
     if not isinstance(decoded, tl.DecryptedMessageLayer):
         raise MessageRejected(

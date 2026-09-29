@@ -136,7 +136,15 @@ class Receiving:
         try:
             while chat.pending_deliveries and chat.state is not ChatState.CLOSED:
                 item = chat.pending_deliveries[0]
-                await self._deliver(chat, sequence.unpack(item), None)
+                try:
+                    wrapper = sequence.unpack(item)
+                except Exception:
+                    # It parsed once, on receipt; a record that no longer does must
+                    # not hold every later message behind it.
+                    wrapper = None
+                    self._emit(DecryptFailed(chat.id, "a stored message could not be read"))
+                if wrapper is not None:
+                    await self._deliver(chat, wrapper, None)
                 if chat.state is ChatState.CLOSED:
                     break  # Closing scrubbed the record and the mailbox; do not write it back.
                 with self._atomic(chat):

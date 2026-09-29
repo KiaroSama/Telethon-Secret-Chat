@@ -197,3 +197,71 @@ def test_a_refusal_carries_no_key_no_plaintext_and_no_ciphertext():
     assert "launch code" not in text
     assert KEY.hex()[:32] not in text.lower()
     assert bytes(frame).hex()[:32] not in text.lower()
+
+
+# --- plans/026: an authenticated message that will not parse -------------------------
+
+
+def _frame(chat, body):
+    from telethon.tl import types
+
+    from telethon_secret_chat import crypto
+
+    from .helpers import KEY
+
+    return types.EncryptedMessage(
+        random_id=999,
+        chat_id=chat.id,
+        date=0,
+        bytes=crypto.encrypt_frame(KEY, body, chat.in_x),
+        file=types.EncryptedFileEmpty(),
+    )
+
+
+async def test_an_unparseable_inner_message_ends_the_chat():
+    """TDLib (SecretChatActor.cpp, do_inbound_message_encrypted at 42e6a52): a body
+    that authenticates but fails to parse is a fatal error - the chat is cancelled."""
+    from telethon_secret_chat.chat import ChatState
+
+    from .helpers import peer_message, ready_manager
+
+    manager, chat = ready_manager()
+    failed = []
+    manager.on("DecryptFailed", failed.append)
+    wrapper = peer_message(0)
+    body = bytearray(bytes(wrapper))
+    header = len(body) - len(bytes(wrapper.message))
+    body[header : header + 4] = (0xDEADBEEF).to_bytes(4, "little")
+    await manager._on_encrypted_message(_frame(chat, bytes(body)))
+    assert chat.state is ChatState.CLOSED
+    assert len(failed) == 1
+
+
+async def test_an_unparseable_wrapper_header_is_refused_without_closing():
+    from telethon_secret_chat.chat import ChatState
+
+    from .helpers import ready_manager
+
+    manager, chat = ready_manager()
+    failed = []
+    manager.on("DecryptFailed", failed.append)
+    await manager._on_encrypted_message(_frame(chat, b"\xef\xbe\xad\xde" + b"\x00" * 60))
+    assert chat.state is ChatState.READY and len(failed) == 1
+
+
+async def test_a_mailbox_item_that_will_not_parse_is_dropped_not_wedged():
+    from telethon_secret_chat import sequence
+
+    from .helpers import peer_message, ready_manager
+
+    manager, chat = ready_manager()
+    failed, got = [], []
+    manager.on("DecryptFailed", failed.append)
+    manager.on("MessageReceived", lambda event: got.append(event.text))
+    chat.pending_deliveries = [
+        {"seq_no": 0, "body": "efbeadde", "file": None},
+        sequence.pack(peer_message(1, "behind it")),
+    ]
+    await manager._drain_deliveries(chat)
+    assert got == ["behind it"] and len(failed) == 1
+    assert chat.pending_deliveries == []
