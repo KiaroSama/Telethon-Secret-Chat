@@ -23,6 +23,16 @@ class EventDispatch(ManagerHost):
     """Mixed into the manager, which owns ``_handlers`` and ``_handler_tasks``."""
 
     def on(self, event: str, handler: Callable):
+        """Register ``handler`` for an event name.
+
+        Names: ChatRequested, ChatReady, ChatClosed (alias of ChatClosedEvent),
+        MessageReceived, MessageAcknowledged, ServiceActionReceived, DecryptFailed,
+        SendFailed. A sync handler runs inline; an async one is scheduled as a task
+        and not awaited. A handler's exception is logged, never raised into the
+        receive path.
+
+        Raises: ValueError for an unknown name or a non-callable handler.
+        """
         event = "ChatClosedEvent" if event == "ChatClosed" else event
         if event not in EVENT_TYPES or not callable(handler):
             raise ValueError("register a known secret-chat event and a callable handler")

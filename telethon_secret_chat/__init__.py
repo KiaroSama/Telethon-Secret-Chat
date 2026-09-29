@@ -1,12 +1,14 @@
 """Telegram MTProto 2.0 end-to-end encryption (secret chats) for Telethon.
 
-The public surface is exactly ``contracts/public-api.md`` and nothing else. The
+The public surface is exactly ``__all__`` below and nothing else. The
 protocol internals - ``crypto``, ``dh``, ``framing``, ``sequence``, ``rekey``, and
 the generated schema - are importable by their module path for tests, and are not a
 supported surface: they may move without notice.
 
 There is deliberately no way here to supply a key, skip a check, or lower the layer.
 The one thing this package sells is that the checks ran.
+
+API reference: ``help(SecretChatManager)``; design: ``docs/architecture.md``.
 """
 
 from importlib import metadata as _metadata

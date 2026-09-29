@@ -192,6 +192,7 @@ class SecretChat:
     # --- the state machine ----------------------------------------------------
 
     def snapshot(self) -> ChatSnapshot:
+        """A read-only copy without key material, for callers."""
         return ChatSnapshot(
             id=self.id,
             state=self.state,
@@ -209,6 +210,7 @@ class SecretChat:
         )
 
     def transition_to(self, target: ChatState) -> None:
+        """Move along ``_TRANSITIONS``; any other move raises ValueError."""
         if self.state is ChatState.CLOSED:
             raise ChatClosed(chat_id=self.id, reason=self.closed_reason or "already closed")
         if target not in _TRANSITIONS[self.state]:
