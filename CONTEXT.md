@@ -82,6 +82,23 @@ One of the eight names a file is sent as (photo, video, document, audio, animati
 video note, voice note); it decides how the receiving client shows the file.
 _Avoid_: media type, file type, mime type
 
+**Media metadata**:
+What a receiving client shows about a file before downloading it (a video's length and size,
+a preview picture, a voice note's waveform, a sticker's emoji). The sender supplies it; the
+package never reads it out of the file.
+_Avoid_: attributes (in writing), file info, tags
+
+**Media reference**:
+Everything needed to save or forward one received file later, the file's one-time key
+included, kept by the application after a restart if it chooses. Holding one means being able
+to read that file.
+_Avoid_: file id, media handle, file pointer
+
+**Forward**:
+Sending a file already on Telegram's servers into a chat again under its original one-time
+key, without downloading or uploading it; it may go to a different chat than it came from.
+_Avoid_: re-send (that is `send_file`), copy, share
+
 **Tombstone**:
 The record of a closed chat, kept with its keys erased so the chat id cannot be revived,
 until the application forgets it.

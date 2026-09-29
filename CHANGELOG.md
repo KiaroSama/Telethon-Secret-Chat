@@ -13,9 +13,17 @@ package by commit and reads this file before moving its pin. The format follows
   server, two of the owner's accounts, run by `scripts/run_interop.ps1 -PeerAccount`.
   Real-server evidence, not interop evidence.
 - The first official-client capture (`tests/vectors/fixtures`), replayed offline.
+- `send_file` media metadata: `duration`, `width`/`height`, `thumbnail` + `thumbnail_size`,
+  `waveform`, `title`/`performer`, `sticker_alt`, each checked against the kind before upload.
+- `send_file` accepts bytes or a seekable stream (with `file_name`) as well as a path.
+- `MediaReference` (`MessageReceived.media_reference`): save or forward a received file after a
+  restart; `save_file` accepts it.
+- `forward_file`: re-send a received file into any chat by its server handle, no upload (ADR 0006).
+- `key_visualization`, `KeyVisualization`, `PALETTE`: the key picture as data.
 
 ### Changed
 
+- `send_file`'s second parameter is now `source` (was `path`); positional calls are unaffected.
 - A failed `discardEncryption` is logged as a warning with its error type.
 - A secret chat this session asked for but lost the answer to (unknown waiting or ready chat
   outside `create()`) is discarded on the server and reported as `DecryptFailed`.

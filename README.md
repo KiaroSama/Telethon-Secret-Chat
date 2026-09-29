@@ -101,8 +101,11 @@ Register handlers before `start()`: it re-announces pending requests and deliver
 messages immediately, and an event with no handler is dropped and counted as delivered.
 
 `e.key_hash` is 36 bytes, the input to Telegram's key visualization — what the peer's
-official client draws. Rendering the picture is the application's job. The 64-bit
-`key_fingerprint` is a protocol sanity check and no client displays it.
+official client draws on its "Encryption Key" screen. `key_visualization(e.key_hash)` returns
+the same picture as data: `rows`, 12 rows of 12 indexes into `PALETTE`, and `hex`, the 64 hex
+digits shown under it (checked against the official Android client). Drawing it is the
+application's job. The 64-bit `key_fingerprint` is a protocol sanity check and no client
+displays it.
 
 Text is parsed with the client's default parse mode (`client.parse_mode`, Markdown unless
 changed), and the resulting entities are mapped to the secret-chat schema; entity types the
@@ -118,7 +121,7 @@ ciphertext.
 | `ChatRequested(chat_id, peer_user_id)` | the peer asked for a chat; call `accept()` |
 | `ChatReady(chat_id, peer_user_id, key_fingerprint, key_hash)` | the chat is established |
 | `ChatClosedEvent(chat_id, reason)` | the chat ended, here or at the peer (`on("ChatClosed", ...)` is an accepted alias) |
-| `MessageReceived(chat_id, random_id, seq_no, text, entities, ttl, media, file, reply_to)` | a message, in conversation order |
+| `MessageReceived(chat_id, random_id, seq_no, text, entities, ttl, media, file, reply_to, media_reference)` | a message, in conversation order; `media_reference` is set when it carries a file |
 | `MessageAcknowledged(chat_id, seq_no, random_ids)` | the peer's counter passed a message this side sent |
 | `ServiceActionReceived(chat_id, action_name, action, applied)` | one of the thirteen service actions, reported even when handled internally |
 | `DecryptFailed(chat_id, reason)` | a received message was refused |
@@ -150,8 +153,9 @@ not completion. Handlers own their own idempotency.
 | `await forget(chat_id)` | `None` | drop a CLOSED chat's record; `list()` no longer shows it (`ValueError` if not closed) |
 | `list()` / `status(chat_id)` | `ChatSnapshot` list / `ChatSnapshot` | what exists (see below) |
 | `await send_message(chat_id, text, entities=None, reply_to=None)` | `random_id` | send text; `reply_to` is the `random_id` replied to |
-| `await send_file(chat_id, path, *, caption="", mime_type=None, kind=None, reply_to=None)` | `random_id` | send a file as one of the eight `MEDIA_KINDS` |
-| `await save_file(message, path)` | `Path` | decrypt a received file and write it |
+| `await send_file(chat_id, source, *, file_name=None, caption="", mime_type=None, kind=None, reply_to=None, <media metadata>)` | `random_id` | send a path, bytes or a seekable stream as one of the eight `MEDIA_KINDS` (see below) |
+| `await forward_file(chat_id, source, *, caption="", reply_to=None)` | `random_id` | send a received file (a `MessageReceived` or `MediaReference`) into any chat without downloading or uploading it |
+| `await save_file(message_or_reference, path)` | `Path` | decrypt a received file and write it |
 | `read_history(chat_id, limit=50)` | list of `MessageReceived` | recent messages received from the peer (see below) |
 | `await set_ttl(chat_id, seconds)` | `None` | send the self-destruct timer (`ValueError` outside 0..2³¹-1) |
 | `await mark_read(chat_id, random_ids)` / `await screenshot(chat_id, random_ids)` | `None` | read receipts / screenshot notice |
@@ -160,6 +164,23 @@ not completion. Handlers own their own idempotency.
 | `await rekey(chat_id)` | `None` | a new key now, rather than on the documented trigger |
 | `await retry_pending(chat_id)` | `None` | resend anything the network did not confirm, in order; a failing record does not hold back the ones behind it. Also run at `start()` and before every send |
 | `on(event, handler)` | `None` | register a handler (`ValueError` for an unknown event) |
+
+**Media metadata.** What the peer's client shows before download comes only from what you
+pass; the package reads nothing out of the file. Each argument applies to its kinds only and
+anything else is refused before the upload: `duration` (seconds; video, video note, audio,
+voice note), `width`/`height` (photo, video, video note, animation, sticker), `thumbnail`
+(JPEG, or WEBP for a sticker, under 200 KB) with `thumbnail_size=(w, h)` each 1..320,
+`waveform` (voice note, 5-bit samples, at most 63 bytes), `title`/`performer` (audio) and
+`sticker_alt` (sticker). Bytes and streams need `file_name`; a stream must be seekable and
+sends what remains from its position.
+
+**Media references and forwarding.** `MessageReceived.media_reference` is a `MediaReference`:
+`to_dict()` gives JSON-safe data and `MediaReference.from_dict()` rebuilds it, so a file can be
+saved (`save_file`) or forwarded (`forward_file`) after a restart. A reference holds that
+file's one-time key: whoever keeps it can read the file, so where it is stored is your
+decision; its repr and errors never show the key. A forward is encrypted with the file's
+ORIGINAL key, as official clients do (ADR 0006), so everyone who held that key can read the
+forwarded copy; use `send_file` when a fresh key matters.
 
 `list()` and `status()` return a read-only `ChatSnapshot` — `id`, `state`, `peer_user_id`,
 `is_outbound`, `ttl`, `layer`, `key_fingerprint`, `key_hash`, `created_at`, `rekeyed_at`,
@@ -304,9 +325,6 @@ none. A capture is replaced by a new one from a new throwaway chat, never edited
 - **MTProto 1.0.** A peer that cannot use MTProto 2.0 (layer below 73) is out of scope;
   its messages surface as `DecryptFailed`. No refusal path is wired, by decision, so
   `LayerUnsupported` is exported but not raised.
-- **Forwarding a file without re-uploading it.** Every `send_file` uploads.
-- **Media metadata.** Dimensions, duration and thumbnails are sent as zero or empty; a
-  receiving client shows the file but may not size or preview it.
 - **Durable history.** `read_history` is in memory only (see above).
 - **Telling the user the peer runs a newer layer.** The protocol suggests a notice when the
   peer's layer exceeds ours; nothing reports it.

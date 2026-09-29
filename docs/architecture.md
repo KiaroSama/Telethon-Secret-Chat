@@ -21,7 +21,9 @@ manager composes them, and only the manager's parts (`manager.py`, `establishmen
 | `sequence.py` | receive-side ordering: replay drop, gap queue, resend answers, acknowledgement | §3.4-§3.7 |
 | `actions.py` | the thirteen service actions: outbound constructors and inbound handling | §5 |
 | `rekey.py` | the four-message key exchange and the two-key window | §4 |
-| `files.py` | one-time file keys, file encryption, the eight media kinds, `send` / `receive` | §6 |
+| `files.py` | one-time file keys, file encryption, the eight media kinds, `send` / `receive` / `forward` | §6 |
+| `media.py` | media metadata checks, send sources (path, bytes, stream), `MediaReference` | §6 |
+| `visualization.py` | `key_visualization`: the key picture as a colour grid and hex (standard library only) | §1.6 |
 | `ogg_tags.py` | voice note or music: reads the Ogg comment block, never the audio | — |
 | `chat.py` | the `SecretChat` entity, its state table and record validation | — |
 | `storage/` | `StorageBackend` and the two shipped backends | — |
