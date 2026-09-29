@@ -300,3 +300,22 @@ async def test_an_unsatisfiable_resend_request_ends_the_chat():
     finally:
         await a.stop()
         await b.stop()
+
+
+async def test_two_updates_dispatched_at_once_keep_their_order(pair):
+    """plans/031: Telethon runs update handlers as concurrent tasks. Three messages
+    landing together are still delivered in order and open no hole, because
+    ``_on_update`` reaches the per-chat lock with no await before it (tasks take a
+    free lock in creation order)."""
+    wire, a, b = pair
+    chat_a, chat_b = await establish(a, b, wire)
+    got = []
+    b.on("MessageReceived", lambda event: got.append(event.text))
+    wire.defer()
+    wire.a.hold = True
+    for text in ("one", "two", "three"):
+        await a.send_message(chat_a.id, text)
+    await wire.a.release()
+    await wire.settle()
+    assert got == ["one", "two", "three"]
+    assert chat_b.resend_due is None and chat_b.gap_requested is False

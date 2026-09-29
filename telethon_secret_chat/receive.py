@@ -31,6 +31,9 @@ __all__ = ["Receiving"]
 
 class Receiving:
     async def _on_update(self, update):
+        # No await between here and the per-chat lock. Telethon dispatches updates as
+        # concurrent tasks; reaching the lock synchronously is what keeps them FIFO per
+        # chat (tests/unit/test_replay_and_gap.py, concurrent-dispatch test).
         try:
             if isinstance(update, types.UpdateEncryption):
                 await self._on_encryption(update.chat)

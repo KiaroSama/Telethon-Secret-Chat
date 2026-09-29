@@ -607,3 +607,36 @@ async def test_a_request_key_while_the_previous_key_is_held_is_answered_with_abo
         isinstance(action, tl.DecryptedMessageActionAbortKey) and action.exchange_id == 77
         for action in sent
     )
+
+
+async def test_crossing_requests_settle_on_one_key_with_concurrent_dispatch(pair):
+    """plans/031: the collision test with handlers running as concurrent tasks."""
+    wire, a, b = pair
+    chat_a, chat_b = await establish(a, b, wire)
+    wire.defer()
+    wire.a.hold = wire.b.hold = True
+    await a.rekey(chat_a.id)
+    await b.rekey(chat_b.id)
+    await wire.a.release()
+    await wire.b.release()
+    await wire.settle()
+    ca, cb = a._chats[chat_a.id], b._chats[chat_b.id]
+    assert ca.state is cb.state is ChatState.READY
+    assert ca.key == cb.key and ca.exchange_id is cb.exchange_id is None
+    got = []
+    b.on("MessageReceived", lambda e: got.append(e.text))
+    await a.send_message(chat_a.id, "after the collision")
+    await wire.settle()
+    assert got == ["after the collision"]
+
+
+async def test_a_rekey_completes_with_concurrent_dispatch(pair):
+    wire, a, b = pair
+    chat_a, chat_b = await establish(a, b, wire)
+    old = chat_a.key
+    wire.defer()
+    await a.rekey(chat_a.id)
+    await wire.settle()
+    ca, cb = a._chats[chat_a.id], b._chats[chat_b.id]
+    assert ca.key == cb.key != old
+    assert ca.state is cb.state is ChatState.READY
