@@ -9,6 +9,8 @@ There is deliberately no way here to supply a key, skip a check, or lower the la
 The one thing this package sells is that the checks ran.
 """
 
+from importlib import metadata as _metadata
+
 from .chat import ChatSnapshot, ChatState, SecretChat
 from .errors import (
     ChatClosed,
@@ -44,7 +46,11 @@ from .files import CAPTIONLESS_KINDS, MEDIA_KINDS
 from .manager import SecretChatManager
 from .storage import FileStorage, MemoryStorage, StorageBackend
 
-__version__ = "0.0.1"
+try:
+    # One source of truth: the installed distribution's metadata (pyproject.toml).
+    __version__ = _metadata.version("kiaro-telethon-secret-chat")
+except _metadata.PackageNotFoundError:  # a source tree that was never installed
+    __version__ = "0+unknown"
 
 __all__ = [
     # what an application constructs and holds
