@@ -21,10 +21,9 @@ class Accepted(NamedTuple):
 
 
 def _abort(chat, reason):
-    chat.close(reason)
-    failure = MessageRejected(chat_id=chat.id, reason=reason)
-    failure.fatal = True
-    raise failure
+    # The manager closes the chat on a fatal failure; the commit this runs in is
+    # rolled back, so a close here would be undone anyway.
+    raise MessageRejected(chat_id=chat.id, reason=reason, fatal=True)
 
 
 def preflight(chat, wrapper, storage):
@@ -142,10 +141,9 @@ def answer_resend(chat, storage, start_seq_no: int, end_seq_no: int) -> List[dic
 
 
 def _unsatisfiable(chat, span, retained_from):
-    chat.close("a resend request could not be satisfied")
-    failure = ResendUnsatisfiable(chat_id=chat.id, requested=span, retained_from=retained_from)
-    failure.fatal = True
-    raise failure
+    raise ResendUnsatisfiable(
+        chat_id=chat.id, requested=span, retained_from=retained_from, fatal=True
+    )
 
 
 def forget_acknowledged(chat, storage, peer_in_seq_no_raw):

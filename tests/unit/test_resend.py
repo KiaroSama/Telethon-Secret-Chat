@@ -23,7 +23,7 @@ import pytest
 from telethon_secret_chat.errors import SendPending
 
 from telethon_secret_chat import sequence
-from telethon_secret_chat.chat import ChatState, SecretChat
+from telethon_secret_chat.chat import SecretChat
 from telethon_secret_chat.errors import ResendUnsatisfiable
 from telethon_secret_chat.schema import secret_tl as tl
 from telethon_secret_chat.storage import MemoryStorage
@@ -89,17 +89,17 @@ def test_a_span_below_what_is_retained_ends_the_chat():
     chat, store = a_chat(), MemoryStorage()
     retained(store, chat, 3)
     store.drop_out(chat.id, 1)  # the peer acknowledged the first, so it is gone
-    with pytest.raises(ResendUnsatisfiable):
+    with pytest.raises(ResendUnsatisfiable) as caught:
         sequence.answer_resend(chat, store, 1, 5)
-    assert chat.state is ChatState.CLOSED
+    assert caught.value.fatal is True
 
 
 def test_a_span_beyond_what_was_ever_sent_ends_the_chat():
     chat, store = a_chat(), MemoryStorage()
     retained(store, chat, 2)
-    with pytest.raises(ResendUnsatisfiable):
+    with pytest.raises(ResendUnsatisfiable) as caught:
         sequence.answer_resend(chat, store, 1, 99)
-    assert chat.state is ChatState.CLOSED
+    assert caught.value.fatal is True
 
 
 def test_a_span_wider_than_the_cap_is_refused():
@@ -107,9 +107,9 @@ def test_a_span_wider_than_the_cap_is_refused():
     reference implementation's span cap rather than inventing a number"."""
     chat, store = a_chat(), MemoryStorage()
     assert sequence.MAX_RESEND_COUNT == 1000
-    with pytest.raises(ResendUnsatisfiable):
+    with pytest.raises(ResendUnsatisfiable) as caught:
         sequence.answer_resend(chat, store, 1, 1 + 2 * sequence.MAX_RESEND_COUNT + 2)
-    assert chat.state is ChatState.CLOSED
+    assert caught.value.fatal is True
 
 
 def test_a_span_at_exactly_the_cap_is_not_refused_for_width():
@@ -125,9 +125,9 @@ def test_a_span_at_exactly_the_cap_is_not_refused_for_width():
 def test_an_inverted_span_is_refused():
     chat, store = a_chat(), MemoryStorage()
     retained(store, chat, 5)
-    with pytest.raises(ResendUnsatisfiable):
+    with pytest.raises(ResendUnsatisfiable) as caught:
         sequence.answer_resend(chat, store, 7, 3)
-    assert chat.state is ChatState.CLOSED
+    assert caught.value.fatal is True
 
 
 def test_the_refusal_names_the_span_and_nothing_else():

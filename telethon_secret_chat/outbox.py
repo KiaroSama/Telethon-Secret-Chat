@@ -75,8 +75,8 @@ class RetainedOutbox:
                 chat_id=chat.id,
                 requested=(item["seq_no"], item["seq_no"]),
                 retained_from=item["seq_no"],
+                fatal=True,
             )
-            failure.fatal = True
             await self.close(chat.id, "legacy retained message has no original wire record")
             raise failure
         arguments = dict(peer=peer, random_id=item["random_id"], data=bytes.fromhex(item["frame"]))

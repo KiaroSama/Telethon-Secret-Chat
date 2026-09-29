@@ -77,7 +77,7 @@ class Receiving:
                 accepted = sequence.accept(chat, wrapper, self._storage, envelope=message)
                 if named is chat.pending_key:
                     rekey_module.adopt_new_key(chat, named)
-                    chat.state = ChatState.READY
+                    chat.transition_to(ChatState.READY)
                     chat.new_key_confirmed = True
                     switched = True
                 elif named is chat.key and chat.previous_key is not None:
@@ -108,7 +108,7 @@ class Receiving:
                     self._storage.queue_out(chat.id, dict(record, pending=True))
                 chat.pending_deliveries.extend(sequence.pack(item) for item in accepted.ready)
         except SecretChatError as failure:
-            if getattr(failure, "fatal", False):
+            if failure.fatal:
                 await self.close(chat.id, failure.reason)
             self._emit(DecryptFailed(chat.id, getattr(failure, "reason", "refused")))
             return
