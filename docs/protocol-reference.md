@@ -114,6 +114,8 @@ aes_iv   = substr (sha256_b, 0, 8) + substr (sha256_a, 8, 16) + substr (sha256_b
 
 Constitution "Secret Material Handling": a message failing any of these MUST be rejected, not repaired. Checks 2 and 3 in particular are the difference between a decryption failure and a buffer-length oracle.
 
+A body that passes checks 1-5 but cannot be parsed ends the chat: `[TD:td/telegram/SecretChatActor.cpp]` at `42e6a52` returns the parse failure from `do_inbound_message_encrypted`, and `check_status` hands any error without code 1 to `on_fatal_error`. This package does the same once the `decryptedMessageLayer` header itself parsed; skipping the message instead would leave a hole the §3.7 resend can never fill.
+
 ## §3. Message framing
 
 ### §3.1 `decryptedMessageLayer`

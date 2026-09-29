@@ -1,5 +1,4 @@
 # generated
-# ruff: noqa
 """GENERATED from ``end-to-end.tl`` by ``tools/generate_schema.py``. Do not edit.
 
 Telegram's end-to-end TL schema as Python. Every constructor id here is the one
@@ -80,13 +79,26 @@ def _read_vector(r, read_item):
     return [read_item() for _ in range(count)]
 
 
+# Every object field is read untyped, so an object can hold any other object. A real
+# message nests about four deep; the bound keeps a hostile one far from Python's
+# recursion limit, including on the deeper re-parse from the delivery mailbox.
+MAX_NESTING = 32
+
+
 def read_object(r):
     """Read one boxed object using THIS schema's registry."""
     constructor_id = r.read_int(signed=False)
     cls = REGISTRY.get(constructor_id)
     if cls is None:
         raise UnknownConstructor(constructor_id)
-    return cls.from_reader(r)
+    depth = getattr(r, "_tsc_depth", 0)
+    if depth >= MAX_NESTING:
+        raise ValueError("nesting too deep")
+    r._tsc_depth = depth + 1
+    try:
+        return cls.from_reader(r)
+    finally:
+        r._tsc_depth = depth
 
 
 class SecretTLObject:
