@@ -1,0 +1,39 @@
+{
+ "provenance": "throwaway interop chat, closed before this file was written",
+ "key": "0d9d4cbe094854d025da203bfce14d7d64ae17df86ba4c8cbec54347f4dd4707b7ac56c865a8eef0c19123689fbb0a867edf5521ab639be2f2fae670e4e464097ecb015da307583b324c109a18543a9a8b76898b4482ea73552c41fe411a17643816a7eb4b000041ef9fe731d10c3d0c9ea0d0e87053535e2008efd91f1e22988652d034cbf0f345c19cf284255edfcd2bd4f370272d752e0dbf199daf30921962765f573dbe602bd74c0bf3cb14c6f6884a61848c867a08274e32975c79633380dadda60791dcdb50dfa2cd929e0746765656423209a997fe051ea0ab0a6ded23949070e1e7f2a2a058adb9ec3139698af46ede0a7f918f49364f3463a61f03",
+ "is_outbound": true,
+ "local_out_seq_no": 2,
+ "reply_contains": "4827",
+ "frames": [
+  {
+   "frame": "7b0f2779d271e365abc693a9c52d7480af14825ba5f5bc38132a32513f32b2de098d4c1f7e11b1734144e9f579946258d841d65938cb87a9491d826edb7e800105fb816a2c90a3133a4766fd1ce21ce0f0db708b1ece43a1aa7c446aebcd156b289884f9762c0cfda16e4d6844dca304d4cc777e8a23c199",
+   "expected": {
+    "layer": 46,
+    "in_seq_no": 1,
+    "out_seq_no": 0,
+    "type": "DecryptedMessageService",
+    "text": null
+   }
+  },
+  {
+   "frame": "7b0f2779d271e3654f4bd2df87bb75682d0892014cef570398dd58571d65aa04150c12d16e114446f5f0a9447d1b7e685f1f4f112add0d6df8dfdffe1030468e07480a52d3060c17cbfda4c0249d2292d645bfe3fecd5ef0c77ceb141a4fce421637978116391ed55a197ed8733ad9d1ab691c7683379f581cda7bee7fe853e9b8464ce9a09b202f",
+   "expected": {
+    "layer": 144,
+    "in_seq_no": 1,
+    "out_seq_no": 2,
+    "type": "DecryptedMessageService",
+    "text": null
+   }
+  },
+  {
+   "frame": "7b0f2779d271e365041a4e978bbe4fedb187a381375eb07888e9fe58f060f890ae99ab6d398a9d37c3915ef1f7be00f87a7a612b8e724090b5f6c3d2d68c4351d895b714f49d0ecc30511a2db57883c992c8ef5ad124362e3280ea57fdaac413a3dc907caf627da56782e81d7114ec0f93b2f314d2662479",
+   "expected": {
+    "layer": 144,
+    "in_seq_no": 3,
+    "out_seq_no": 4,
+    "type": "DecryptedMessage",
+    "text": "4827"
+   }
+  }
+ ]
+}

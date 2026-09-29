@@ -12,6 +12,7 @@ package by commit and reads this file before moving its pin. The format follows
 - A pair test tier (`tests/live_pair`): this package on both ends over the real Telegram
   server, two of the owner's accounts, run by `scripts/run_interop.ps1 -PeerAccount`.
   Real-server evidence, not interop evidence.
+- The first official-client capture (`tests/vectors/fixtures`), replayed offline.
 
 ### Changed
 
