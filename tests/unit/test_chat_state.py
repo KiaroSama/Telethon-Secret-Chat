@@ -207,6 +207,8 @@ def test_the_record_carries_every_field_the_data_model_lists():
         "participant_id",
     }
     assert required <= set(a_chat().to_record())
+    # Every attribute the entity carries is persisted: nothing hand-kept.
+    assert set(vars(a_chat())) == set(SecretChat._FIELDS) | {"state"}
 
 
 def test_a_chat_never_prints_its_key():

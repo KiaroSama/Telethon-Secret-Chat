@@ -584,7 +584,7 @@ async def test_actions_for_a_foreign_exchange_are_ignored_and_not_applied(action
     before = deepcopy(chat.to_record())
     outcome = await rekey.handle(manager, chat, action)
     assert chat.to_record() == before
-    assert outcome.applied is False
+    assert outcome is False
 
 
 async def test_a_request_key_while_the_previous_key_is_held_is_answered_with_abort():

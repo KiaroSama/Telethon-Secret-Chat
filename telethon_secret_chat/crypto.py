@@ -36,7 +36,6 @@ __all__ = [
     "KEY_LENGTH",
     "HEADER_LENGTH",
     "MIN_PADDING",
-    "MAX_PADDING",
     "key_fingerprint",
     "compute_msg_key",
     "derive_keys",
@@ -54,7 +53,6 @@ HEADER_LENGTH = 24
 
 # §2.2: "padded with 12 to 1024 random padding bytes".
 MIN_PADDING = 12
-MAX_PADDING = 1024
 
 BLOCK = 16
 
@@ -219,7 +217,7 @@ def decrypt_frame(shared_key: bytes, frame: bytes, x: int, *, chat_id: int | Non
     # here. §2.2 marks a receive-side ceiling UNVERIFIED - "the oracle itself can
     # produce more" - and TDLib rounds padding up through 1280 and beyond, so a
     # 1024 ceiling on receive would refuse messages the reference implementation
-    # legitimately sends. The ceiling is enforced when sending, in `pad_payload`.
+    # legitimately sends. This side sends 12 to 27 bytes (`pad_payload`).
     if len(decrypted) - 4 - declared < MIN_PADDING:
         raise MessageRejected(
             chat_id=chat_id, reason="the padding is shorter than the 12 bytes required"

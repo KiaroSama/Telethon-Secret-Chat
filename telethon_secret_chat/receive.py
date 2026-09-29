@@ -147,9 +147,7 @@ class Receiving:
         if isinstance(inner, (tl.DecryptedMessageService, tl.DecryptedMessageService8)):
             outcome = await actions_module.handle(self, chat, inner.action)
             self._emit(
-                ServiceActionReceived(
-                    chat.id, type(inner.action).__name__, inner.action, outcome.applied
-                )
+                ServiceActionReceived(chat.id, type(inner.action).__name__, inner.action, outcome)
             )
             return
         attached = getattr(wrapper, "_tsc_file", None)
