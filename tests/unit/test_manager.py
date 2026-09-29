@@ -290,6 +290,7 @@ def test_the_package_exports_exactly_the_contract():
         "MessageAcknowledged",
         "ServiceActionReceived",
         "DecryptFailed",
+        "SendFailed",
         "MEDIA_KINDS",
         "CAPTIONLESS_KINDS",
     }

@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import secrets
 
+from telethon import errors as rpc
 from telethon.extensions import BinaryReader
 from telethon.tl import functions, types
 
@@ -20,13 +21,42 @@ from . import crypto, framing
 from . import rekey as rekey_module
 from . import sequence
 from .chat import ChatState
-from .errors import ManagerStopping, ResendUnsatisfiable, SecretChatError, SendPending
+from .errors import (
+    ChatClosed,
+    ManagerStopping,
+    ResendUnsatisfiable,
+    SecretChatError,
+    SendPending,
+)
+from .events import SendFailed
 from .locking import serialized
 from .schema import secret_tl as tl
 
 log = logging.getLogger("telethon_secret_chat")
 
 __all__ = ["RetainedOutbox"]
+
+
+# Telegram's documented errors for messages.sendEncrypted, sendEncryptedFile and
+# sendEncryptedService (core.telegram.org/method/..., checked 2026-09-29):
+#   chat-ending - CHAT_ID_INVALID, ENCRYPTION_DECLINED, ENCRYPTION_ID_INVALID,
+#                 USER_DELETED: the chat is gone on the server; close locally.
+#   permanent   - DATA_INVALID, DATA_TOO_LONG, FILE_EMTPY (sic), MD5_CHECKSUM_INVALID:
+#                 the same bytes never succeed.
+#   transient   - everything else, MSG_WAIT_FAILED, USER_IS_BLOCKED (undone by an
+#                 unblock), flood waits, server errors and transport failures.
+CHAT_ENDING = (
+    rpc.ChatIdInvalidError,
+    rpc.EncryptionDeclinedError,
+    rpc.EncryptionIdInvalidError,
+    rpc.UserDeletedError,
+)
+PERMANENT = (
+    rpc.DataInvalidError,
+    rpc.DataTooLongError,
+    rpc.FileEmtpyError,
+    rpc.Md5ChecksumInvalidError,
+)
 
 
 class RetainedOutbox:
@@ -201,10 +231,20 @@ class RetainedOutbox:
 
     @serialized
     async def retry_pending(self, chat_id):
+        """Every pending record, in sequence order. A record that fails stays pending
+        and the ones behind it still go - a stuck message must not hold back a rekey
+        step or a Resend answer (the peer re-asks for any hole this opens, §3.7). The
+        first failure is raised at the end; a closed chat stops the loop at once."""
         chat = self._sendable(chat_id)
+        first = None
         for item in self._storage.retained_out(chat_id):
             if item.get("pending") and (chat_id, item["seq_no"]) not in self._inflight:
-                await self._transmit_or_pending(chat, item)
+                try:
+                    await self._transmit_or_pending(chat, item)
+                except SendPending as failure:
+                    first = first or failure
+        if first is not None:
+            raise first
 
     async def _transmit_or_pending(self, chat, item):
         """Transmit a committed record; a transport failure becomes ``SendPending``.
@@ -213,13 +253,37 @@ class RetainedOutbox:
         its id and must not send again. ``from None`` also keeps the frames holding the
         plaintext and key out of the traceback that reaches the application.
         """
+        random_id = self._retained_random_id(item)
         try:
             await self._transmit(chat, item)
         except SecretChatError:
             raise
+        except CHAT_ENDING:
+            self._close_local(chat, "Telegram reports the chat no longer exists")
+            raise ChatClosed(chat_id=chat.id, reason=chat.closed_reason) from None
+        except PERMANENT as failure:
+            await self._rejected(chat, item, type(failure).__name__)
+            raise SendPending(
+                chat_id=chat.id, random_id=random_id, cause=type(failure).__name__
+            ) from None
         except Exception as failure:
             raise SendPending(
-                chat_id=chat.id,
-                random_id=self._retained_random_id(item),
-                cause=type(failure).__name__,
+                chat_id=chat.id, random_id=random_id, cause=type(failure).__name__
             ) from None
+
+    async def _rejected(self, chat, item, cause):
+        """The same bytes will never be accepted. Content is withdrawn as a §3.8
+        self-delete that keeps its sequence slot; a protocol step gets one more try,
+        and a second rejection ends the chat - it cannot be skipped."""
+        random_id = self._retained_random_id(item)
+        if item.get("method") != "service":
+            with self._atomic(chat):
+                self._rewrite_retained_as_deletes(chat, {random_id})
+            self._emit(SendFailed(chat.id, random_id, cause))
+            return
+        failures = item.get("failures", 0) + 1
+        if failures >= 2:
+            await self.close(chat.id, "a protocol message was rejected by Telegram")
+            raise ChatClosed(chat_id=chat.id, reason=chat.closed_reason)
+        with self._atomic(chat):
+            self._storage.queue_out(chat.id, dict(item, failures=failures))
