@@ -7,7 +7,7 @@
 [![Package Validation](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/package-validation.yml/badge.svg?branch=main)](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/package-validation.yml)
 [![CodeQL](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/codeql.yml)
 [![License: GPL-3.0-or-later](https://img.shields.io/github/license/KiaroSama/Telethon-Secret-Chat)](LICENSE)
-[![Version 0.1.0](https://img.shields.io/badge/version-0.1.0-lightgrey)](pyproject.toml)
+[![Latest version](https://img.shields.io/github/v/tag/KiaroSama/Telethon-Secret-Chat?label=version&sort=semver)](CHANGELOG.md)
 [![Python 3.11 | 3.12 | 3.13 | 3.14](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-3776AB?logo=python&logoColor=white)](pyproject.toml)
 [![Platform: Linux | Windows](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey)](.github/workflows/tests.yml)
 
@@ -36,11 +36,15 @@ This package fills it, so an application already built on Telethon can run secre
 **same authorization it already has** — instead of carrying a second client, a second login, and
 a second device row in the account's session list.
 
-> **Status: early.** The protocol work starts from painor's archived
-> [`telethon-secret-chat`](https://github.com/painor/telethon-secret-chat) (MIT), which already
-> implements the exchange, AES-IGE, the MTProto 2.0 key derivation, rekeying, sequence numbers
-> and file encryption — and ships no tests at all. Every inherited line is treated as unverified
-> until a test has covered it. Do not use this for anything that matters yet.
+> **Status: 0.2.0, in use.** [telegram-mcp](https://github.com/KiaroSama/telegram-mcp) runs its
+> secret-chat tools on this package. It derives from painor's archived
+> [`telethon-secret-chat`](https://github.com/painor/telethon-secret-chat) (MIT), which shipped no
+> tests; this package added the evidence: the unit tier in CI on Linux and Windows, the key
+> derivation checked against Telethon's own primitives, frames written by an official client
+> replayed offline, and dated live runs against the official Android client — key agreement,
+> messages both ways, rekey, files both ways, forwarding and the key picture (see
+> [Correctness](#correctness)). Before 1.0 a minor version may still change the API; read
+> [CHANGELOG.md](CHANGELOG.md) before upgrading.
 
 ## Why it exists
 
