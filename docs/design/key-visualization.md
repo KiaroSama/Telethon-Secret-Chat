@@ -77,7 +77,7 @@ Expected hex: `000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f`
 Check by hand: byte 1 (`0x01`) gives pairs 1, 0, 0, 0 and byte 2 (`0x02`) gives 2, 0, 0, 0, so
 the first row reads `0000 1000 2000`.
 
-## By-eye check (UNVERIFIED)
+## By-eye check (MATCH 2026-09-29)
 
 The rule is confirmed from two independent sources (TDLib's documentation and the Android
 client's renderer), but not yet by eye against a live chat. The check, for the operator:
@@ -91,6 +91,10 @@ client's renderer), but not yet by eye against a live chat. The check, for the o
 
 Record MATCH or NO MATCH with the date in the local testing notes. NO MATCH with the
 most-significant-pair-first order as well would be a STOP for the feature.
+
+Result: MATCH. A live chat's hash rendered by this rule (least-significant pair first) equals
+the official Android client's Encryption Key screen square for square, and the 32 hex bytes
+equal its numbers (shown there as four lines of two groups of four).
 
 ## Acceptance criteria for the feature
 

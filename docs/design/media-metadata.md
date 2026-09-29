@@ -1,8 +1,7 @@
 # Design note: caller-supplied media metadata, thumbnails, and bytes/stream input
 
 Design spike, 2026-09-29. The schema facts and the proposed signature are settled here;
-the live check (what an official client shows) is UNVERIFIED because it needs the operator,
-so the acceptance criteria at the end are provisional until it is run.
+the live check (what an official client shows) was run on 2026-09-29 and passed (below).
 
 ## Today
 
@@ -66,7 +65,7 @@ await send_file(
   chained back in front of it for the upload (`files.EncryptingReader` encrypts from any
   readable source, so no temp file is written).
 
-## Live check (UNVERIFIED)
+## Live check (passed 2026-09-29)
 
 For the operator, once, with a temporary local change reverted afterwards (never committed):
 send one video with real `duration`, `width`, `height` and a small JPEG thumbnail, one voice
@@ -75,7 +74,13 @@ the official client: the duration shown, whether the video is sized before downl
 a preview appears before download, whether the voice note shows its waveform, and whether the
 sticker renders as a sticker or as an image.
 
-## Acceptance criteria for the feature (provisional until the live check)
+Result, official Android client, layer 144 chat: the video (`duration=3, w=320, h=240`, a
+90x68 JPEG thumb) showed its preview and `0:03` before download and was sized as a landscape
+rectangle; the voice note (`voice=True, duration=3`, a 100-sample 5-bit waveform) showed its
+waveform and duration; the webp with `DocumentAttributeSticker` + `InputStickerSetEmpty` +
+`ImageSize(512, 512)` rendered as a sticker, not an image.
+
+## Acceptance criteria for the feature
 
 - Unit: each argument lands in the right attribute or media field; a value for the wrong kind,
   a negative number, a thumbnail over 200 KB or over 320 px, and a thumbnail without its size
