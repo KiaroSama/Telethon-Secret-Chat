@@ -97,12 +97,15 @@ PLATFORM_LEG, PLATFORM_CASE = next(
 
 @pytest.mark.parametrize("leg,accepted", [(PLATFORM_LEG, True), ("cases-other-leg", False)])
 def test_a_platform_skip_is_accepted_only_on_its_declared_leg(tmp_path, leg, accepted):
-    module, name = PLATFORM_CASE.split("::")
+    # The declared leg must skip exactly its whole set; any other leg rejects even one.
+    cases = sorted(gate.PLATFORM_SKIPS[PLATFORM_LEG]) if accepted else [PLATFORM_CASE]
     path = record(tmp_path, leg, skips=())
     tree = ET.parse(path)
-    ET.SubElement(
-        ET.SubElement(tree.getroot(), "testcase", classname=module, name=name), "skipped"
-    )
+    for case in cases:
+        module, name = case.split("::")
+        ET.SubElement(
+            ET.SubElement(tree.getroot(), "testcase", classname=module, name=name), "skipped"
+        )
     tree.write(path)
     if accepted:
         gate.case_set(path)
