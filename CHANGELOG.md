@@ -17,6 +17,8 @@ package by commit and reads this file before moving its pin. The format follows
 ### Changed
 
 - A failed `discardEncryption` is logged as a warning with its error type.
+- A secret chat this session asked for but lost the answer to (unknown waiting or ready chat
+  outside `create()`) is discarded on the server and reported as `DecryptFailed`.
 - Documented: a peer's close reaches this side on its next update sync or its next send.
 
 ## [0.1.0] - 2026-09-29

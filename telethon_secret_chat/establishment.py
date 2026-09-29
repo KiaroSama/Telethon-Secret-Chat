@@ -18,7 +18,7 @@ from . import actions as actions_module
 from . import crypto, dh, framing, handshake
 from .chat import ChatState, SecretChat
 from .errors import ChatClosed, ChatNotReady, ParameterRejected, SecretChatError
-from .events import ChatReady, ChatRequested
+from .events import ChatReady, ChatRequested, DecryptFailed
 from .locking import serialized
 from .host import ManagerHost
 
@@ -163,8 +163,11 @@ class Establishment(ManagerHost):
         elif isinstance(encrypted, types.EncryptedChat):
             chat = self._chats.get(encrypted.id)
             if chat is None:
-                if self._creating and len(self._early_encryption) < 100:
-                    self._early_encryption[encrypted.id] = encrypted
+                if self._creating:
+                    if len(self._early_encryption) < 100:
+                        self._early_encryption[encrypted.id] = encrypted
+                else:
+                    await self._discard_lost_request(encrypted.id)
                 return
             if chat.state is ChatState.CLOSED or chat.key is not None:
                 return
@@ -195,10 +198,21 @@ class Establishment(ManagerHost):
                 chat.handshake = {}
             self._emit_ready(chat)
             await self._notify_layer(chat)
+        elif isinstance(encrypted, types.EncryptedChatWaiting):
+            if encrypted.id not in self._chats and not self._creating:
+                await self._discard_lost_request(encrypted.id)
         elif isinstance(encrypted, types.EncryptedChatDiscarded):
             chat = self._chats.get(encrypted.id)
             if chat is not None and chat.state is not ChatState.CLOSED:
                 self._close_local(chat, "the peer discarded the chat")
+
+    async def _discard_lost_request(self, chat_id):
+        # Plan 027, observed live 2026-09-29: another device's chats reach this session
+        # only as encryptedChatDiscarded, so an unknown waiting or ready chat outside a
+        # create() in flight is our own request whose answer was lost. No secret was
+        # kept for it, so it can never work; discarding spares the peer a dead chat.
+        await self._discard_remote(chat_id)
+        self._emit(DecryptFailed(chat_id, "request lost; discarded"))
 
     async def _notify_layer(self, chat):
         await self._send_action(chat, actions_module.notify_layer(framing.MAX_LAYER))
