@@ -9,7 +9,7 @@ statement and the acceptance criteria. The live check is UNVERIFIED (it needs th
 decrypt, re-encrypt and upload (up to 2 GB since layer 143). Yet the pieces for a forward
 exist: after a file send `outbox._transmit` stores `InputEncryptedFile(id, access_hash)` in the
 retained record, a received message carries the `EncryptedFile` (`MessageReceived.file`) and
-the one-time key in its media (`MessageReceived.media`), and `manager._send(chat, message,
+the one-time key in its media (`MessageReceived.media`), and `outbox._send(chat, message,
 file=...)` sends any file handle with `messages.sendEncryptedFile`. Only building an
 `InputEncryptedFile` for a NEW message is missing (§6.4, item 4).
 

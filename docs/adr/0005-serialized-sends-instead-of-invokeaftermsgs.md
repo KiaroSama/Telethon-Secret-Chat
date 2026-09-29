@@ -15,7 +15,7 @@ it, which Telethon assigns inside its sender, and a chain does not survive a res
 Outgoing messages of one chat are serialized: each send holds the chat's lock, commits its
 frame and sequence number, awaits its RPC, and only then lets the next one go. Before every
 send, records whose transmission was not confirmed are retried first with their original
-bytes and `random_id` (`manager._send`, `manager.retry_pending`), and again at `start()`.
+bytes and `random_id` (`outbox._send`, `outbox.retry_pending`), and again at `start()`.
 
 ## Consequences
 

@@ -122,10 +122,12 @@ ciphertext.
 | `MessageAcknowledged(chat_id, seq_no, random_ids)` | the peer's counter passed a message this side sent |
 | `ServiceActionReceived(chat_id, action_name, action, applied)` | one of the thirteen service actions, reported even when handled internally |
 | `DecryptFailed(chat_id, reason)` | a received message was refused |
-| `SendFailed` | the server permanently rejected a queued message; it is not retried |
+| `SendFailed(chat_id, random_id, cause)` | Telegram rejected a sent message for good (e.g. `DataInvalidError`); it is withdrawn as a self-delete that keeps its sequence slot, so the chat goes on |
 
 A failed decrypt is an **event**, not an exception thrown through your update loop.
-Failures the protocol says must end a chat also produce `ChatClosedEvent`.
+Failures that must end a chat also produce `ChatClosedEvent`: a sequence violation, a
+resend this side cannot satisfy, and a message that authenticates but will not parse
+(as in TDLib; skipping it would leave a hole no resend can fill).
 
 A synchronous handler runs before the message leaves the durable mailbox, so after a crash
 it can run again (at-least-once); an asynchronous handler is scheduled, and scheduling is
@@ -137,8 +139,8 @@ not completion. Handlers own their own idempotency.
 |---|---|---|
 | `SecretChatManager(client, storage, *, history_limit=1000)` | — | `storage` is required (`StorageRequired` without it) |
 | `await start()` / `await stop()` | `None` | subscribe and resume stored chats / unsubscribe, cancel handler tasks, save |
-| `await create(user)` | the new chat | request a chat; `ChatReady` follows when the peer's device accepts |
-| `await accept(chat_id)` | the chat | answer a `ChatRequested`; `ChatNotReady` if there is no request |
+| `await create(user)` | `ChatSnapshot` | request a chat; `ChatReady` follows when the peer's device accepts |
+| `await accept(chat_id)` | `ChatSnapshot` | answer a `ChatRequested`; `ChatNotReady` if there is no request |
 | `await close(chat_id, reason=...)` | `None` | end the chat here and discard it on the server |
 | `await forget(chat_id)` | `None` | drop a CLOSED chat's record; `list()` no longer shows it (`ValueError` if not closed) |
 | `list()` / `status(chat_id)` | `ChatSnapshot` list / `ChatSnapshot` | what exists (see below) |
@@ -151,7 +153,7 @@ not completion. Handlers own their own idempotency.
 | `await delete_messages(chat_id, random_ids)` / `await flush_history(chat_id)` | `None` | delete here (local content first) and ask the peer to delete |
 | `await set_typing(chat_id, action=None)` | `None` | typing indicator |
 | `await rekey(chat_id)` | `None` | a new key now, rather than on the documented trigger |
-| `await retry_pending(chat_id)` | `None` | resend anything the network did not confirm; also run at `start()` and before every send |
+| `await retry_pending(chat_id)` | `None` | resend anything the network did not confirm, in order; a failing record does not hold back the ones behind it. Also run at `start()` and before every send |
 | `on(event, handler)` | `None` | register a handler (`ValueError` for an unknown event) |
 
 `list()` and `status()` return a read-only `ChatSnapshot` — `id`, `state`, `peer_user_id`,
@@ -191,7 +193,7 @@ a wire object.
 |---|---|
 | `UnknownChat` | no chat with that id in this manager (also a `KeyError`) |
 | `ChatNotReady` | the chat is not established, or there is no request to accept |
-| `ChatClosed` | the chat is closed (the exception; the event is `ChatClosedEvent`) |
+| `ChatClosed` | the chat is closed, or Telegram answered a send saying it no longer exists (the exception; the event is `ChatClosedEvent`) |
 | `ManagerStopping` | a send while `stop()` is running (also a `RuntimeError`) |
 | `SendPending` | the message is stored and will be sent, but its transmission failed; carries `random_id` — **do not resend**, the next send or `start()` retries it |
 | `ParameterRejected` | a Diffie-Hellman value failed a required check |

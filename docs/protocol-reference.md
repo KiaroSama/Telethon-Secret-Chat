@@ -143,7 +143,7 @@ The published schema types the field as `bytes` and no consulted page states a m
 
 Also mandatory: "assign in_seq_no and out_seq_no to each message at the exact moment when the message is created, and never change them in the future", and outgoing messages go into an `invokeAfterMsgs` chain so the server queues them in order, because "Failure to do this may result in gaps on the remote client, which may in turn lead to aborted secret chats."
 
-This package does not chain `invokeAfterMsgs`; it serializes sends per chat and awaits each RPC before the next, retrying unsent records first (`manager._send`, `manager.retry_pending`). See [ADR 0005](adr/0005-serialized-sends-instead-of-invokeaftermsgs.md).
+This package does not chain `invokeAfterMsgs`; it serializes sends per chat and awaits each RPC before the next, retrying unsent records first (`outbox._send`, `outbox.retry_pending`). See [ADR 0005](adr/0005-serialized-sends-instead-of-invokeaftermsgs.md).
 
 ### §3.5 Validating `out_seq_no` (the peer's counter)
 `[DOC:api/end-to-end/seq_no]`: "Your client must check that it has received each message with the sequence number out_seq_no starting from 0 to some current point C. It should then expect the next message to have the sequence number out_seq_no=C+1."
@@ -397,9 +397,9 @@ Fresh 32-byte `key` + 32-byte `iv` per file from `os.urandom` — **implemented*
 ## §9. Decisions the protocol left open, and what this package chose
 These were the ten open questions this reference ended with; each is now settled in code. The question stays in one line so the decision can be read against it. A change to any of them is a new ADR under [adr/](adr/).
 
-1. **Storage backend shape.** An explicit `StorageBackend` passed to the manager, no default (`StorageRequired` without one); a whole record saved atomically, with `transaction()` covering the record and both queues (`storage/__init__.py`, `manager._atomic`). [ADR 0001](adr/0001-explicit-storage-backend.md).
+1. **Storage backend shape.** An explicit `StorageBackend` passed to the manager, no default (`StorageRequired` without one); a whole record saved atomically, with `transaction()` covering the record and both queues (`storage/__init__.py`, `locking._atomic`). [ADR 0001](adr/0001-explicit-storage-backend.md).
 2. **Async API surface.** A standalone `SecretChatManager` owning its update subscription (`manager.start`); sends resolve when Telegram accepts the ciphertext, and the peer's acknowledgement is the `MessageAcknowledged` event (`events.py`).
-3. **Failed decrypt.** A `DecryptFailed` event, never an exception through the update loop (`manager._on_update`). Parity and echo violations abort the chat, replays drop, gaps queue (`sequence.preflight`, `sequence.accept`); errors and events carry a phrase this package wrote, never a wire object (`errors.py`). [ADR 0002](adr/0002-decrypt-failures-are-events.md).
+3. **Failed decrypt.** A `DecryptFailed` event, never an exception through the update loop (`receive._on_update`). Parity and echo violations abort the chat, replays drop, gaps queue (`sequence.preflight`, `sequence.accept`); errors and events carry a phrase this package wrote, never a wire object (`errors.py`). [ADR 0002](adr/0002-decrypt-failures-are-events.md).
 4. **Oracle tests.** `tests/vectors/` checks the KDF against Telethon's own primitives; the opt-in interop tier (`tests/interop/`) exchanges real messages with an official client and never runs in CI. Frames captured from a closed throwaway chat may be committed as vectors (`tests/vectors/test_official_client_frames.py`); none exist yet.
 5. **MTProto 1.0 boundary.** No 1.0 code path exists (`crypto.py`), and no runtime refusal of a peer below layer 73 is wired (decided 2026-09-26): such a peer's messages surface as `DecryptFailed`, and `LayerUnsupported` is exported but not raised. [ADR 0003](adr/0003-no-mtproto-1-path-and-no-layer-refusal.md).
 6. **Layer ceiling.** 144, matching the oracle (`framing.MAX_LAYER`); outgoing layers are clamped to [73, 144] (`framing.outgoing_layer`).
