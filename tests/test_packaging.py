@@ -50,3 +50,16 @@ def test_the_package_promises_only_what_it_implements():
     assert pkg.__all__, "the package exports nothing"
     missing = [name for name in pkg.__all__ if not hasattr(pkg, name)]
     assert not missing, f"exported but absent: {missing}"
+
+
+def test_the_version_comes_from_the_distribution_metadata():
+    """plans/035: ``__version__`` is read from what pyproject.toml declared, never typed
+    twice. An editable install carries the same metadata."""
+    import re
+
+    import telethon_secret_chat
+
+    declared = re.search(
+        r'^version = "([^"]+)"', (ROOT / "pyproject.toml").read_text(encoding="utf-8"), re.M
+    ).group(1)
+    assert telethon_secret_chat.__version__ == declared
