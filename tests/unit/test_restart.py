@@ -1,7 +1,7 @@
-"""SC-006 and FR-014 - a chat survives the process, and the conversation continues.
+"""A chat survives the process, and the conversation continues.
 
 "Given an established chat, When the application restarts, Then the chat is still
-usable and message ordering continues where it left off" (US1, scenario 5).
+usable and message ordering continues where it left off".
 
 The restart is real here: the manager is destroyed and a new one is built over the
 SAME backend, the way a process restart would. What must come back is the key, the
@@ -90,7 +90,7 @@ async def test_a_second_manager_sees_every_chat_the_backend_holds(tmp_path):
 
 
 async def test_a_closed_chat_stays_closed_across_a_restart(tmp_path):
-    """data-model.md §1: terminal means terminal, and a restart is not a loophole."""
+    """docs/architecture.md §5: terminal means terminal, and a restart is not a loophole."""
     wire, a, b = await a_pair(FileStorage(tmp_path / "a.db"), MemoryStorage())
     chat_a, _ = await establish(a, b, wire)
     await a.close(chat_a.id)
@@ -104,7 +104,7 @@ async def test_a_closed_chat_stays_closed_across_a_restart(tmp_path):
 
 
 async def test_the_backend_is_required(tmp_path):
-    """FR-014, and the constitution's "there MUST NOT be a silent fallback that
+    """The constitution's "there MUST NOT be a silent fallback that
     writes keys into the current working directory"."""
     from telethon_secret_chat.errors import StorageRequired
 
@@ -113,7 +113,7 @@ async def test_the_backend_is_required(tmp_path):
 
 
 async def test_start_and_stop_are_idempotent(tmp_path):
-    """contracts/public-api.md §1: "Both are idempotent." A second ``start`` that
+    """``start`` and ``stop`` are idempotent. A second ``start`` that
     subscribed twice would deliver every message twice."""
     wire, a, b = await a_pair(MemoryStorage(), MemoryStorage())
     await a.start()
@@ -126,8 +126,7 @@ async def test_start_and_stop_are_idempotent(tmp_path):
 
 
 async def test_the_manager_does_not_mutate_the_client():
-    """contracts/public-api.md §1: "The manager never installs a global handler and
-    never mutates client." §8.0 measured the archived package reaching into four
+    """The manager never installs a global handler and never mutates the client. §8.0 measured the archived package reaching into four
     private attributes and mutating a process-wide registry."""
     wire = Wire()
     before = set(vars(wire.a))

@@ -1,4 +1,4 @@
-"""data-model.md §1 - the chat's state machine, and the invariant inside it.
+"""docs/architecture.md §5 - the chat's state machine, and the invariant inside it.
 
 Two things this file is really about.
 
@@ -102,7 +102,7 @@ def test_closed_is_terminal(target):
 
 @pytest.mark.parametrize("state", [ChatState.READY, ChatState.REKEYING])
 def test_send_works_in_ready_and_in_rekeying(state):
-    """FR-013 and §4.8: "Both sides keep encrypting with the old key until the commit
+    """§4.8: "Both sides keep encrypting with the old key until the commit
     point of their own role". A chat mid-exchange is still a working chat, and a
     message issued during one must be delivered rather than dropped."""
     a_chat(state=state).require_sendable()
@@ -146,7 +146,7 @@ def test_a_key_of_the_wrong_length_is_refused():
 
 
 def test_the_key_and_fingerprint_cannot_drift_apart():
-    """data-model.md §1: "They are one atomic unit." Replacing the key replaces the
+    """The key and its fingerprint are one unit (docs/architecture.md §5). Replacing the key replaces the
     fingerprint; there is no path that sets one without the other."""
     chat = a_chat()
     chat.adopt_key(OTHER_KEY)
@@ -169,7 +169,7 @@ def test_the_crypto_x_follows_the_side():
 
 
 def test_a_chat_round_trips_through_its_record():
-    """data-model.md §5: what ``save`` writes is what ``load`` gives back."""
+    """docs/architecture.md §3: what ``save`` writes is what ``load`` gives back."""
     chat = a_chat()
     chat.ttl = 30
     chat.layer = 143

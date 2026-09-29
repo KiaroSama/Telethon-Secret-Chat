@@ -5,15 +5,11 @@ handler has to keep. The protocol itself is in [protocol-reference.md](protocol-
 (cited here as §N); the settled design decisions are the ADRs in [adr/](adr/). Citations
 name a file and a symbol rather than a line, because lines move.
 
-Written against `main` after `b67d207`, while a batch of plans (2026-09-29) was changing
-some of what follows. Where a statement depends on that batch it says so; the batch lands as
-one push, so after it every statement here is meant to be current.
-
 ## 1. Module map
 
 Dependencies point inward: the protocol modules at the top know nothing of the manager, the
-manager composes them, and only `manager.py`, `outbox.py` and `files.py`
-touch Telethon's client.
+manager composes them, and only the manager's parts (`manager.py`, `establishment.py`,
+`outbox.py`) and `files.py` call Telethon's client.
 
 | Module | Responsibility | Protocol |
 |---|---|---|
@@ -21,6 +17,7 @@ touch Telethon's client.
 | `handshake.py` | the secret, the public value, the shared key, the fingerprint check; no network | §1.3-§1.6 |
 | `crypto.py` | MTProto 2.0 frame: padding, `msg_key`, the vendored KDF, `encrypt_frame` / `decrypt_frame` with §2.7's checks | §2 |
 | `framing.py` | `decryptedMessageLayer` wrap/unwrap, the layer arithmetic, the `seq_no` transform | §3.1-§3.4, §7 |
+| `entities.py` | maps Telethon's message entities to the secret-chat schema, by the peer's layer | §7 |
 | `sequence.py` | receive-side ordering: replay drop, gap queue, resend answers, acknowledgement | §3.4-§3.7 |
 | `actions.py` | the thirteen service actions: outbound constructors and inbound handling | §5 |
 | `rekey.py` | the four-message key exchange and the two-key window | §4 |
@@ -30,29 +27,35 @@ touch Telethon's client.
 | `storage/` | `StorageBackend` and the two shipped backends | — |
 | `events.py` | the event dataclasses | — |
 | `errors.py` | the `SecretChatError` family | — |
+| `host.py` | `ManagerHost`: the state and steps the mixins share, declared for the type checker | — |
+| `locking.py` | `ChatLocking` mixin: the per-chat lock, the outbound-order lock, `_atomic` | — |
 | `dispatch.py` | `EventDispatch` mixin: handler registration and isolated callback dispatch | — |
-| `outbox.py` | `RetainedOutbox` mixin: transmit, replay and rewrite retained outgoing records | §3.7 |
-| `manager.py` | `SecretChatManager(EventDispatch, RetainedOutbox)`: the public API and orchestration | — |
+| `outbox.py` | `RetainedOutbox` mixin: send, transmit, retry and rewrite retained outgoing records | §3.7, §3.8 |
+| `establishment.py` | `Establishment` mixin: create, accept, the encryption updates, discard | §1.3-§1.6 |
+| `receive.py` | `Receiving` mixin: update dispatch, decryption, sequence checks, the delivery mailbox | §2.7, §3 |
+| `manager.py` | `SecretChatManager(ChatLocking, EventDispatch, RetainedOutbox, Establishment, Receiving)`: the public API and lifecycle | — |
 | `schema/secret_tl.py` | generated from `schema/end-to-end.tl` by `tools/generate_schema.py`; never edited | — |
-
-`manager.py` is close to the file-size ceiling; plan 030 splits it along the seams above.
 
 ## 2. Locks and transactions
 
-- **Per-chat lock.** `SecretChatManager._chat_lock(chat_id)` is an `asyncio.Lock` per chat,
+- **Per-chat lock.** `ChatLocking._chat_lock(chat_id)` is an `asyncio.Lock` per chat,
   re-entrant for the task that holds it (the owner is recorded in `_lock_owners`). Every
   public operation that changes a chat, and both update handlers, run under it through the
   `serialized` decorator. Chats do not block each other.
-- **Atomic step.** `SecretChatManager._atomic(chat)` opens one storage transaction, saves the
+- **Atomic step.** `ChatLocking._atomic(chat)` opens one storage transaction, saves the
   whole chat record at the end of it, and on any exception restores the in-memory entity
   from a deep copy taken on entry. Memory and storage therefore move together or not at all.
 - **No await inside a transaction.** Storage transactions are synchronous; the network call
-  always happens after the commit (`manager._send` commits the frame, the counter and the
+  always happens after the commit (`outbox._send` commits the frame, the counter and the
   retained record, then calls `_transmit`). A crash between the two leaves a `pending`
   record that `retry_pending` sends with its original bytes and `random_id`.
-- **Upload outside the lock.** Plan 018 (this batch) moves a file upload out of the chat lock
-  behind a separate per-chat outbound-order lock, taken before the chat lock and never by
-  the receive path. Until it lands, `send_file` holds the chat lock for the whole upload.
+- **Outbound order.** Public sends also take a per-chat outbound-order lock
+  (`ChatLocking._outbound_lock`, the `ordered` decorator), always before the chat lock and
+  never on the receive path. A file upload holds only that lock, so the chat keeps
+  receiving while it uploads, and a text sent meanwhile still lands after the file.
+- **Update dispatch.** Telethon runs update handlers as concurrent tasks;
+  `receive._on_update` reaches the chat lock with no await before it, which keeps updates
+  FIFO per chat.
 
 ## 3. The storage contract
 
@@ -71,6 +74,7 @@ method is atomic on its own; `transaction()` makes a group of them atomic togeth
 | `retained_out(chat_id)` | detached retained records in `seq_no` order |
 | `queue_in(chat_id, item)` | keep the first copy of a gap message; a duplicate `seq_no` must not grow storage |
 | `take_in(chat_id)` | drain the gap queue in order |
+| `requeue_in(chat_id, items)` | put still-waiting gap records back; the default queues them one by one |
 | `peek_in(chat_id)` | inspect the gap queue without consuming it. The default is take-and-requeue inside a transaction, and it runs on EVERY received message (`sequence.preflight`), so a native backend should override it. |
 
 Every read returns a detached copy; a caller mutating it must not change stored state.
@@ -81,35 +85,36 @@ Every read returns a detached copy; a caller mutating it must not change stored 
 `handshake["secret"]`): a SQL `INTEGER` cannot hold them. `FileStorage` writes JSON and tags
 bytes as `{"__bytes__": "<hex>"}` (`FileStorage._encode` / `_decode`).
 
-Retained outgoing records (`manager._send`) hold `seq_no`, `body` (hex wrapper),
-`frame` (hex ciphertext), `random_id`, `pending`, `method` (`message`, `service`, `file`) and
-`file` (hex `InputEncryptedFile`). `outbox._transmit` uses `seq_no` plus **`body` equality**
+Retained outgoing records (`outbox._send`) hold `seq_no`, `body` (hex wrapper),
+`frame` (hex ciphertext), `random_id`, `pending`, `method` (`message`, `service`, `file`),
+`file` (hex `InputEncryptedFile`) and, after a rejected protocol message, `failures`. `outbox._transmit` uses `seq_no` plus **`body` equality**
 as the record's identity, to tell whether a nested receive already replaced or removed it.
 Gap records (`sequence.pack`) hold `seq_no`, `body` and `file`.
 
 **The shipped backends.** `MemoryStorage` keeps one state dict and snapshots it on
-transaction entry. `FileStorage` extends it with a whole-state replace: every outermost
+entry to the outermost transaction. `FileStorage` extends it with a whole-state replace: every outermost
 commit serializes the whole store to a temporary file in the same directory, fsyncs it and
 `os.replace`s it over the store (plus a directory fsync on POSIX). It is one-process storage,
-not a lock between processes, and it is not encrypted at rest. Plan 020 (this batch) makes
-the snapshot happen once per outermost transaction and plan 011 deletes crash-leftover
-`.secret-chat-store-*.tmp` files on open.
+not a lock between processes, and it is not encrypted at rest. Opening it deletes
+crash-leftover `.secret-chat-store-*.tmp` files.
 
 ## 4. The event contract
 
 Eight events (`events.py`), each naming its chat and carrying a shape, never a key, a
 plaintext or a wire object: `ChatRequested`, `ChatReady`, `ChatClosedEvent`,
-`MessageReceived`, `MessageAcknowledged`, `ServiceActionReceived`, `DecryptFailed` and, from
-plan 025 in this batch, `SendFailed`.
+`MessageReceived`, `MessageAcknowledged`, `ServiceActionReceived`, `DecryptFailed` and
+`SendFailed` (Telegram rejected a sent message for good; it was withdrawn as a §3.8
+self-delete).
 
 - **Registration** (`dispatch.EventDispatch.on`): by class name; `"ChatClosed"` is an alias
   for `ChatClosedEvent`. An event with no handler is dropped.
 - **Handlers before `start()`.** `start()` re-emits `ChatRequested` for pending requests and
   drains every chat's delivery mailbox immediately.
 - **Delivery mailbox.** A received message is accepted into `chat.pending_deliveries` in the
-  same transaction that advances the counters (`manager._on_encrypted_message`), and
+  same transaction that advances the counters (`receive._on_encrypted_message`), and
   `_drain_deliveries` emits it and only then pops it in a new transaction. A crash in between
-  delivers it again after restart: **at-least-once** for synchronous handlers.
+  delivers it again after restart: **at-least-once** for synchronous handlers. A stored item
+  that no longer parses is dropped with a `DecryptFailed`, so it cannot hold the rest back.
 - **Asynchronous handlers** are scheduled as owned tasks (`EventDispatch._emit`); the item is
   popped once the task is scheduled, so a crash can lose it. `stop()` cancels and drains
   those tasks.
@@ -130,22 +135,31 @@ plan 025 in this batch, `SendFailed`.
 | `rekeying` | `ready`, `closed` |
 | `closed` | — (terminal) |
 
-Sending works in `ready` and `rekeying` (`SecretChat.require_sendable`). Plan 028 (this batch)
-routes every state write through the table; before it, several sites assign `state` directly.
+Sending works in `ready` and `rekeying` (`SecretChat.require_sendable`). Every state write
+goes through the table (`SecretChat.transition_to`); only `close` and loading a record set
+`state` directly.
+
+**Terminal means terminal.** A closed chat is never reopened, and a restart is no loophole:
+the record loads closed. The failures that close a chat are integrity failures, and going on
+would mean trusting the counters that just failed.
+
+**Key and fingerprint are one unit.** `SecretChat.adopt_key` is the only writer of both, and
+a record stores them together, so no record pairs a key with another key's fingerprint.
 
 **Closing.** `SecretChat.close` keeps the first reason and clears every key, the exchange
 secret, the handshake and the mailbox; `manager._close_local` also deletes both queues and
 re-saves the scrubbed record. The closed record stays as a **tombstone**, so a duplicate
-request for the same id cannot revive the chat, until `forget(chat_id)` (plan 010) removes it.
+request for the same id cannot revive the chat, until `forget(chat_id)` removes it.
 
 ## 6. Extension points
 
 - **A storage backend.** Subclass `StorageBackend`, implement the abstract methods with the
   database's own transaction (never compensating writes), override `peek_in`, and store
   `bytes` and big integers losslessly.
-- **History.** `read_history` is an in-memory convenience bounded by `history_limit`
-  (plan 021). An application that needs durable history keeps it from `MessageReceived`;
-  plan 039's design note describes the media reference to store with it.
+- **History.** `read_history` is an in-memory convenience bounded by `history_limit`. An
+  application that needs durable history keeps it from `MessageReceived`;
+  [design/cutover-history.md](design/cutover-history.md) describes the media reference to
+  store with it.
 - **Media kinds.** `MEDIA_KINDS` and `CAPTIONLESS_KINDS` (`files.py`) are the vocabulary
   `send_file(kind=...)` accepts; a mismatch between kind and file type is refused, never
   converted.

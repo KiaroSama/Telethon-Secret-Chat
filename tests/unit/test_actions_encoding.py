@@ -4,15 +4,15 @@
 **send** at least 5.1, 5.2, 5.3, 5.4, 5.6, 5.7 and 5.9-5.13; 5.5 and 5.8 are
 optional outbound features. The consuming MCP server exposes tools over 5.1, 5.2,
 5.3, 5.4, 5.6 and 5.7, so all six need a public send path, not only an inbound
-branch." FR-010 says the same thing as a requirement.
+branch." The design says the same.
 
 §8.5 measured the archived package: of the six the consumer needs, **five had no
 send path at all**, and `AbortKey` fell through to the application on receipt, so a
 peer's abort never cleared the local exchange and the chat could deadlock half-open.
 
-The split under test is data-model.md §4. Conversation actions become events and may
+The split under test is docs/protocol-reference.md §5. Conversation actions become events and may
 change stored state; Protocol and Rekey actions are the package's own business -
-handled without asking the application, and still reported (FR-011).
+handled without asking the application, and still reported.
 """
 
 import pytest
@@ -73,12 +73,12 @@ def test_every_action_round_trips_on_the_wire(action):
 
 @pytest.mark.parametrize("action", ALL_THIRTEEN, ids=lambda a: type(a).TL_NAME)
 def test_every_action_is_classified(action):
-    """data-model.md §4. An action in no group would be reported without anyone
+    """docs/protocol-reference.md §5. An action in no group would be reported without anyone
     having decided whether the package should act on it."""
     assert actions.group_of(action) in ("conversation", "protocol", "rekey")
 
 
-# --- the split (data-model.md §4) ---------------------------------------------
+# --- the split (docs/protocol-reference.md §5) ---------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -108,7 +108,7 @@ def test_the_groups_are_as_the_data_model_states(action, group):
 
 
 async def test_the_peers_ttl_is_stored(pair):
-    """§5.1: "Store it and apply to subsequent messages; 0 disables." US4 scenario 2:
+    """§5.1: "Store it and apply to subsequent messages; 0 disables."
     "When the application reports the chat, Then it reports the peer's value"."""
     wire, a, b = pair
     chat_a, chat_b = await establish(a, b, wire)
@@ -126,7 +126,7 @@ async def test_a_ttl_of_zero_disables_it(pair):
 
 @pytest.mark.parametrize("action", ALL_THIRTEEN, ids=lambda a: type(a).TL_NAME)
 async def test_every_action_reaches_the_application(pair, action):
-    """FR-011: "report a service action received from the peer to the application
+    """ "report a service action received from the peer to the application
     rather than silently applying it" - all thirteen, including the ones the package
     acts on itself."""
     wire, a, b = pair
@@ -143,7 +143,7 @@ async def test_every_action_reaches_the_application(pair, action):
 
 
 async def test_an_unknown_action_is_reported_rather_than_dropped(pair):
-    """FR-011 and §5's closed set. A constructor outside the thirteen cannot be
+    """§5's closed set. A constructor outside the thirteen cannot be
     acted on, and guessing at it is how a parser becomes an oracle - so it is
     refused, visibly."""
     wire, a, b = pair
@@ -161,7 +161,7 @@ async def test_an_unknown_action_is_reported_rather_than_dropped(pair):
     assert "constructor" in failures[0].reason or "parsed" in failures[0].reason
 
 
-# --- outbound (FR-010) --------------------------------------------------------
+# --- outbound --------------------------------------------------------
 
 
 async def test_the_six_the_consumer_needs_all_have_a_send_path(pair):
@@ -190,7 +190,7 @@ async def test_the_six_the_consumer_needs_all_have_a_send_path(pair):
 
 
 async def test_setting_a_ttl_stores_it_on_this_side_too(pair):
-    """US4 scenario 1: the peer's client shows the same timer, which means this side
+    """The peer's client shows the same timer, which means this side
     has to be sending it on subsequent messages as well as announcing it."""
     wire, a, b = pair
     chat_a, _ = await establish(a, b, wire)

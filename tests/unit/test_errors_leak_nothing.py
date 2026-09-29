@@ -50,7 +50,7 @@ class _Loud:
 
 
 def _every_error():
-    """One instance of each error in contracts/public-api.md §4, each constructed
+    """One instance of each error in the README's API reference, each constructed
     with dangerous material where the type plausibly accepts it."""
     return [
         errors.ParameterRejected(chat_id=42, reason="the prime is not a safe 2048-bit prime"),
@@ -144,7 +144,7 @@ def test_all_of_them_are_one_family():
     ), f"these error types are not covered by the leak test: {sorted(exported - covered)}"
 
 
-# --- T048: every failure path added in Phases 3-9 (SC-005) --------------------
+# --- every failure path added in Phases 3-9 --------------------
 #
 # The tests above drive each ERROR TYPE with dangerous material. These drive each
 # real refusal SITE with material that would be catastrophic to print, because the
@@ -260,7 +260,7 @@ def _closed():
 
 @pytest.mark.parametrize("name", list(_refusals()))
 def test_no_refusal_path_emits_key_material_or_plaintext(name):
-    """SC-005: "No key material or plaintext appears anywhere outside the chat,
+    """ "No key material or plaintext appears anywhere outside the chat,
     demonstrated by a test that exercises the failure paths and inspects what they
     emitted.\" """
     rendered = _catch(_refusals()[name])

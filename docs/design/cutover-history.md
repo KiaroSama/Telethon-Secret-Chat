@@ -1,6 +1,6 @@
 # Design note: history and media references after the TDLib cutover
 
-Spike of plan 039, 2026-09-29. Output: the evidence, the two designs, what a prototype of
+Design spike, 2026-09-29. Output: the evidence, the two designs, what a prototype of
 the media-reference seam showed, and the recommendation. No code shipped.
 
 ## 1. Evidence
@@ -29,7 +29,7 @@ bytes), `iv` (32 bytes), `size`; from the attached `EncryptedFile`, `id`, `acces
 `dc_id` and `key_fingerprint` (checked against `md5(key + iv)` folded, §6.2, before a byte is
 written). Nothing else of `MessageReceived` is needed.
 
-**Consequence of plan 021 for the consumer.** With the history bounded at `history_limit`
+**Consequence of the bounded history for the consumer.** With the history bounded at `history_limit`
 (default 1000), `_live_message`'s `read_history(chat_id, 10_000)` can only find the most
 recent 1000 received messages per chat. The consumer should pass `history_limit` to match
 what it expects, or move to option A's reference.

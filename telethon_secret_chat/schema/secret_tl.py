@@ -25,7 +25,7 @@ _BOOL_FALSE = b"\x37\x97\x79\xbc"
 class UnknownConstructor(ValueError):
     """A constructor id this schema does not define.
 
-    Raised rather than guessed. FR-011 wants an unknown action reported, not
+    Raised rather than guessed. The design wants an unknown action reported, not
     dropped, and a wrong guess at a shape is how a parser becomes an oracle.
     """
 

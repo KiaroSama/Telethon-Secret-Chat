@@ -374,7 +374,7 @@ async def _abort(manager, chat) -> None:
 
 
 def _clear(chat) -> None:
-    """Back to a chat with one key and no exchange. US6 scenario 3: "a stated,
+    """Back to a chat with one key and no exchange. "a stated,
     recoverable condition rather than silently using a half-swapped key"."""
     chat.exchange_id = None
     chat.pending_key = None

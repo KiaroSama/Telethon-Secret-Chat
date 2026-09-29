@@ -11,7 +11,7 @@ that interrupts a save halfway and asserts the PREVIOUS consistent record surviv
 A backend that leaves a mixed record passes every other test in this file.
 
 Parametrised over every shipped backend so a new one cannot be added without meeting
-the same contract - `docs`/data-model.md §5.
+the same contract - docs/architecture.md §3.
 """
 
 import os
@@ -26,7 +26,7 @@ PENDING = b"\xcc" * 256
 
 
 def _record(chat_id=1, key=KEY_A, fingerprint=0x1111_1111_1111_1111, **over):
-    """The stored shape, per data-model.md §1. Kept in one place so a field added
+    """The stored shape, per docs/architecture.md §5. Kept in one place so a field added
     there has to be added here too."""
     base = dict(
         id=chat_id,
@@ -197,7 +197,7 @@ def test_the_file_backend_is_owner_only(tmp_path):
     assert mode & (stat.S_IRWXG | stat.S_IRWXO) == 0, f"group/other can read: {mode:o}"
 
 
-# --- the two queues survive a restart (T033) ----------------------------------
+# --- the two queues survive a restart ----------------------------------
 
 
 def test_both_queues_survive_a_new_backend_over_the_same_file(tmp_path):
@@ -230,7 +230,7 @@ def test_taking_the_gap_queue_is_persisted_not_only_in_memory(tmp_path):
     assert FileStorage(path).take_in(1) == []
 
 
-# --- plans/011: a crash between mkstemp and replace leaves the whole store behind ---
+# --- a crash between mkstemp and replace leaves the whole store behind ---
 
 
 def test_a_leftover_store_temp_file_is_removed_on_open(tmp_path):

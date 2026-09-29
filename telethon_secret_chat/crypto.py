@@ -12,10 +12,10 @@ cryptographic step that can change on a patch release is not a step to depend on
 It is used as the TEST oracle instead (tests/vectors/test_kdf_matches_telethon.py),
 so the two are compared on every run. AES-IGE is the opposite case:
 ``telethon.crypto.AES`` is PUBLIC, it is the primitive Telethon's own transport
-runs on, and writing a cipher loop here is precisely what research.md Q1 decided
+runs on, and writing a cipher loop here is precisely what docs/protocol-reference.md §9 item 7 decided
 against.
 
-**MTProto 1.0 does not exist in this module.** FR-017 and Principle II. There is no
+**MTProto 1.0 does not exist in this module.** Principle II. There is no
 ``version`` parameter, no fallback, and no path that produces or accepts a 1.0
 frame - §8.2 measured the archived package defaulting to 1.0 for the first
 messages of every chat and permanently downgrading on any decryption exception,

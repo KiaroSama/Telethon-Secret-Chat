@@ -1,6 +1,6 @@
 # Design note: forwarding an encrypted file without re-uploading it
 
-Spike of plan 041, 2026-09-29. Output: the oracle's behaviour, the API, the security
+Design spike, 2026-09-29. Output: the oracle's behaviour, the API, the security
 statement and the acceptance criteria. The live check is UNVERIFIED (it needs the operator).
 
 ## Today

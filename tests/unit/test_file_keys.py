@@ -11,7 +11,7 @@ a receiver check that the key it found inside belongs to the file attached outsi
 
 §6.3: "A receiver MUST recompute §6.2 from the key/iv inside the message and compare
 it against encryptedFile.key_fingerprint before decrypting; a mismatch is a
-rejection, not a warning." FR-012 says the check happens "before the content is
+rejection, not a warning." The design says the check happens "before the content is
 handed over or written anywhere", which is what the last group here asserts.
 """
 
@@ -127,7 +127,7 @@ def test_a_file_encrypted_under_one_key_does_not_open_under_another():
     assert files.decrypt_file(blob, other_key, other_iv, 96) != b"the contents" * 8
 
 
-# --- FR-012, the refusal before anything is written ---------------------------
+# --- the refusal before anything is written ----------------------------------
 
 
 def test_a_mismatched_fingerprint_is_refused():
@@ -147,8 +147,8 @@ def test_a_matching_fingerprint_is_accepted():
 
 
 def test_nothing_is_written_when_the_fingerprint_does_not_match(tmp_path):
-    """FR-012: "verifying a received file's key fingerprint BEFORE the content is
-    handed over or written anywhere". US5 scenario 3: "it is refused rather than
+    """ "verifying a received file's key fingerprint BEFORE the content is
+    handed over or written anywhere". "it is refused rather than
     written to disk"."""
     key, iv = a_key_pair()
     target = tmp_path / "should-not-exist.bin"
@@ -193,11 +193,11 @@ def test_the_refusal_names_no_key_and_no_content():
     assert iv.hex()[:16] not in rendered.lower()
 
 
-# --- contracts §2: send_file and save_file (T039) -----------------------------
+# --- the README's API reference: send_file and save_file -----------------------------
 
 
 async def test_a_file_crosses_the_chat_and_opens_on_the_other_side(pair, tmp_path):
-    """US5 scenarios 1 and 2: sent, then saved, and the bytes match."""
+    """Sent, then saved, and the bytes match."""
     from .fake_client import establish
 
     wire, a, b = pair
@@ -249,7 +249,7 @@ async def test_the_key_travels_inside_and_the_fingerprint_outside(pair, tmp_path
 
 
 async def test_saving_a_file_whose_fingerprint_is_wrong_writes_nothing(pair, tmp_path):
-    """FR-012 through the public surface."""
+    """Through the public surface."""
     from .fake_client import establish
 
     wire, a, b = pair
@@ -280,7 +280,7 @@ async def test_sending_a_file_refuses_on_a_chat_that_is_not_ready(pair, tmp_path
 
 
 async def test_sending_an_unreadable_file_refuses(pair, tmp_path):
-    """contracts §2: ``send_file`` refuses an "unreadable file"."""
+    """``send_file`` refuses an unreadable file."""
     from .fake_client import establish
 
     wire, a, b = pair
@@ -321,7 +321,7 @@ def test_an_interrupted_media_save_leaves_no_temp_file(tmp_path, monkeypatch):
     assert list(tmp_path.iterdir()) == []
 
 
-# --- plans/018: an upload does not make the chat deaf ------------------------------
+# --- an upload does not make the chat deaf ------------------------------
 
 
 async def test_a_message_arrives_while_a_file_is_uploading(pair, tmp_path):
@@ -380,7 +380,7 @@ async def test_a_text_sent_during_an_upload_lands_after_the_file(pair, tmp_path)
     assert order == ["file", "after the file"]
 
 
-# --- plans/019: streamed IGE must equal the one-shot cipher byte for byte ----------
+# --- streamed IGE must equal the one-shot cipher byte for byte ----------
 
 
 @pytest.mark.parametrize("size", [0, 1, 15, 16, 17, 1023, 1024, 1025, 150_007])
@@ -403,7 +403,7 @@ def test_chunked_encryption_matches_the_one_shot_cipher(size, piece):
 
 
 async def test_a_multi_part_file_streams_both_ways_without_a_memory_copy(pair, tmp_path):
-    """plans/019: parts are exact 512 KiB pieces, and the download lands on disk."""
+    """Parts are exact 512 KiB pieces, and the download lands on disk."""
     from .fake_client import establish
 
     wire, a, b = pair

@@ -1,13 +1,13 @@
 # Design note: rendering the key visualization
 
-Spike of plan 042, 2026-09-29. Output: the rendering rule with its sources, the API for a
+Design spike, 2026-09-29. Output: the rendering rule with its sources, the API for a
 follow-up feature, a fixed test vector, and the acceptance criteria. No code shipped.
 
 ## The input
 
 `SecretChat.initial_key_hash` (`chat.py`, `adopt_key`) is `sha1(key)[:16] + sha256(key)[:20]`
 of the chat's FIRST shared key, computed once and never after a rekey; it reaches
-applications as `ChatReady.key_hash` and, after plan 023, `ChatSnapshot.key_hash`. TDLib
+applications as `ChatReady.key_hash` and `ChatSnapshot.key_hash`. TDLib
 computes the same bytes the same way, and only on the initial exchange:
 `SecretChatActor::calc_key_hash()` takes `sha1(auth_key)[:16] + sha256(auth_key)[:20]`, called
 from the two handshake paths only (`td/telegram/SecretChatActor.cpp`, tdlib/td commit

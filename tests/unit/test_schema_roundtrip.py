@@ -182,7 +182,7 @@ def test_the_layer_8_service_shape_is_accepted():
 
 
 def test_an_unknown_constructor_is_reported_not_guessed():
-    """FR-011. A parser that guesses at an unrecognised shape is an oracle."""
+    """A parser that guesses at an unrecognised shape is an oracle."""
     with pytest.raises(tl.UnknownConstructor):
         with BinaryReader(b"\xde\xad\xbe\xef") as reader:
             tl.read_object(reader)
@@ -197,7 +197,7 @@ def test_repr_carries_no_values():
 
 
 def test_nesting_beyond_the_bound_is_refused_before_the_recursion_limit():
-    """plans/026: every object field is read untyped, so a wrapper can hold a wrapper.
+    """Every object field is read untyped, so a wrapper can hold a wrapper.
     An authenticated peer nesting them must meet a bounded refusal, not a
     RecursionError on a later, deeper re-parse."""
     from telethon.extensions import BinaryReader

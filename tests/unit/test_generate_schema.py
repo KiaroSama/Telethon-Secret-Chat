@@ -1,4 +1,4 @@
-"""The schema generator never half-writes and can check without writing (spec 002 FR-008)."""
+"""The schema generator never half-writes and can check without writing."""
 
 import importlib.util
 import subprocess

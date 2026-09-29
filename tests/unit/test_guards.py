@@ -1,4 +1,4 @@
-"""plans/015: guards and branches that no other test reached. No real accounts."""
+"""Guards and branches that no other test reached. No real accounts."""
 
 import logging
 import os

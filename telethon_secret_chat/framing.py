@@ -43,7 +43,7 @@ INITIAL_REMOTE_LAYER = 46
 MIN_WRAPPER_LAYER = 46
 
 # §7.1 and §7.5: 73 is where MTProto 2.0 becomes mandatory in both directions, and
-# this package implements nothing below it (FR-017).
+# this package implements nothing below it.
 MIN_LAYER = 73
 
 # §7.1: TDLib's `Current`. Announcing higher would promise constructors we cannot
@@ -163,7 +163,7 @@ def outgoing_layer(remote_layer: int) -> int:
 
 
 def require_supported_layer(*, chat_id: int, peer_layer: int) -> None:
-    """FR-017: a peer that has announced below 73 is refused, with the reason stated.
+    """A peer that has announced below 73 is refused, with the reason stated.
 
     Only for a layer the peer actually CLAIMED. The initial 46 of §7.2 is this
     side's assumption about a peer that has not spoken yet, and refusing on it would

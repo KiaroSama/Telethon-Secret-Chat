@@ -1,10 +1,10 @@
-"""FR-016: the Telethon surface this package depends on, in one place.
+"""The Telethon surface this package depends on, in one place.
 
 "Telethon internals are a compatibility surface: every private attribute the package
 touches MUST be listed in one place and covered by a test that fails when it
 disappears" (constitution, Development Workflow).
 
-research.md Q3 measured that surface and found it is **one** private attribute -
+docs/protocol-reference.md §9 item 7 measured that surface and found it is **one** private attribute -
 ``TelegramClient._parse_message_text`` - against the five §8.0 counted in the
 archived package. The rest of what this package needs from Telethon is public: the
 TL requests, the TL types, and ``telethon.crypto.AES``.
@@ -32,7 +32,7 @@ def test_parse_message_text_still_exists():
     the caller instead - ``manager._parse_text`` already returns ``(text, None)``
     when the attribute is absent, so the failure is a documentation change and a
     release note, not a code change. Re-implementing Markdown and HTML parsing here
-    is not this package's business (research.md Q3).
+    is not this package's business (docs/protocol-reference.md §9 item 7).
     """
     assert hasattr(TelegramClient, "_parse_message_text"), (
         "Telethon removed TelegramClient._parse_message_text. The package already "
@@ -67,7 +67,7 @@ async def test_the_package_survives_that_attribute_disappearing():
 
 
 def test_aes_ige_is_still_public():
-    """research.md Q1: ``telethon.crypto.AES`` is PUBLIC - not underscore-prefixed -
+    """docs/protocol-reference.md §9 item 7: ``telethon.crypto.AES`` is PUBLIC - not underscore-prefixed -
     so using it adds nothing to the private surface, and it is the same primitive
     Telethon's own transport runs on.
 
@@ -137,7 +137,7 @@ def test_every_tl_request_and_type_the_package_names_still_exists():
 
 def test_the_kdf_oracle_still_exists():
     """``MTProtoState._calc_key`` is private and is used ONLY as a test oracle
-    (research.md Q2, oracle 2). That is the whole reason §2.4 is vendored: a private
+    (docs/protocol-reference.md §9 item 4, oracle 2). That is the whole reason §2.4 is vendored: a private
     method can change on any release, and a cryptographic step that changes without
     notice is the failure this package exists to avoid.
 
@@ -154,7 +154,7 @@ def test_the_kdf_oracle_still_exists():
 
 
 def test_the_supported_telethon_version_is_stated():
-    """FR-016: "The package MUST state the Telethon version it supports"."""
+    """ "The package MUST state the Telethon version it supports"."""
     import tomllib
     from pathlib import Path
 
@@ -182,7 +182,7 @@ def test_the_encryption_errors_accept_relies_on_still_exist():
 
 
 def test_the_send_rejection_errors_still_exist():
-    """plans/025: the outbox sorts these; a rename would reclassify them as transient."""
+    """The outbox sorts these; a rename would reclassify them as transient."""
     from telethon_secret_chat import outbox
 
     for family in (outbox.CHAT_ENDING, outbox.PERMANENT):

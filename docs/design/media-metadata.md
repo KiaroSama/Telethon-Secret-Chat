@@ -1,6 +1,6 @@
 # Design note: caller-supplied media metadata, thumbnails, and bytes/stream input
 
-Spike of plan 040, 2026-09-29. The schema facts and the proposed signature are settled here;
+Design spike, 2026-09-29. The schema facts and the proposed signature are settled here;
 the live check (what an official client shows) is UNVERIFIED because it needs the operator,
 so the acceptance criteria at the end are provisional until it is run.
 
@@ -63,7 +63,7 @@ await send_file(
   known size. For bytes and streams `file_name` is required: it is the mime guess input
   (`files.guess_mime`) and the `DocumentAttributeFilename`. The kind check needs the first
   `ogg_tags.HEADER_BYTES` (64 KiB): taken from the bytes, or read from the stream and then
-  chained back in front of it for the upload (plan 019's streaming reader encrypts from any
+  chained back in front of it for the upload (`files.EncryptingReader` encrypts from any
   readable source, so no temp file is written).
 
 ## Live check (UNVERIFIED)

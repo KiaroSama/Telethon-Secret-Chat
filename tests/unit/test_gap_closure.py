@@ -41,7 +41,7 @@ def store_with(*records, filed_as=None):
     return store
 
 
-# --- FR-001: a corrupt store never half-starts the manager ----------------------
+# --- a corrupt store never half-starts the manager ----------------------
 
 
 CORRUPTIONS = {
@@ -103,7 +103,7 @@ async def test_valid_and_legacy_records_still_start():
     await manager.stop()
 
 
-# --- FR-004: frames refuse a key that is not 256 bytes --------------------------
+# --- frames refuse a key that is not 256 bytes --------------------------
 
 
 class _NoCipher:
@@ -124,7 +124,7 @@ def test_frames_refuse_a_wrong_length_key_before_any_cipher_work(monkeypatch, le
         crypto.decrypt_frame(bytes(length), frame, 0)
 
 
-# --- FR-005: a failed local save discards the server-side chat ------------------
+# --- a failed local save discards the server-side chat ------------------
 
 
 class _SaveFails(MemoryStorage):
@@ -159,7 +159,7 @@ async def test_create_discards_the_server_chat_when_the_local_save_fails(client_
     assert manager.list() == []
 
 
-# --- FR-006: service-only traffic still reaches the rekey trigger --------------
+# --- service-only traffic still reaches the rekey trigger --------------
 
 
 def _service_actions(client, chat):
@@ -191,7 +191,7 @@ async def test_a_due_key_is_rekeyed_before_a_service_action():
     assert chat.state is ChatState.REKEYING
 
 
-# --- FR-007: every arrival order of four consecutive messages -------------------
+# --- every arrival order of four consecutive messages -------------------
 
 
 @pytest.mark.parametrize("order", list(itertools.permutations(range(4))))
@@ -208,7 +208,7 @@ def test_every_arrival_order_of_four_messages_delivers_all_in_sender_order(order
     assert store.peek_in(chat.id) == []
 
 
-# --- plans/010: store hygiene ------------------------------------------------------
+# --- store hygiene ------------------------------------------------------
 
 
 async def test_a_closed_record_still_holding_keys_is_scrubbed_at_start():

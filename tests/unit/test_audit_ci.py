@@ -67,7 +67,7 @@ def test_false_green_evidence_is_rejected(tmp_path, scenario):
 
 
 def test_the_summary_counts_the_live_cases_it_skipped(tmp_path, caplog):
-    """DD-05. The warning said "five" after a sixth live case was added."""
+    """The warning said "five" after a sixth live case was added."""
     for leg in ("a", "b"):
         record(tmp_path, leg)
     with caplog.at_level("WARNING"):

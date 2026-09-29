@@ -1,4 +1,4 @@
-"""What the application is told - contracts/public-api.md §3.
+"""What the application is told - docs/architecture.md §4.
 
 Seven events, each naming its chat. Two rules run through all of them.
 
@@ -67,11 +67,11 @@ class ChatClosedEvent:
 
 @dataclass
 class MessageReceived:
-    """Decrypted, in conversation order (FR-009).
+    """Decrypted, in conversation order.
 
     ``media`` is the ``DecryptedMessageMedia`` when the message carried one, kept
     as the protocol object so ``save_file`` can take the message straight back
-    (contracts §2). It holds the file's one-time key (§6.1), so an application that
+    (the README's API reference). It holds the file's one-time key (§6.1), so an application that
     logs this field logs key material - hence the repr below.
     """
 
@@ -110,7 +110,7 @@ class MessageAcknowledged:
 
 @dataclass
 class ServiceActionReceived:
-    """One of the thirteen (§5). FR-011: reported rather than silently applied.
+    """One of the thirteen (§5). Reported rather than silently applied.
 
     ``applied`` says whether the package acted on it as well - a ``SetMessageTTL``
     changes stored state and is still reported, while a ``RequestKey`` is handled

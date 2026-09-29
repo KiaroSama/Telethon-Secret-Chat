@@ -96,7 +96,7 @@ class RetainedOutbox(ManagerHost):
         self._remove_history(chat.id, random_ids)
 
     def _forget_everything_locally(self, chat):
-        # plans/007: content records only; retained protocol actions keep their frames.
+        # content records only; retained protocol actions keep their frames.
         with self._atomic(chat):
             self._rewrite_retained_as_deletes(chat, self._content_random_ids(chat))
         self._forget_history(chat.id)

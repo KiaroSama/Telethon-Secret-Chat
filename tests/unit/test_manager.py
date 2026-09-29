@@ -1,4 +1,4 @@
-"""contracts/public-api.md - the surface an application actually uses.
+"""The README's API reference - the surface an application actually uses.
 
 Two managers talking to each other through a fake server. That exercises both sides
 of §1.6's asymmetry table in one run, which is the cheap way to catch the failure
@@ -25,14 +25,14 @@ from .fake_client import establish
 
 
 async def test_creating_a_chat_leaves_it_awaiting_acceptance(pair):
-    """US1 scenario 1: "the application reports it as awaiting acceptance"."""
+    """ "The application reports it as awaiting acceptance"."""
     wire, a, _ = pair
     chat = await a.create(2000)
     assert chat.state is ChatState.REQUESTED and chat.key_fingerprint is None
 
 
 async def test_the_dh_configuration_is_validated_before_a_chat_is_requested(pair):
-    """FR-001. A chat established on a bad prime cannot be repaired afterwards."""
+    """A chat established on a bad prime cannot be repaired afterwards."""
     wire, a, _ = pair
     wire.a.dh_prime_override = 2**2047 + 1  # right length, divisible by three
     with pytest.raises(ParameterRejected):
@@ -44,7 +44,7 @@ async def test_the_dh_configuration_is_validated_before_a_chat_is_requested(pair
 
 
 async def test_both_ends_report_the_same_fingerprint(pair):
-    """US1 scenario 2, and the one check no amount of unit testing replaces at the
+    """The one check no amount of unit testing replaces at the
     interop tier: "both ends report the SAME key fingerprint"."""
     wire, a, b = pair
     chat_a, chat_b = await establish(a, b, wire)
@@ -63,7 +63,7 @@ async def test_the_two_sides_disagree_about_who_originated(pair):
 
 
 async def test_an_incoming_request_is_reported_to_the_application(pair):
-    """contracts §3: ``ChatRequested`` - "an incoming request awaiting accept"."""
+    """``ChatRequested`` - "an incoming request awaiting accept"."""
     wire, a, b = pair
     seen = []
     b.on("ChatRequested", seen.append)
@@ -119,7 +119,6 @@ async def test_a_message_crosses_and_arrives_as_text(pair):
 
 
 async def test_messages_arrive_in_order(pair):
-    """FR-009."""
     wire, a, b = pair
     chat_a, _ = await establish(a, b, wire)
     got = []
@@ -152,8 +151,8 @@ async def test_read_history_returns_what_arrived_in_order(pair):
 
 
 async def test_send_returns_the_message_id(pair):
-    """contracts §2: ``send_message`` "resolves when Telegram accepts the
-    ciphertext", returning "the sent message's id"."""
+    """``send_message`` resolves when Telegram accepts the ciphertext and returns
+    the sent message's id."""
     wire, a, b = pair
     chat_a, _ = await establish(a, b, wire)
     assert isinstance(await a.send_message(chat_a.id, "x"), int)
@@ -180,8 +179,7 @@ async def test_sending_on_a_closed_chat_refuses_with_a_reason(pair):
 
 
 async def test_closing_twice_states_it_rather_than_raising(pair):
-    """contracts §2: ``close`` refuses when "already closed (states it, does not
-    raise)"."""
+    """``close`` on an already closed chat does nothing and does not raise."""
     wire, a, b = pair
     chat_a, _ = await establish(a, b, wire)
     await a.close(chat_a.id)
@@ -256,12 +254,11 @@ async def test_a_notify_layer_is_sent_as_soon_as_the_chat_is_ready(pair):
     assert a._entity(chat_a.id).layer >= 73
 
 
-# --- the exported surface (T027) ----------------------------------------------
+# --- the exported surface ----------------------------------------------
 
 
 def test_the_package_exports_exactly_the_contract():
-    """contracts/public-api.md §6: the protocol internals are "tested directly; they
-    are not a supported surface"."""
+    """The protocol internals are tested directly; they are not a supported surface."""
     import telethon_secret_chat as pkg
 
     assert set(pkg.__all__) == {
@@ -304,7 +301,7 @@ def test_no_protocol_internal_is_reachable_from_the_package_root():
 
 
 def test_there_is_no_way_to_supply_a_key_or_skip_a_check():
-    """contracts §6: "There is no 'trust me' flag, because the one thing this
+    """ "There is no 'trust me' flag, because the one thing this
     package sells is that the checks ran"."""
     import inspect
 
@@ -372,7 +369,7 @@ async def test_a_sent_file_keeps_the_server_handle_for_resends(pair, tmp_path):
         assert isinstance(reader.tgread_object(), types.InputEncryptedFile)
 
 
-# --- start/stop under concurrent updates, handshake edges (plans/008) -----------
+# --- start/stop under concurrent updates, handshake edges -----------
 
 
 async def test_a_request_arriving_during_start_does_not_break_recovery():
@@ -502,7 +499,7 @@ async def test_an_async_handler_scheduled_while_stopping_is_not_left_pending():
     assert not manager._handler_tasks and not ran
 
 
-# --- plans/022-023: one error family, and snapshots instead of the live entity -----
+# --- one error family, and snapshots instead of the live entity -----
 
 
 async def test_an_unknown_chat_is_a_package_error_and_still_a_key_error(pair):
@@ -553,7 +550,7 @@ async def test_history_keeps_only_the_most_recent_messages():
 
 
 def test_every_public_manager_method_is_documented():
-    """plans/034: ``help(SecretChatManager)`` is the API reference."""
+    """``help(SecretChatManager)`` is the API reference."""
     import inspect
 
     assert inspect.getdoc(SecretChatManager)

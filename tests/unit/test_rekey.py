@@ -206,7 +206,7 @@ def test_the_previous_key_is_dropped_once_the_new_one_has_carried_a_message():
 
 
 async def test_an_exchange_completes_and_both_ends_agree_on_the_new_key(pair):
-    """US6 scenario 1: "a new key is negotiated and both ends keep decrypting each
+    """ "A new key is negotiated and both ends keep decrypting each
     other"."""
     wire, a, b = pair
     chat_a, chat_b = await establish(a, b, wire)
@@ -235,7 +235,7 @@ async def test_the_conversation_continues_after_the_exchange(pair):
 
 
 async def test_a_message_sent_mid_exchange_is_delivered(pair):
-    """US6 scenario 2 and FR-013: "a message sent during an exchange MUST be
+    """ "A message sent during an exchange MUST be
     delivered rather than dropped". §4.8: both sides keep encrypting with the OLD
     key until their own commit point."""
     wire, a, b = pair
@@ -274,7 +274,7 @@ async def test_a_peers_abort_clears_the_local_exchange(pair):
 
     chat = a._entity(chat_a.id)
     assert chat.exchange_id is None and chat.pending_key is None
-    assert chat.state is ChatState.READY, "US6 scenario 3: a stated, recoverable condition"
+    assert chat.state is ChatState.READY, "a stated, recoverable condition"
 
 
 async def test_a_bad_fingerprint_in_an_accept_does_not_switch_the_key(pair):
@@ -305,7 +305,7 @@ async def test_a_bad_fingerprint_in_an_accept_does_not_switch_the_key(pair):
     assert a._entity(chat_a.id).state is ChatState.READY, "the chat was left mid-exchange"
 
 
-# --- T046: a restart during an exchange ---------------------------------------
+# --- a restart during an exchange ---------------------------------------
 
 
 async def test_a_restart_during_an_exchange_leaves_the_chat_usable(tmp_path):
@@ -425,7 +425,7 @@ def _request_keys(manager, chat_id):
 
 
 async def test_concurrent_service_sends_start_exactly_one_exchange():
-    """DD-01. ``set_typing`` and ``mark_read`` ran outside the chat lock, so both
+    """``set_typing`` and ``mark_read`` ran outside the chat lock, so both
     passed the trigger check while an earlier send was still retrying, and each
     sent its own ``RequestKey``. The second overwrote the first's exchange id, the
     peer answered the first, and this side ignored that answer for ever."""
@@ -453,7 +453,7 @@ async def test_concurrent_service_sends_start_exactly_one_exchange():
 
 
 async def test_a_request_key_with_an_unsafe_value_closes_the_chat(pair):
-    """DD-02. §1.2's checks apply to rekey values too, and TDLib treats a failed
+    """§1.2's checks apply to rekey values too, and TDLib treats a failed
     check on an inbound ``RequestKey`` as fatal (``SecretChatActor.cpp``
     ``on_inbound_action(RequestKey)`` -> ``check_status`` -> ``cancel_chat``). Here
     the refusal escaped delivery instead, so the action stayed at the head of the
@@ -529,7 +529,7 @@ async def test_a_peer_flush_leaves_pending_service_actions_alone():
     assert kinds == ["DecryptedMessageActionRequestKey"]
 
 
-# --- plans/012: the branches the module was written to fix -------------------------
+# --- the branches the module was written to fix -------------------------
 
 
 async def test_both_sides_requesting_at_once_end_on_one_key(pair):
@@ -610,7 +610,7 @@ async def test_a_request_key_while_the_previous_key_is_held_is_answered_with_abo
 
 
 async def test_crossing_requests_settle_on_one_key_with_concurrent_dispatch(pair):
-    """plans/031: the collision test with handlers running as concurrent tasks."""
+    """The collision test with handlers running as concurrent tasks."""
     wire, a, b = pair
     chat_a, chat_b = await establish(a, b, wire)
     wire.defer()

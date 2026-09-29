@@ -1,12 +1,12 @@
 # Design note: storage cost, a slimmer retained record, and a SQLite backend
 
-Spike of plan 043, 2026-09-29. Measured first; the build is a follow-up feature.
+Design spike, 2026-09-29. Measured first; the build is a follow-up feature.
 
 ## What was measured
 
 A scratch benchmark outside the repository, on a copy of `telethon_secret_chat/storage/__init__.py`
-as committed at `b67d207` (sha256 `a493dc4d...`), i.e. **before plan 020** (one snapshot per
-outermost transaction), which was being implemented in the same batch. It was bounded by a
+as committed at `b67d207` (sha256 `a493dc4d...`), i.e. **before** the change to one snapshot per
+outermost transaction), which landed right after. It was bounded by a
 110 s internal ceiling plus a 115 s outer timeout and deleted afterwards.
 
 One "pair" is the storage traffic of one send plus one receive in the manager: a transaction
@@ -35,7 +35,8 @@ third scenario; the 1000-record numbers come from a second run of 10 pairs.
 
 - Most of the cost is not the file: `MemoryStorage` alone is 30-60 % of `FileStorage`. It
   comes from `MemoryStorage.transaction()` deep-copying and comparing the whole state on
-  every entry, nested or not - exactly what plan 020 removes. Re-measure after it.
+  every entry, nested or not - since removed (one snapshot per outermost transaction).
+  Re-measure on the current code.
 - The file adds a full JSON dump, fsync and replace of the whole store twice per pair: about
   21 MB written per message pair at 50 × 200.
 - Retained records hold both `body` and `frame` in hex, about 4× the plaintext; a silent peer
@@ -44,8 +45,8 @@ third scenario; the 1000-record numbers come from a second run of 10 pairs.
 ## Threshold
 
 The JSON store is acceptable while a send+receive pair stays under **20 ms** and writes under
-**1 MB**. Before plan 020 even the small scenario exceeds it (114 ms, 0.64 MB written); the
-decision therefore waits for the post-020 measurement, repeated with this note's method.
+**1 MB**. Before that change even the small scenario exceeds it (114 ms, 0.64 MB written); the
+decision therefore waits for a measurement of the current code, repeated with this note's method.
 
 ## The consumer's load (UNVERIFIED)
 
@@ -83,9 +84,9 @@ Rewriting a retained message into a self-delete then needs the wrapper fields, n
 
 ## Recommendation
 
-1. Land plan 020 and re-run this measurement. If the small scenario is under the threshold and
+1. Re-run this measurement on the current code. If the small scenario is under the threshold and
    the consumer runs a handful of chats, **do not build** SQLite.
-2. Build option 1 (slim record) when the post-020 file cost per pair is still above the
+2. Build option 1 (slim record) when the current file cost per pair is still above the
    threshold at the consumer's real size, or when plaintext in the outbox is judged an
    exposure on its own.
 3. Build option 2 when the consumer runs more than about 20 active chats or routinely has
