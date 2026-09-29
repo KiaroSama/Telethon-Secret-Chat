@@ -10,8 +10,8 @@ outermost transaction), which landed right after. It was bounded by a
 110 s internal ceiling plus a 115 s outer timeout and deleted afterwards.
 
 One "pair" is the storage traffic of one send plus one receive in the manager: a transaction
-saving the chat record and queueing one retained record (`manager._send`), then a transaction
-peeking the gap queue and saving the advanced record (`manager._atomic` around
+saving the chat record and queueing one retained record (`outbox._send`), then a transaction
+peeking the gap queue and saving the advanced record (`locking._atomic` around
 `sequence.accept`). Records have the real shape: 256-byte keys as `bytes`, a 2048-bit
 `dh_prime`, retained items with a 180-byte wrapper `body` and a 264-byte `frame`, both hex.
 The store was pre-filled directly (filling it through the API is itself quadratic, which is

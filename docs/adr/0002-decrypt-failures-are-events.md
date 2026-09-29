@@ -12,7 +12,7 @@ which check failed at which offset rebuilds a decryption oracle.
 
 ## Decision
 
-The update handler (`manager._on_update`) turns every refusal into a `DecryptFailed(chat_id,
+The update handler (`receive._on_update`) turns every refusal into a `DecryptFailed(chat_id,
 reason)` event. Which failures end the chat is fixed by the protocol: wrong parity, an echo
 that goes backwards or claims an unsent message, a layer that goes down, or a gap beyond the
 1000-message window abort it (`sequence.preflight`); a replay is dropped silently; a gap is

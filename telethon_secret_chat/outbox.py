@@ -190,6 +190,9 @@ class RetainedOutbox(ManagerHost):
             encryption_key=encryption_key,
         )
 
+    # §3.4 asks for an `invokeAfterMsgs` chain so the server keeps sends in order. This
+    # package serializes sends per chat instead and awaits each RPC before the next,
+    # retrying unsent records first (docs/adr/0005-serialized-sends-instead-of-invokeaftermsgs.md).
     @serialized
     async def _send(self, chat, message, file=None, *, after_prepare=None, encryption_key=None):
         chat.require_sendable()
