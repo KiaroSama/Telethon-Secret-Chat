@@ -171,7 +171,7 @@ async def test_initial_key_update_before_request_rpc_returns_is_not_lost():
 
 
 async def test_a_pending_request_stored_across_a_restart_is_announced_again():
-    """DD-06. The handshake survives a restart (PR #15), but ``ChatRequested`` was
+    """The handshake survives a restart (PR #15), but ``ChatRequested`` was
     emitted only when the update first arrived. An application that accepts from
     that event - telegram-mcp does - never heard about the stored request again,
     so the chat sat ``pending`` until the peer gave up."""

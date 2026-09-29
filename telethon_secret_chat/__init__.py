@@ -60,14 +60,14 @@ __all__ = [
     "SecretChat",
     "ChatSnapshot",
     "ChatState",
-    # storage - required, never defaulted (FR-014)
+    # storage - required, never defaulted
     "StorageBackend",
     "MemoryStorage",
     "FileStorage",
     # the media kinds `send_file` accepts
     "MEDIA_KINDS",
     "CAPTIONLESS_KINDS",
-    # errors (contracts §4)
+    # errors
     "SecretChatError",
     "ParameterRejected",
     "ChatNotReady",
@@ -79,7 +79,7 @@ __all__ = [
     "UnknownChat",
     "ManagerStopping",
     "SendPending",
-    # events (contracts §3)
+    # events (docs/architecture.md §4)
     "ChatRequested",
     "ChatReady",
     "ChatClosedEvent",

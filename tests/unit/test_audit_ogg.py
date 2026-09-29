@@ -30,7 +30,7 @@ def test_lowercase_real_music_tag_still_counts():
     assert ogg_tags.looks_like_voice(_ogg("artist=somebody")) is False
 
 
-# --- page-aware reassembly (specs/002-audit-gap-closure FR-002) ---------------
+# --- page-aware reassembly ---------------
 
 PAD = "ENCODER=" + "x" * 300  # pushes the comment packet past one 255-byte segment run
 

@@ -91,7 +91,7 @@ class SecretChatManager(ChatLocking, EventDispatch, RetainedOutbox, Establishmen
         for chat_id in self._storage.list():
             record = self._storage.load(chat_id)
             if record is not None:
-                # All or nothing: one corrupt record installs no chat (spec 002 FR-001).
+                # All or nothing: one corrupt record installs no chat.
                 loaded[chat_id] = SecretChat.from_record(record, stored_id=chat_id)
         self._chats = loaded
         self._client.add_event_handler(self._subscription)

@@ -1,4 +1,4 @@
-"""plans/025: a server REJECTION of a retained send is not a network failure.
+"""A server REJECTION of a retained send is not a network failure.
 
 Telegram's method pages (messages.sendEncrypted, sendEncryptedFile,
 sendEncryptedService) list the errors; the package sorts them into transient,

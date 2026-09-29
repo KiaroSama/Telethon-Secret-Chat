@@ -16,7 +16,7 @@ agrees with, so the two live in different modules with different names.
 
 §6 is the healthiest area of the archived package - §8.6 found the keys, the
 fingerprint and the fold all correct there. What it lacked was forwarding and
-big-file awareness; the ordering guarantee below (FR-012: nothing written before the
+big-file awareness; the ordering guarantee below (nothing written before the
 fingerprint matches) is stated here rather than assumed.
 """
 
@@ -360,7 +360,7 @@ def save(
 ) -> Path:
     """Write a received file, or refuse before anything reaches the disk.
 
-    FR-012 and US5 scenario 3: the fingerprint check runs FIRST, so a file whose key
+    The fingerprint check runs FIRST, so a file whose key
     does not belong to it is "refused rather than written to disk" - not written and
     then deleted, which leaves the bytes in a directory and in a filesystem journal
     for however long the failure takes to notice.
@@ -400,7 +400,7 @@ def save(
     return target
 
 
-# --- the two operations contracts/public-api.md §2 names ----------------------
+# --- the two operations the README's API reference names ----------------------
 # They take the manager rather than living on it: §6 is one section and belongs in
 # one module, and the manager stays the orchestrator rather than the place protocol
 # rules accumulate.
@@ -426,7 +426,7 @@ async def send(
         caption=caption,
         header=_peek(source),
     )
-    # An unreadable file refuses here, before a key is generated - contracts §2.
+    # An unreadable file refuses here, before a key is generated - the README's API reference.
     with source.open("rb") as handle:
         size = os.fstat(handle.fileno()).st_size
         if framing.outgoing_layer(chat.layer) < SIZE_LONG_LAYER and size >= 2**31:
@@ -496,7 +496,7 @@ async def _send_uploaded(
 async def receive(manager, message, path) -> Path:
     """§6.3: the key comes from INSIDE the decrypted message, the fingerprint from
     OUTSIDE it. Comparing them is what says the two belong together - and it happens
-    before a byte is written (FR-012)."""
+    before a byte is written."""
     media, attached = message.media, message.file
     if (
         media is None

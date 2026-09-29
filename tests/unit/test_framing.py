@@ -132,7 +132,7 @@ def test_the_outgoing_layer_is_clamped_between_73_and_144(his, expected):
 
 
 def test_a_peer_that_cannot_reach_73_is_refused():
-    """FR-017 and §7.5: this package implements no MTProto 1.0, so a peer that has
+    """§7.5: this package implements no MTProto 1.0, so a peer that has
     announced a layer below 73 gets a stated refusal rather than a silent
     downgrade. Note the asymmetry with the clamp above: 46 is the ASSUMED starting
     value and is not a claim, while an explicit NotifyLayer below 73 is."""

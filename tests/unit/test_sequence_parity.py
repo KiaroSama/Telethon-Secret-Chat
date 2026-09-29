@@ -171,7 +171,7 @@ def test_a_notify_layer_does_not_raise_the_bar_the_next_wrapper_must_clear():
 
 
 async def test_a_fatal_refusal_closes_the_chat_through_the_manager(pair):
-    """plans/028: ``sequence`` only raises; the manager's ``close`` ends the chat,
+    """``sequence`` only raises; the manager's ``close`` ends the chat,
     then the refusal is reported. Triggered by an echo past what B ever sent."""
     from .fake_client import establish
 

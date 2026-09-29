@@ -4,7 +4,7 @@ The frames here are built by an implementation this project did not write:
 Telethon's private ``MTProtoState._calc_key`` for the key schedule and its PUBLIC
 ``AES.encrypt_ige`` for the cipher. So `test_a_frame_the_oracle_built_decrypts` is
 not a round trip through our own pair - it is our decrypt reading somebody else's
-ciphertext, which is what Principle I asks for at this stage (research.md Q2:
+ciphertext, which is what Principle I asks for at this stage (docs/protocol-reference.md §9 item 4:
 recorded TDLib vectors cannot exist until a chat runs).
 
 Every other test corrupts one field of that frame and asserts two things: the frame
@@ -199,7 +199,7 @@ def test_a_refusal_carries_no_key_no_plaintext_and_no_ciphertext():
     assert bytes(frame).hex()[:32] not in text.lower()
 
 
-# --- plans/026: an authenticated message that will not parse -------------------------
+# --- an authenticated message that will not parse -------------------------
 
 
 def _frame(chat, body):

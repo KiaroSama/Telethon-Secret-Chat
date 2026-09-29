@@ -7,12 +7,12 @@ the six the consumer needs having no send path at all**, and with `AbortKey` fal
 through to the application on receipt, so a peer's abort never cleared the local
 exchange and the chat could sit half-open indefinitely.
 
-The split is data-model.md §4, and it decides who acts:
+The split is docs/protocol-reference.md §5, and it decides who acts:
 
 - **Conversation** - the application's business. Reported as an event; the one that
   changes stored state (`SetMessageTTL`) changes it here.
 - **Protocol** and **Rekey** - the package's business. Handled without asking, and
-  still reported (FR-011): "report a service action received from the peer to the
+  still reported: "report a service action received from the peer to the
   application rather than silently applying it."
 
 Outbound composition lives here too, so §5 has one home rather than being half in
@@ -40,7 +40,7 @@ __all__ = [
     "resend",
 ]
 
-# data-model.md §4, as three tuples so `group_of` cannot disagree with the table.
+# docs/protocol-reference.md §5, as three tuples so `group_of` cannot disagree with the table.
 CONVERSATION = (
     tl.DecryptedMessageActionSetMessageTTL,  # 5.1
     tl.DecryptedMessageActionReadMessages,  # 5.2
@@ -63,7 +63,7 @@ REKEY = (
 
 
 def group_of(action) -> str:
-    """Which of data-model.md §4's three groups an action belongs to."""
+    """Which of docs/protocol-reference.md §5's three groups an action belongs to."""
     if isinstance(action, CONVERSATION):
         return "conversation"
     if isinstance(action, PROTOCOL):
@@ -76,7 +76,7 @@ def group_of(action) -> str:
 async def handle(manager, chat, action) -> bool:
     """Act on an inbound action where the package should. Reporting is the caller's.
 
-    Returning rather than raising for an action the package does not act on: FR-011
+    Returning rather than raising for an action the package does not act on: the design
     wants every one of them reported, and an exception here would turn "the peer is
     typing" into a refusal.
     """
@@ -124,7 +124,7 @@ async def handle(manager, chat, action) -> bool:
     return False
 
 
-# --- outbound (FR-010, §5) ----------------------------------------------------
+# --- outbound (§5) ----------------------------------------------------
 # Thin by design: each is the constructor plus its section number, so the manager's
 # public methods read as one line and §5's mapping stays visible in one place.
 

@@ -1,4 +1,4 @@
-"""The SecretChat entity and its state machine - data-model.md §1.
+"""The SecretChat entity and its state machine - docs/architecture.md §5.
 
 What a conversation holds, what survives a restart, and which transitions exist.
 
@@ -8,7 +8,7 @@ fingerprint B decrypts nothing and looks from outside exactly like a peer proble
 There is no setter for either alone - ``adopt_key`` sets both, and ``to_record``
 emits both.
 
-The second rule, from data-model.md §1: **terminal means terminal**. The failures
+The second rule, from docs/architecture.md §5: **terminal means terminal**. The failures
 that close a chat are integrity failures (§3.4 parity, §3.6 monotonicity), and
 reviving a closed chat would mean continuing on the counters whose integrity just
 failed.
@@ -30,7 +30,7 @@ __all__ = ["ChatState", "ChatSnapshot", "SecretChat"]
 
 
 class ChatState(str, Enum):
-    """data-model.md §1. ``str`` so a record round-trips through JSON unchanged."""
+    """docs/architecture.md §5. ``str`` so a record round-trips through JSON unchanged."""
 
     REQUESTED = "requested"  # we asked; no key yet
     PENDING = "pending"  # the peer asked; we have not answered
@@ -39,11 +39,11 @@ class ChatState(str, Enum):
     CLOSED = "closed"  # terminal
 
 
-# The whole machine, as data: data-model.md §1's diagram, one row per source state.
+# The whole machine, as data: docs/architecture.md §5's diagram, one row per source state.
 _TRANSITIONS = {
     ChatState.REQUESTED: {ChatState.READY, ChatState.CLOSED},
     ChatState.PENDING: {ChatState.READY, ChatState.CLOSED},
-    # FR-013: sending still works while rekeying, so READY <-> REKEYING is a cycle
+    # sending still works while rekeying, so READY <-> REKEYING is a cycle
     # rather than a one-way door - §4.6 allows an exchange to be aborted back.
     ChatState.READY: {ChatState.REKEYING, ChatState.CLOSED},
     ChatState.REKEYING: {ChatState.READY, ChatState.CLOSED},
@@ -245,8 +245,8 @@ class SecretChat:
         self.initial_key_hash = None
 
     def require_sendable(self) -> None:
-        """contracts/public-api.md §2: ``send_message`` refuses outside ready and
-        rekeying. FR-013 puts ``rekeying`` on the allowed side - §4.8 keeps the old
+        """``send_message`` refuses outside ready and rekeying. ``rekeying`` is on
+        the allowed side - §4.8 keeps the old
         key in use until each side's own commit point, so a message issued during an
         exchange is delivered rather than dropped."""
         if self.state is ChatState.CLOSED:
@@ -259,9 +259,9 @@ class SecretChat:
     def adopt_key(self, key: bytes) -> None:
         """Take a new current key and its fingerprint together, and become ready.
 
-        The only way either field is written. data-model.md §1: "A backend that
-        persists them in separate writes can be interrupted between the two, leaving
-        a chat whose fingerprint does not match its key."
+        The only way either field is written. A backend that
+        persisted them in separate writes could be interrupted between the two, leaving
+        a chat whose fingerprint does not match its key (docs/architecture.md §5).
         """
         if len(key) != KEY_LENGTH:
             raise ValueError(f"a shared key is exactly {KEY_LENGTH} bytes: §1.4 pads it to that")
@@ -276,7 +276,7 @@ class SecretChat:
         if self.state in (ChatState.REQUESTED, ChatState.PENDING):
             self.state = ChatState.READY
 
-    # --- persistence (data-model.md §5) ---------------------------------------
+    # --- persistence (docs/architecture.md §3) ---------------------------------------
 
     _FIELDS = (
         "id",
@@ -315,7 +315,7 @@ class SecretChat:
 
     def to_record(self) -> Dict[str, Any]:
         """Everything that survives a restart, as one dict. The backend writes it as
-        one unit or not at all (data-model.md §5)."""
+        one unit or not at all (docs/architecture.md §3)."""
         record = {name: getattr(self, name) for name in self._FIELDS}
         record["state"] = self.state.value
         return record

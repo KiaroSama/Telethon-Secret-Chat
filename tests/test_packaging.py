@@ -43,7 +43,7 @@ def test_the_package_promises_only_what_it_implements():
     scaffold, and stale the moment there was something to export. What it was
     really guarding is kept: a caller must not be able to write code against a name
     that is not backed by an implementation. tests/unit/test_manager.py pins the
-    exact contents against contracts/public-api.md; this pins that they are real.
+    exact contents against the README's API reference; this pins that they are real.
     """
     import telethon_secret_chat as pkg
 
@@ -53,7 +53,7 @@ def test_the_package_promises_only_what_it_implements():
 
 
 def test_the_version_comes_from_the_distribution_metadata():
-    """plans/035: ``__version__`` is read from what pyproject.toml declared, never typed
+    """``__version__`` is read from what pyproject.toml declared, never typed
     twice. An editable install carries the same metadata."""
     import re
 

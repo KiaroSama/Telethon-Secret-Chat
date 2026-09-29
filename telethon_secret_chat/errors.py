@@ -84,7 +84,7 @@ class MessageRejected(SecretChatError):
     """A received message failed one of the receive-side checks (§2.7, §3.4-§3.6).
 
     Internal to the package, and deliberately not in the public surface of
-    ``contracts/public-api.md`` §4: the contract says a failed decrypt reaches the
+    the README's error table: the contract says a failed decrypt reaches the
     application as a ``DecryptFailed`` EVENT, not as an exception thrown through its
     update loop. This is what the manager catches to build that event.
 
@@ -134,7 +134,7 @@ class StorageRequired(SecretChatError):
 
     An error rather than a default, because the default would have to write key
     material somewhere - and a library that picks that location silently picks one
-    the operator never protected. FR-014.
+    the operator never protected.
     """
 
     def __init__(self) -> None:

@@ -56,7 +56,7 @@ class FakeClient:
         self.parse_modes = []
         self.download_targets = []
         # Deferred: each handler runs as its own task, as Telethon dispatches updates
-        # concurrently, instead of inline inside the sender's RPC (plans/031).
+        # concurrently, instead of inline inside the sender's RPC.
         self.deferred = False
         self.tasks = []
 

@@ -22,5 +22,6 @@ bytes and `random_id` (`manager._send`, `manager.retry_pending`), and again at `
 - Order at the server follows commit order without depending on Telethon internals, across
   restarts too.
 - Throughput per chat is one RPC round trip per message.
-- A record that keeps failing blocks later sends of that chat until it goes through; plan 025
-  classifies permanent rejections so one dead record cannot wedge a chat.
+- A record that keeps failing stays pending and is retried before each later send; the
+  records behind it still go, and a permanent rejection is withdrawn as a §3.8 self-delete
+  (`outbox._rejected`), so one dead record cannot wedge a chat.

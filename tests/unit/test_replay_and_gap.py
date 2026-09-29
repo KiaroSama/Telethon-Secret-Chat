@@ -196,7 +196,7 @@ class _FlakyClient(FakeClient):
 
 
 async def test_a_resend_request_lost_before_it_was_queued_is_asked_again():
-    """DD-04. §3.7 sends ONE request per hole, so the hole was marked requested in
+    """§3.7 sends ONE request per hole, so the hole was marked requested in
     the same commit that queued the gap message - before the request itself was
     written. A failure in between (here: retrying an older unsent message) lost the
     request while the mark stayed, so every later message just joined the queue and
@@ -231,7 +231,7 @@ async def test_a_resend_request_lost_before_it_was_queued_is_asked_again():
 
 
 async def test_a_retried_resend_request_skips_what_arrived_in_the_meantime():
-    """DD-09, found by review of DD-04. The span is decided when the hole opens. If
+    """The span is decided when the hole opens. If
     part of the hole arrives on its own before a retry succeeds, and this side's
     echo has meanwhile told the peer to forget it, asking for the old span again is
     unsatisfiable and the peer ends the chat. The retry asks only for what is still
@@ -270,7 +270,7 @@ async def test_a_retried_resend_request_skips_what_arrived_in_the_meantime():
 
 
 async def test_an_unsatisfiable_resend_request_ends_the_chat():
-    """DD-10, pre-existing, found by the same review. ``sequence`` closes the chat
+    """``sequence`` closes the chat
     and raises ``ResendUnsatisfiable``; the manager then closed it again with
     ``failure.reason``, which that error did not have. The AttributeError left the
     chat open on the peer's side and reported only a generic failure."""
@@ -303,7 +303,7 @@ async def test_an_unsatisfiable_resend_request_ends_the_chat():
 
 
 async def test_two_updates_dispatched_at_once_keep_their_order(pair):
-    """plans/031: Telethon runs update handlers as concurrent tasks. Three messages
+    """Telethon runs update handlers as concurrent tasks. Three messages
     landing together are still delivered in order and open no hole, because
     ``_on_update`` reaches the per-chat lock with no await before it (tasks take a
     free lock in creation order)."""
