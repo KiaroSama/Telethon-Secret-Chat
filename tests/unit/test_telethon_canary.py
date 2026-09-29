@@ -21,7 +21,6 @@ from telethon import TelegramClient
 from telethon.crypto import AES
 from telethon.extensions import BinaryReader
 from telethon.network.mtprotostate import MTProtoState
-from telethon.tl import functions, types
 
 # --- the one private attribute ------------------------------------------------
 
@@ -89,35 +88,48 @@ def test_the_binary_reader_is_still_public():
     assert hasattr(BinaryReader, "read_int") and hasattr(BinaryReader, "tgread_bytes")
 
 
-def test_every_tl_request_the_package_sends_still_exists():
-    """FALLBACK: none needed - a TL request that vanishes means Telegram changed the
-    API, and the schema has to be re-read either way."""
-    for name in (
-        "GetDhConfigRequest",
-        "RequestEncryptionRequest",
-        "AcceptEncryptionRequest",
-        "DiscardEncryptionRequest",
-        "SendEncryptedRequest",
-        "SendEncryptedFileRequest",
-    ):
-        assert hasattr(functions.messages, name), name
+def _telethon_tl_names():
+    """Every ``functions.X.Y`` / ``types.X`` the package source names, read from its
+    AST so a new request or type cannot be added without this canary seeing it."""
+    import ast
+    from pathlib import Path
+
+    import telethon_secret_chat
+
+    root = Path(telethon_secret_chat.__file__).parent
+    names = set()
+    for module in root.rglob("*.py"):
+        if module.parent.name == "schema":
+            continue  # generated from the end-to-end schema, not Telethon's
+        for node in ast.walk(ast.parse(module.read_text(encoding="utf-8"))):
+            parts = []
+            while isinstance(node, ast.Attribute):
+                parts.append(node.attr)
+                node = node.value
+            if isinstance(node, ast.Name) and node.id in ("functions", "types"):
+                names.add(".".join([node.id, *reversed(parts)]))
+    return names
 
 
-def test_every_tl_type_the_package_reads_still_exists():
-    for name in (
-        "UpdateEncryption",
-        "UpdateNewEncryptedMessage",
-        "EncryptedChat",
-        "EncryptedChatRequested",
-        "EncryptedChatWaiting",
-        "EncryptedChatDiscarded",
-        "EncryptedFile",
-        "EncryptedFileEmpty",
-        "InputEncryptedChat",
-        "InputEncryptedFileUploaded",
-        "InputEncryptedFileLocation",
-    ):
-        assert hasattr(types, name), name
+def test_every_tl_request_and_type_the_package_names_still_exists():
+    """FALLBACK: none needed - a TL request or type that vanishes means Telegram changed
+    the API, and the schema has to be re-read either way."""
+    from telethon import tl
+
+    names = _telethon_tl_names()
+    # The floor: the derivation itself must be finding the known surface.
+    assert {
+        "functions.messages.SendEncryptedRequest",
+        "functions.messages.SendEncryptedServiceRequest",
+        "functions.messages.SendEncryptedFileRequest",
+        "types.UpdateNewEncryptedMessage",
+        "types.EncryptedChatDiscarded",
+    } <= names
+    for dotted in sorted(names):
+        target = tl
+        for part in dotted.split("."):
+            assert hasattr(target, part), dotted
+            target = getattr(target, part)
 
 
 # --- the test oracle, which is private and deliberately not used at runtime ----

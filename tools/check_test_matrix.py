@@ -40,6 +40,8 @@ PLATFORM_SKIPS = {
     "cases-windows-latest-py3.13": {
         # File modes are meaningless on Windows; the backend's ACL is its own check.
         "tests.unit.test_storage_contract::test_the_file_backend_is_owner_only",
+        "tests.unit.test_guards::test_a_symlinked_store_is_refused",
+        "tests.unit.test_guards::test_a_directory_fsync_failure_is_a_warning_not_a_rollback",
     },
 }
 OPTIONAL_SKIPS = {

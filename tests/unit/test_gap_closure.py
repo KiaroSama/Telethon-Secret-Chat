@@ -53,6 +53,8 @@ CORRUPTIONS = {
     "bool counter": dict(in_seq_no=True),
     "short pending key": dict(pending_key=KEY[:10]),
     "long previous key": dict(previous_key=KEY + b"\x00"),
+    "non-integer id": dict(id="7"),
+    "malformed resend_due": dict(resend_due=[1]),
 }
 
 
