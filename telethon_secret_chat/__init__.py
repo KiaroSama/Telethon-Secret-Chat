@@ -30,6 +30,7 @@ from .events import (
     DecryptFailed,
     MessageAcknowledged,
     MessageReceived,
+    SendFailed,
     ServiceActionReceived,
 )
 
@@ -78,4 +79,5 @@ __all__ = [
     "MessageAcknowledged",
     "ServiceActionReceived",
     "DecryptFailed",
+    "SendFailed",
 ]

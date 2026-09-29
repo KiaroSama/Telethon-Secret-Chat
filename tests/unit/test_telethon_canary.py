@@ -167,3 +167,12 @@ def test_the_encryption_errors_accept_relies_on_still_exist():
         "EncryptionIdInvalidError",
     ):
         assert hasattr(errors, name), name
+
+
+def test_the_send_rejection_errors_still_exist():
+    """plans/025: the outbox sorts these; a rename would reclassify them as transient."""
+    from telethon_secret_chat import outbox
+
+    for family in (outbox.CHAT_ENDING, outbox.PERMANENT):
+        for error in family:
+            assert issubclass(error, Exception) and error.__module__.startswith("telethon")

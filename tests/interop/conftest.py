@@ -127,6 +127,7 @@ async def manager(client):
         "MessageAcknowledged",
         "ServiceActionReceived",
         "DecryptFailed",
+        "SendFailed",
     ):
         one.on(name, recorder.events.append)
 

@@ -25,6 +25,7 @@ __all__ = [
     "MessageAcknowledged",
     "ServiceActionReceived",
     "DecryptFailed",
+    "SendFailed",
     "EVENT_TYPES",
 ]
 
@@ -136,6 +137,20 @@ class DecryptFailed:
     reason: str
 
 
+@dataclass
+class SendFailed:
+    """Telegram rejected a sent message for good (not a network failure).
+
+    The message was withdrawn as a self-delete that keeps its sequence slot, so the
+    chat goes on; ``random_id`` is the one ``SendPending`` named. ``cause`` is the
+    Telethon error's class name, never its text.
+    """
+
+    chat_id: int
+    random_id: int
+    cause: str
+
+
 EVENT_TYPES = (
     "ChatRequested",
     "ChatReady",
@@ -144,4 +159,5 @@ EVENT_TYPES = (
     "MessageAcknowledged",
     "ServiceActionReceived",
     "DecryptFailed",
+    "SendFailed",
 )
