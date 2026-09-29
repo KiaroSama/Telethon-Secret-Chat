@@ -29,6 +29,7 @@ import os
 import secrets
 import tempfile
 from pathlib import Path
+from typing import Optional
 
 from telethon.crypto import AES
 from telethon.tl import types
@@ -378,11 +379,12 @@ def save(
     # so the next save can remove them.
     for leftover in target.parent.glob(TEMP_PREFIX + "*.tmp"):
         leftover.unlink(missing_ok=True)
-    descriptor, temporary = tempfile.mkstemp(
+    created, temporary = tempfile.mkstemp(
         dir=str(target.parent), prefix=TEMP_PREFIX, suffix=".tmp"
     )
+    descriptor: Optional[int] = created
     try:
-        with os.fdopen(descriptor, "wb") as handle:
+        with os.fdopen(created, "wb") as handle:
             descriptor = None
             pieces = iter(lambda: stream.read(CHUNK), b"")
             for plain in decrypt_stream(pieces, key, iv, size):

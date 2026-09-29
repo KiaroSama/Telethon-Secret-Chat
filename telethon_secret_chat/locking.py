@@ -12,6 +12,7 @@ import asyncio
 from contextlib import asynccontextmanager, contextmanager
 from copy import deepcopy
 from functools import wraps
+from .host import ManagerHost
 
 __all__ = ["ChatLocking", "ordered", "serialized"]
 
@@ -47,7 +48,7 @@ def ordered(method):
     return run
 
 
-class ChatLocking:
+class ChatLocking(ManagerHost):
     @asynccontextmanager
     async def _outbound_lock(self, chat_id):
         """Keeps this application's own sends in call order. Not reentrant."""

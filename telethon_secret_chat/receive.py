@@ -23,13 +23,14 @@ from .errors import SecretChatError
 from .events import DecryptFailed, MessageAcknowledged, MessageReceived, ServiceActionReceived
 from .locking import serialized
 from .schema import secret_tl as tl
+from .host import ManagerHost
 
 log = logging.getLogger("telethon_secret_chat")
 
 __all__ = ["Receiving"]
 
 
-class Receiving:
+class Receiving(ManagerHost):
     async def _on_update(self, update):
         # No await between here and the per-chat lock. Telethon dispatches updates as
         # concurrent tasks; reaching the lock synchronously is what keeps them FIFO per
@@ -78,7 +79,7 @@ class Receiving:
                     inner.action = tl.DecryptedMessageActionNoop()
                 previous_ack = chat.peer_in_seq_no
                 accepted = sequence.accept(chat, wrapper, self._storage, envelope=message)
-                if named is chat.pending_key:
+                if chat.pending_key is not None and named is chat.pending_key:
                     rekey_module.adopt_new_key(chat, named)
                     chat.transition_to(ChatState.READY)
                     chat.new_key_confirmed = True
@@ -113,7 +114,7 @@ class Receiving:
         except SecretChatError as failure:
             if failure.fatal:
                 await self.close(chat.id, failure.reason)
-            self._emit(DecryptFailed(chat.id, getattr(failure, "reason", "refused")))
+            self._emit(DecryptFailed(chat.id, failure.reason))
             return
         for event in acknowledgements:
             self._emit(event)

@@ -13,12 +13,13 @@ import logging
 from typing import Any, Callable
 
 from .events import EVENT_TYPES
+from .host import ManagerHost
 
 __all__ = ["EventDispatch"]
 log = logging.getLogger("telethon_secret_chat")
 
 
-class EventDispatch:
+class EventDispatch(ManagerHost):
     """Mixed into the manager, which owns ``_handlers`` and ``_handler_tasks``."""
 
     def on(self, event: str, handler: Callable):

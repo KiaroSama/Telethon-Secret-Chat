@@ -106,7 +106,7 @@ class MemoryStorage(StorageBackend):
         self._state: Dict[str, Any] = {"chats": {}, "out": {}, "in": {}}
         self._lock = threading.RLock()
         self._depth = 0
-        self._snapshot = None
+        self._snapshot: Optional[Dict[str, Any]] = None
 
     @contextmanager
     def transaction(self):
@@ -123,7 +123,7 @@ class MemoryStorage(StorageBackend):
                 if outermost and self._state != self._snapshot:
                     self._write()
             except BaseException:
-                if outermost:
+                if outermost and self._snapshot is not None:
                     self._state = self._snapshot
                 raise
             finally:
@@ -240,11 +240,14 @@ class FileStorage(MemoryStorage):
     def _write(self) -> None:
         directory = self.path.parent
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-        handle, temporary = tempfile.mkstemp(dir=str(directory), prefix=TEMP_PREFIX, suffix=".tmp")
+        created, temporary = tempfile.mkstemp(
+            dir=str(directory), prefix=TEMP_PREFIX, suffix=".tmp"
+        )
+        handle: Optional[int] = created
         try:
             # mkstemp is owner-only on POSIX. Apply the restriction before data.
             self._restrict(Path(temporary))
-            with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as fh:
+            with os.fdopen(created, "w", encoding="utf-8", newline="\n") as fh:
                 handle = None
                 json.dump(self._state, fh, default=self._encode, indent=1, sort_keys=True)
                 fh.flush()

@@ -31,6 +31,7 @@ from .errors import (
 from .events import SendFailed
 from .locking import serialized
 from .schema import secret_tl as tl
+from .host import ManagerHost
 
 log = logging.getLogger("telethon_secret_chat")
 
@@ -59,7 +60,7 @@ PERMANENT = (
 )
 
 
-class RetainedOutbox:
+class RetainedOutbox(ManagerHost):
     @staticmethod
     def _retained_random_id(item):
         if "random_id" in item:

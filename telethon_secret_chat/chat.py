@@ -20,7 +20,7 @@ import hashlib
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from .crypto import KEY_LENGTH, key_fingerprint
 from .errors import ChatClosed, ChatNotReady, StoreCorrupt
@@ -154,11 +154,13 @@ class SecretChat:
         # matters is `framing.MIN_WRAPPER_LAYER`, enforced at decode.
         self.wrapper_layer = 0
         self.ttl = 0  # §5.1: 0 disables
-        self.handshake = {}  # Persisted initial-exchange scratch; never rendered.
-        self.pending_deliveries = []  # Durable receive-to-dispatch mailbox.
+        self.handshake: Dict[str, Any] = {}  # Persisted initial-exchange scratch; never rendered.
+        self.pending_deliveries: List[Dict[str, Any]] = []  # Durable receive-to-dispatch mailbox.
         self.gap_end = None
         self.new_key_confirmed = False
-        self.initial_key_hash = None  # Official 36-byte visual authentication hash.
+        self.initial_key_hash: Optional[bytes] = (
+            None  # Official 36-byte visual authentication hash.
+        )
 
         now = time.time()
         self.created_at = now
