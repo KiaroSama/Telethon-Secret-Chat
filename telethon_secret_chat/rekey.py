@@ -31,6 +31,7 @@ import secrets
 import time
 
 from . import dh, handshake
+from .chat import ChatState
 from .crypto import key_fingerprint
 from .errors import ParameterRejected
 from .schema import secret_tl as tl
@@ -208,7 +209,7 @@ async def start(manager, chat) -> None:
         chat.exchange_id = exchange_id
         chat.exchange_secret = secret
         chat.rekey_role = "requested"
-        chat.transition_to(type(chat.state).REKEYING)
+        chat.transition_to(ChatState.REKEYING)
 
     await manager._send_action(
         chat,
@@ -217,27 +218,25 @@ async def start(manager, chat) -> None:
     )
 
 
-async def handle(manager, chat, action):
+async def handle(manager, chat, action) -> bool:
     """The inbound half of §4.2-§4.6."""
-    from .actions import Outcome
-
-    # `applied` says whether the package acted: an action for an exchange this side
+    # The result says whether the package acted: an action for an exchange this side
     # does not hold, or one it declined, is reported as not applied.
     if isinstance(action, tl.DecryptedMessageActionRequestKey):
-        return Outcome(applied=await _on_request(manager, chat, action))
+        return await _on_request(manager, chat, action)
     if isinstance(action, tl.DecryptedMessageActionAcceptKey):
-        return Outcome(applied=await _on_accept(manager, chat, action))
+        return await _on_accept(manager, chat, action)
     if isinstance(action, tl.DecryptedMessageActionCommitKey):
-        return Outcome(applied=await _on_commit(manager, chat, action))
+        return await _on_commit(manager, chat, action)
     if isinstance(action, tl.DecryptedMessageActionAbortKey):
         # §4.6: "Receiving it must clear the local exchange state." §8.4: the
         # archived package let this fall through to the application, so the chat
         # could sit in a half-open exchange indefinitely.
         if chat.exchange_id != action.exchange_id:
-            return Outcome(applied=False)
+            return False
         _clear(chat)
-        return Outcome(applied=True)
-    return Outcome(applied=False)
+        return True
+    return False
 
 
 async def _on_request(manager, chat, action) -> bool:
@@ -281,8 +280,8 @@ async def _on_request(manager, chat, action) -> bool:
         chat.pending_key = key
         chat.rekey_role = "accepted"
         # A collision (§4.2) drops our own exchange for the peer's: already REKEYING.
-        if chat.state is not type(chat.state).REKEYING:
-            chat.transition_to(type(chat.state).REKEYING)
+        if chat.state is not ChatState.REKEYING:
+            chat.transition_to(ChatState.REKEYING)
 
     await manager._send_action(
         chat,
@@ -319,7 +318,7 @@ async def _on_accept(manager, chat, action) -> bool:
 
     def prepared():
         adopt_new_key(chat, key)
-        chat.transition_to(type(chat.state).READY)
+        chat.transition_to(ChatState.READY)
 
     # The commit is serialized/encrypted using the OLD key. Adoption and its
     # exact old-key ciphertext are then persisted together, before the RPC.
@@ -346,7 +345,7 @@ async def _on_commit(manager, chat, action) -> bool:
 
     def prepared():
         adopt_new_key(chat, key)
-        chat.transition_to(type(chat.state).READY)
+        chat.transition_to(ChatState.READY)
         # B may retire after the authenticated CommitKey and all preceding gaps.
         # A, unlike B, must wait for a new-key packet (the Noop below).
         chat.new_key_confirmed = True
@@ -381,5 +380,5 @@ def _clear(chat) -> None:
     chat.pending_key = None
     chat.exchange_secret = None
     chat.rekey_role = None
-    if chat.state.value == "rekeying":
-        chat.transition_to(type(chat.state).READY)
+    if chat.state is ChatState.REKEYING:
+        chat.transition_to(ChatState.READY)

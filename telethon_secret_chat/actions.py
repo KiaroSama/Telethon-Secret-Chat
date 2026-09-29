@@ -21,12 +21,24 @@ the manager.
 
 from __future__ import annotations
 
-from typing import NamedTuple
-
-from . import framing
+from . import framing, rekey
 from .schema import secret_tl as tl
 
-__all__ = ["Outcome", "handle", "group_of", "CONVERSATION", "PROTOCOL", "REKEY"]
+__all__ = [
+    "handle",
+    "group_of",
+    "CONVERSATION",
+    "PROTOCOL",
+    "REKEY",
+    "set_message_ttl",
+    "read_messages",
+    "delete_messages",
+    "screenshot_messages",
+    "flush_history",
+    "typing",
+    "notify_layer",
+    "resend",
+]
 
 # data-model.md §4, as three tuples so `group_of` cannot disagree with the table.
 CONVERSATION = (
@@ -50,12 +62,6 @@ REKEY = (
 )
 
 
-class Outcome(NamedTuple):
-    """Whether the package acted, as well as reported."""
-
-    applied: bool
-
-
 def group_of(action) -> str:
     """Which of data-model.md §4's three groups an action belongs to."""
     if isinstance(action, CONVERSATION):
@@ -67,7 +73,7 @@ def group_of(action) -> str:
     return "unknown"
 
 
-async def handle(manager, chat, action) -> Outcome:
+async def handle(manager, chat, action) -> bool:
     """Act on an inbound action where the package should. Reporting is the caller's.
 
     Returning rather than raising for an action the package does not act on: FR-011
@@ -80,7 +86,7 @@ async def handle(manager, chat, action) -> Outcome:
         # archived package assigning unconditionally, so a peer could walk its
         # announced layer back down and out of MTProto 2.0.
         chat.layer = framing.raise_remote_layer(chat.layer, action.layer)
-        return Outcome(applied=True)
+        return True
 
     if isinstance(action, tl.DecryptedMessageActionSetMessageTTL):
         # §5.1: "Store it and apply to subsequent messages; 0 disables." Stored and
@@ -89,21 +95,17 @@ async def handle(manager, chat, action) -> Outcome:
         # default of storing and transmitting rather than inventing one.
         if action.ttl_seconds < 0:
             await manager.close(chat.id, "negative message lifetime received")
-            return Outcome(applied=False)
+            return False
         chat.ttl = action.ttl_seconds
-        return Outcome(applied=True)
+        return True
 
     if isinstance(action, tl.DecryptedMessageActionDeleteMessages):
-        manager._remove_history(chat.id, set(action.random_ids))
-        with manager._atomic(chat):
-            manager._rewrite_retained_as_deletes(chat, set(action.random_ids))
-        return Outcome(applied=True)
+        manager._forget_locally(chat, set(action.random_ids))
+        return True
 
     if isinstance(action, tl.DecryptedMessageActionFlushHistory):
-        manager._forget_history(chat.id)
-        with manager._atomic(chat):
-            manager._rewrite_retained_as_deletes(chat, manager._content_random_ids(chat))
-        return Outcome(applied=True)
+        manager._forget_everything_locally(chat)
+        return True
 
     if isinstance(action, tl.DecryptedMessageActionResend):
         # The manager authenticates and deduplicates this before acting immediately: it
@@ -111,17 +113,15 @@ async def handle(manager, chat, action) -> Outcome:
         # time it reaches here it has been rewritten to Noop, so arriving here means
         # something replayed it - and "each decryptedMessageActionResend must only be
         # handled once".
-        return Outcome(applied=False)
+        return False
 
     if isinstance(action, REKEY):
-        from . import rekey
-
         return await rekey.handle(manager, chat, action)
 
     # Everything else is the application's to act on: read receipts, deletions, a
     # history flush, a screenshot notice, a typing indicator, a Noop. The package
     # stores none of them, and reports all of them.
-    return Outcome(applied=False)
+    return False
 
 
 # --- outbound (FR-010, §5) ----------------------------------------------------

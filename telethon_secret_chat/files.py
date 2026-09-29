@@ -452,9 +452,6 @@ async def _send_uploaded(
         if framing.outgoing_layer(chat.layer) >= SIZE_LONG_LAYER
         else tl.DecryptedMessageMediaDocument_7afe8ae2
     )
-    if media_type is tl.DecryptedMessageMediaDocument_7afe8ae2 and size >= 2**31:
-        # The layer can have dropped only if the chat was replaced while uploading.
-        raise ValueError("the negotiated layer cannot encode this file size")
     message = tl.DecryptedMessage(
         random_id=random_id,
         ttl=chat.ttl,

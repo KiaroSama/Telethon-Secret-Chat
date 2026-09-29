@@ -16,6 +16,7 @@ failed.
 
 from __future__ import annotations
 
+import hashlib
 import time
 from dataclasses import dataclass
 from enum import Enum
@@ -263,8 +264,6 @@ class SecretChat:
         if self.state is ChatState.CLOSED:
             raise ChatClosed(chat_id=self.id, reason=self.closed_reason or "already closed")
         if self.key is None and self.initial_key_hash is None:
-            import hashlib
-
             self.initial_key_hash = (
                 hashlib.sha1(key).digest()[:16] + hashlib.sha256(key).digest()[:20]
             )

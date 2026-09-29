@@ -10,14 +10,22 @@ from . import framing
 from .errors import MessageRejected, ResendUnsatisfiable
 from .schema import secret_tl as tl
 
-__all__ = ["accept", "answer_resend", "forget_acknowledged", "Accepted", "MAX_RESEND_COUNT"]
+__all__ = [
+    "accept",
+    "answer_resend",
+    "forget_acknowledged",
+    "preflight",
+    "pack",
+    "unpack",
+    "Accepted",
+    "MAX_RESEND_COUNT",
+]
 MAX_RESEND_COUNT = 1000
 
 
 class Accepted(NamedTuple):
     ready: List[object]
     resend: Optional[Tuple[int, int]] = None
-    duplicate: bool = False
 
 
 def _abort(chat, reason):
@@ -75,7 +83,7 @@ def unpack(record):
 
 def accept(chat, wrapper, storage, envelope=None) -> Accepted:
     if not preflight(chat, wrapper, storage):
-        return Accepted([], duplicate=True)
+        return Accepted([])
     attachment = getattr(envelope, "file", None)
     wrapper._tsc_file = bytes(attachment).hex() if attachment is not None else None
     raw_out = wrapper.out_seq_no // 2

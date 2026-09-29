@@ -158,7 +158,7 @@ def test_a_notify_layer_does_not_raise_the_bar_the_next_wrapper_must_clear():
     outcome = asyncio.run(
         actions.handle(None, chat, tl.DecryptedMessageActionNotifyLayer(layer=143))
     )
-    assert outcome.applied
+    assert outcome is True
     assert chat.layer == 143, "a NotifyLayer must still raise the capability layer"
 
     # The peer's first real message, encoded at the layer it believed we supported.

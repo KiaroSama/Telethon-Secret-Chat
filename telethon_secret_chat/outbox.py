@@ -58,6 +58,18 @@ class RetainedOutbox:
             )
             self._storage.queue_out(chat.id, item)
 
+    def _forget_locally(self, chat, random_ids):
+        """The one local deletion: retained content rewritten, then history."""
+        with self._atomic(chat):
+            self._rewrite_retained_as_deletes(chat, random_ids)
+        self._remove_history(chat.id, random_ids)
+
+    def _forget_everything_locally(self, chat):
+        # plans/007: content records only; retained protocol actions keep their frames.
+        with self._atomic(chat):
+            self._rewrite_retained_as_deletes(chat, self._content_random_ids(chat))
+        self._forget_history(chat.id)
+
     def _content_random_ids(self, chat):
         """Every retained message a history flush withdraws (never service actions)."""
         return {

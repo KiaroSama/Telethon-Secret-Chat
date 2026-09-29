@@ -239,9 +239,7 @@ class SecretChatManager(ChatLocking, EventDispatch, RetainedOutbox, Establishmen
         ids = list(random_ids)
         # Remove content BEFORE retrying an uncertain send; privacy cannot wait
         # for the network to succeed. The retained self-delete preserves its slot.
-        with self._atomic(chat):
-            self._rewrite_retained_as_deletes(chat, set(ids))
-        self._remove_history(chat.id, set(ids))
+        self._forget_locally(chat, set(ids))
         await self._send_action(chat, actions_module.delete_messages(ids))
 
     @ordered
@@ -253,10 +251,7 @@ class SecretChatManager(ChatLocking, EventDispatch, RetainedOutbox, Establishmen
     @ordered
     async def flush_history(self, chat_id):
         chat = self._sendable(chat_id)
-        ids = self._content_random_ids(chat)
-        with self._atomic(chat):
-            self._rewrite_retained_as_deletes(chat, ids)
-        self._forget_history(chat_id)
+        self._forget_everything_locally(chat)
         await self._send_action(chat, actions_module.flush_history())
 
     @ordered
