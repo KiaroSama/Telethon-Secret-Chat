@@ -550,3 +550,16 @@ async def test_history_keeps_only_the_most_recent_messages():
     finally:
         await a.stop()
         await b.stop()
+
+
+def test_every_public_manager_method_is_documented():
+    """plans/034: ``help(SecretChatManager)`` is the API reference."""
+    import inspect
+
+    assert inspect.getdoc(SecretChatManager)
+    undocumented = [
+        name
+        for name, member in inspect.getmembers(SecretChatManager)
+        if not name.startswith("_") and callable(member) and not inspect.getdoc(member)
+    ]
+    assert undocumented == []

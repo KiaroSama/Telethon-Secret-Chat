@@ -29,6 +29,11 @@ __all__ = ["Establishment"]
 
 class Establishment(ManagerHost):
     async def create(self, user):
+        """Ask ``user`` for a secret chat.
+
+        Returns: a ``ChatSnapshot`` in state ``requested``; ``ChatReady`` fires when
+        the peer accepts.
+        """
         g, p = await self._dh_config()
         secret = handshake.generate_secret()
         peer = await self._client.get_input_entity(user)
@@ -70,6 +75,12 @@ class Establishment(ManagerHost):
 
     @serialized
     async def accept(self, chat_id):
+        """Accept a chat the peer requested (state ``pending``).
+
+        Returns: a ``ChatSnapshot`` of the now ready chat; ``ChatReady`` fires too.
+        Raises: UnknownChat; ChatNotReady if the chat is not awaiting acceptance;
+        ChatClosed if the peer or another device already ended it.
+        """
         chat = self._require(chat_id)
         if chat.state in (ChatState.READY, ChatState.REKEYING):
             return chat.snapshot()
