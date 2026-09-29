@@ -1,7 +1,7 @@
 # Design note: forwarding an encrypted file without re-uploading it
 
 Design spike, 2026-09-29. Output: the oracle's behaviour, the API, the security
-statement and the acceptance criteria. The live check is UNVERIFIED (it needs the operator).
+statement and the acceptance criteria. The live check passed on 2026-09-29 (below).
 
 ## Today
 
@@ -36,7 +36,7 @@ So a forward is a new encrypted message whose media carries the original key/iv/
 whose file handle is `inputEncryptedFile(id, access_hash)`. The fingerprint the peer checks is
 unchanged because key and iv are unchanged.
 
-## Live check (UNVERIFIED)
+## Live check (passed 2026-09-29)
 
 Whether a handle received in chat A may be sent into chat B (server-side ownership of `id` /
 `access_hash`) is not documented. The check, for the operator: with two throwaway chats to the
@@ -45,6 +45,11 @@ key/iv/size and whose handle is `inputEncryptedFile(A.file.id, A.file.access_has
 temporary local change, reverted afterwards - and record whether it opens on the official
 client. Close both chats at the end. If the server refuses a cross-chat handle, the API
 becomes same-chat only.
+
+Result: a photo the official client sent into chat A was re-sent by its handle with the
+same key/iv/size both into chat A and into a second chat B; the server accepted both sends
+and the official client opened both copies. Cross-chat reuse works, so the API need not be
+restricted to the same chat.
 
 ## API for the follow-up feature
 
