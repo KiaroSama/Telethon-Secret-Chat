@@ -159,6 +159,7 @@ class Receiving(ManagerHost):
         inner = wrapper.message
         if isinstance(inner, (tl.DecryptedMessageService, tl.DecryptedMessageService8)):
             outcome = await actions_module.handle(self, chat, inner.action)
+            self._autosave.service_received(chat.id, inner.action)
             self._emit(
                 ServiceActionReceived(chat.id, type(inner.action).__name__, inner.action, outcome)
             )
@@ -186,6 +187,7 @@ class Receiving(ManagerHost):
                 seen.discard(history[0].random_id)
             history.append(event)
             seen.add(event.random_id)
+        self._autosave.received(event)  # before handlers, and before a peer can delete it
         self._emit(event)
 
     def _remove_history(self, chat_id, random_ids):

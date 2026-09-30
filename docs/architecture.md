@@ -24,6 +24,7 @@ manager composes them, and only the manager's parts (`manager.py`, `establishmen
 | `files.py` | one-time file keys, file encryption, the eight media kinds, `send` / `receive` / `forward` | §6 |
 | `media.py` | media metadata checks, send sources (path, bytes, stream), `MediaReference` | §6 |
 | `visualization.py` | `key_visualization`: the key picture as a colour grid and hex (standard library only) | §1.6 |
+| `autosave.py` | auto-save: every message and file of every chat into an application folder (spec 009) | - |
 | `ogg_tags.py` | voice note or music: reads the Ogg comment block, never the audio | — |
 | `chat.py` | the `SecretChat` entity, its state table and record validation | — |
 | `storage/` | `StorageBackend` and the two shipped backends | — |
@@ -77,6 +78,7 @@ method is atomic on its own; `transaction()` makes a group of them atomic togeth
 | `queue_in(chat_id, item)` | keep the first copy of a gap message; a duplicate `seq_no` must not grow storage |
 | `take_in(chat_id)` | drain the gap queue in order |
 | `requeue_in(chat_id, items)` | put still-waiting gap records back; the default queues them one by one |
+| `load_setting(name)` / `save_setting(name, value)` | a manager-wide setting (the auto-save folder); the default keeps it for the process only, the shipped backends persist it |
 | `peek_in(chat_id)` | inspect the gap queue without consuming it. The default is take-and-requeue inside a transaction, and it runs on EVERY received message (`sequence.preflight`), so a native backend should override it. |
 
 Every read returns a detached copy; a caller mutating it must not change stored state.

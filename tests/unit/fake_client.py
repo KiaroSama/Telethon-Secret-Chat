@@ -177,7 +177,8 @@ class FakeClient:
         else:
             blob = file.read() if hasattr(file, "read") else bytes(file)
         self.uploaded.append(blob)
-        file_id = len(self.uploaded)
+        # Unique across both accounts, as Telegram's are: two uploads must never share an id.
+        file_id = self.user_id * 10_000 + len(self.uploaded)
         # Both sides of a Wire share one store, as one Telegram CDN would.
         self.stored[file_id] = blob
         if self.peer is not None:

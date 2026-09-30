@@ -104,6 +104,11 @@ The record of a closed chat, kept with its keys erased so the chat id cannot be 
 until the application forgets it.
 _Avoid_: dead chat, closed record (in writing), deleted chat
 
+**Auto-save**:
+Keeping every message and file of every secret chat on this side as it happens, because the
+server keeps none; the saved copy outlives message and chat deletes.
+_Avoid_: archive (in writing), backup, export (that renders saved messages for reading)
+
 **Delete (one side)**:
 Ending a chat and removing everything this side holds of it - tombstone, history and queued
 messages - while the peer keeps its own copy and only sees the chat end. Exporting first is

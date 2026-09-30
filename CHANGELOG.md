@@ -9,6 +9,10 @@ package by commit and reads this file before moving its pin. The format follows
 
 ### Added
 
+- Auto-save: `start_auto_save_secret_chats(folder)` / `stop_auto_save_secret_chats()` save every
+  message of every secret chat (self-destructing ones included) and download every file at once;
+  `read_saved_messages` / `delete_saved_messages`. The switch is kept in the storage, which gains
+  `load_setting` / `save_setting`.
 - `delete_secret_chat(chat_id)` and `delete_secret_chat_both_sides(chat_id)`: delete a chat on this
   side only, or also ask Telegram to erase the peer's history (`messages.discardEncryption`
   `delete_history`, as TDLib does). A peer's delete for both sides removes the chat here, and

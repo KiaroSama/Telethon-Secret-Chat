@@ -22,6 +22,7 @@ from typing import Callable, Dict, List, Optional
 from . import actions as actions_module
 from . import entities as entities_module, files, framing
 from . import rekey as rekey_module
+from .autosave import AutoSave
 from .chat import ChatState, SecretChat
 from .dispatch import EventDispatch
 from .errors import ManagerStopping, StorageRequired, UnknownChat
@@ -80,6 +81,7 @@ class SecretChatManager(ChatLocking, EventDispatch, RetainedOutbox, Establishmen
         self._stop_callers = set()
         self._draining_handlers = set()
         self._subscription = self._on_update
+        self._autosave = AutoSave(self)
 
     async def start(self):
         """Load every stored chat, subscribe to updates, and resume durable work.
@@ -108,6 +110,8 @@ class SecretChatManager(ChatLocking, EventDispatch, RetainedOutbox, Establishmen
                 # All or nothing: one corrupt record installs no chat.
                 loaded[chat_id] = SecretChat.from_record(record, stored_id=chat_id)
         self._chats = loaded
+        # Before any mailbox is drained: those deliveries are saved too (spec 009).
+        self._autosave.load()
         # Old uploads retain their old lock and generation. A restarted manager
         # must not wait for their network calls, nor accept their stale state.
         self._outbound_locks.clear()
@@ -139,6 +143,7 @@ class SecretChatManager(ChatLocking, EventDispatch, RetainedOutbox, Establishmen
                         await self._request_due_resend(chat)
                 except Exception:
                     log.warning("chat %s has durable work awaiting retry", chat.id)
+        self._autosave.resume()
         log.info("secret-chat manager started with %s stored chats", len(self._chats))
 
     async def stop(self):
@@ -186,6 +191,8 @@ class SecretChatManager(ChatLocking, EventDispatch, RetainedOutbox, Establishmen
 
     async def _finish_stop(self) -> None:
         self._client.remove_event_handler(self._subscription)
+        # A cancelled download stays owed in pending.json; start() retries it.
+        await self._autosave.cancel()
         self._stopping = True
         for chat in list(self._chats.values()):
             async with self._chat_lock(chat.id):
@@ -398,8 +405,10 @@ class SecretChatManager(ChatLocking, EventDispatch, RetainedOutbox, Establishmen
             "sticker_alt": sticker_alt,
         }
         # Outbound order only: the upload runs without the chat lock (files.send).
+        # Where a stream starts, so auto-save can copy the same bytes after the upload.
+        start = source.tell() if hasattr(source, "read") else 0
         async with self._outbound_lock(chat_id):
-            return await files.send(
+            random_id = await files.send(
                 self,
                 self._sendable(chat_id),
                 source,
@@ -410,6 +419,9 @@ class SecretChatManager(ChatLocking, EventDispatch, RetainedOutbox, Establishmen
                 file_name=file_name,
                 metadata=metadata,
             )
+        name = file_name or (Path(source).name if isinstance(source, (str, Path)) else "file.bin")
+        self._autosave.sent_file(chat_id, random_id, source, name, start)
+        return random_id
 
     async def forward_file(self, chat_id, source, *, caption="", reply_to=None):
         """Send a received file into a chat again without downloading or uploading it.
@@ -424,7 +436,47 @@ class SecretChatManager(ChatLocking, EventDispatch, RetainedOutbox, Establishmen
         ValueError for a file over 2000 MB when the peer is below layer 143.
         """
         async with self._outbound_lock(chat_id):
-            return await files.forward(self, self._sendable(chat_id), source, caption, reply_to)
+            random_id = await files.forward(
+                self, self._sendable(chat_id), source, caption, reply_to
+            )
+        self._autosave.forwarded(chat_id, random_id, source)
+        return random_id
+
+    # --- auto-save (spec 009) ---------------------------------------------------------
+
+    @property
+    def auto_save_secret_chats(self) -> Optional[str]:
+        """The auto-save folder, or None when auto-save is off."""
+        return str(self._autosave.folder) if self._autosave.folder is not None else None
+
+    async def start_auto_save_secret_chats(self, folder) -> None:
+        """Save every message and file of every secret chat, from now on, into ``folder``.
+
+        Self-destructing messages included; files are downloaded and decrypted at once,
+        whatever their size. Stays on across restarts (kept in the storage) until
+        ``stop_auto_save_secret_chats``. Saved data outlives message and chat deletes. The
+        folder holds PLAINTEXT: protect it like the store.
+        """
+        self._autosave.enable(folder)
+
+    async def stop_auto_save_secret_chats(self) -> None:
+        """Save nothing more. What was saved stays; ``delete_saved_messages`` removes it."""
+        await self._autosave.settle()
+        self._autosave.disable()
+
+    def read_saved_messages(self, chat_id) -> List[dict]:
+        """The saved records of one chat, in order (also for a deleted chat).
+
+        Each is a dict: ``type`` (``message`` or ``service``), ``id``, ``date`` (when this
+        side saved it), ``out``, and for a message ``text``, ``entities``, ``ttl``,
+        ``reply_to``, ``media`` (the protocol media without its key) and ``file`` (the
+        saved file's path, once it is on disk); for a service record, ``action``.
+        """
+        return self._autosave.read(chat_id)
+
+    def delete_saved_messages(self, chat_id) -> None:
+        """Remove one chat's saved messages and files. Ask the user first."""
+        self._autosave.delete(chat_id)
 
     async def save_file(self, message, path) -> Path:
         """Download, verify and decrypt a received file to ``path``.
