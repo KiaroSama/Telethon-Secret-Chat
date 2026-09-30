@@ -134,7 +134,7 @@ class FakeClient:
                         chat=types.EncryptedChatDiscarded(id=request.chat_id), date=0
                     )
                 )
-            return types.BoolTrue()
+            return True  # Telethon maps boolTrue to Python's True; types has no BoolTrue.
         self.unanswered.append(type(request).__name__)
         raise AssertionError(f"the manager sent a request this fake does not answer: {request!r}")
 
