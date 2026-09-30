@@ -17,6 +17,7 @@ failed.
 from __future__ import annotations
 
 import hashlib
+import math
 import time
 from dataclasses import dataclass
 from enum import Enum
@@ -366,31 +367,97 @@ def _validate(record: Dict[str, Any], stored_id) -> None:
     chat_id = record.get("id") if isinstance(record, dict) else None
 
     def refuse(reason: str):
-        raise StoreCorrupt(chat_id=chat_id if type(chat_id) is int else stored_id, reason=reason)
+        safe_id = (
+            chat_id if type(chat_id) is int else stored_id if type(stored_id) is int else None
+        )
+        raise StoreCorrupt(chat_id=safe_id, reason=reason)
+
+    def integer(name, *, default=0, low=0, high=None, optional=False):
+        value = record.get(name, default)
+        if optional and value is None:
+            return
+        if type(value) is not int or value < low or (high is not None and value > high):
+            refuse(f"{name} is not an integer in the supported range")
 
     if not isinstance(record, dict) or type(chat_id) is not int:
         refuse("a record has no integer chat id")
-    if stored_id is not None and chat_id != int(stored_id):
-        refuse("a record is filed under a different chat id")
-    if record.get("state") not in {state.value for state in ChatState}:
+    if stored_id is not None:
+        try:
+            matched = chat_id == int(stored_id)
+        except (ValueError, TypeError, OverflowError):
+            matched = False
+        if not matched:
+            refuse("a record is filed under a different chat id")
+    state = record.get("state")
+    if not isinstance(state, str) or state not in {item.value for item in ChatState}:
         refuse("a record carries an unknown state")
+    integer("id", low=-(2**31), high=2**31 - 1)
+    for name in ("access_hash", "peer_user_id"):
+        integer(name, default=None, low=-(2**63), high=2**63 - 1)
+    for name in ("admin_id", "participant_id", "exchange_id", "key_fingerprint"):
+        integer(name, default=None, low=-(2**63), high=2**63 - 1, optional=True)
+    if type(record.get("is_outbound")) is not bool:
+        refuse("is_outbound is not a boolean")
+    for name in ("gap_requested", "new_key_confirmed"):
+        if type(record.get(name, False)) is not bool:
+            refuse(f"{name} is not a boolean")
     for name in _COUNTERS:
+        integer(name)
+    for name in ("ttl", "layer", "wrapper_layer"):
+        integer(name, high=2**31 - 1)
+    integer("gap_end", default=None, optional=True)
+    for name in ("created_at", "rekeyed_at"):
         value = record.get(name, 0)
-        if type(value) is not int or value < 0:
-            refuse(f"{name} is not a nonnegative integer")
+        if type(value) not in (int, float):
+            refuse(f"{name} is not a finite nonnegative timestamp")
+        try:
+            valid = value >= 0 and math.isfinite(value)
+        except OverflowError:
+            valid = False
+        if not valid:
+            refuse(f"{name} is not a finite nonnegative timestamp")
     for name in ("key", "pending_key", "previous_key"):
         value = record.get(name)
         if value is not None and (not isinstance(value, bytes) or len(value) != KEY_LENGTH):
             refuse(f"{name} is not a {KEY_LENGTH}-byte key")
+    visual = record.get("initial_key_hash")
+    if visual is not None and (not isinstance(visual, bytes) or len(visual) != 36):
+        refuse("initial_key_hash is not a 36-byte visualization hash")
     due = record.get("resend_due")
     if due is not None and not (
         isinstance(due, (list, tuple))
         and len(due) == 2
-        and all(type(n) is int and n >= 0 for n in due)
+        and all(type(n) is int and 0 <= n < 2**31 for n in due)
+        and due[0] <= due[1]
+        and due[0] % 2 == due[1] % 2
     ):
-        refuse("resend_due is not a pair of nonnegative integers")
+        refuse("resend_due is not an ordered pair of compatible sequence numbers")
+    role = record.get("rekey_role")
+    if role is not None and (
+        not isinstance(role, str) or role not in {"requested", "accepted", "committed"}
+    ):
+        refuse("rekey_role is not a recognized exchange phase")
+    for name in ("dh_prime", "dh_g", "exchange_secret"):
+        integer(name, default=None, low=1, high=2**2048 - 1, optional=True)
+    pending = record.get("handshake", {})
+    if not isinstance(pending, dict):
+        refuse("handshake is not a mapping")
+    for name in ("secret", "p", "g", "g_a"):
+        if name in pending and (type(pending[name]) is not int or not 0 < pending[name] < 2**2048):
+            refuse(f"handshake {name} is not a positive DH integer")
+    if pending and state in (ChatState.REQUESTED.value, ChatState.PENDING.value):
+        required = {"p", "g", "secret" if record["is_outbound"] else "g_a"}
+        if not required <= pending.keys():
+            refuse("a pending handshake is missing the material needed to resume it")
+    if not isinstance(record.get("pending_deliveries", []), list):
+        refuse("pending_deliveries is not a mailbox list")
+    # Individual serialized mailbox entries are checked and isolated by the drain;
+    # one damaged message must not prevent all later messages from being delivered.
     key = record.get("key")
     if key is not None and record.get("key_fingerprint") != key_fingerprint(key):
         refuse("the stored fingerprint does not match the stored key")
-    if key is None and record["state"] in (ChatState.READY.value, ChatState.REKEYING.value):
-        refuse("an established chat has no key")
+    if key is None:
+        if state in (ChatState.READY.value, ChatState.REKEYING.value):
+            refuse("an established chat has no key")
+        if record.get("key_fingerprint") is not None:
+            refuse("a keyless record retains a fingerprint")

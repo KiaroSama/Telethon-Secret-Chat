@@ -34,9 +34,13 @@ class Establishment(ManagerHost):
         Returns: a ``ChatSnapshot`` in state ``requested``; ``ChatReady`` fires when
         the peer accepts.
         """
+        generation = self._generation
+        self._check_generation(generation)
         g, p = await self._dh_config()
+        self._check_generation(generation)
         secret = handshake.generate_secret()
         peer = await self._client.get_input_entity(user)
+        self._check_generation(generation)
         self._creating += 1
         try:
             result = await self._client(
@@ -48,6 +52,12 @@ class Establishment(ManagerHost):
             )
         finally:
             self._creating -= 1
+        try:
+            self._check_generation(generation)
+        except SecretChatError:
+            self._early_encryption.pop(result.id, None)
+            await self._discard_remote(result.id)
+            raise
         chat = SecretChat(
             id=result.id,
             access_hash=result.access_hash,
@@ -67,7 +77,9 @@ class Establishment(ManagerHost):
             raise
         self._chats[chat.id] = chat
         early = self._early_encryption.pop(chat.id, None)
-        if isinstance(result, types.EncryptedChat):
+        if isinstance(early, types.EncryptedChatDiscarded):
+            await self._on_encryption(early)
+        elif isinstance(result, types.EncryptedChat):
             await self._on_encryption(result)
         elif early is not None:
             await self._on_encryption(early)
@@ -164,8 +176,7 @@ class Establishment(ManagerHost):
             chat = self._chats.get(encrypted.id)
             if chat is None:
                 if self._creating:
-                    if len(self._early_encryption) < 100:
-                        self._early_encryption[encrypted.id] = encrypted
+                    self._remember_early(encrypted)
                 else:
                     await self._discard_lost_request(encrypted.id)
                 return
@@ -205,6 +216,15 @@ class Establishment(ManagerHost):
             chat = self._chats.get(encrypted.id)
             if chat is not None and chat.state is not ChatState.CLOSED:
                 self._close_local(chat, "the peer discarded the chat")
+            elif chat is None and self._creating:
+                self._remember_early(encrypted)
+
+    def _remember_early(self, encrypted):
+        prior = self._early_encryption.get(encrypted.id)
+        if isinstance(prior, types.EncryptedChatDiscarded):
+            return  # Terminal beats both a late ready update and the RPC response.
+        if prior is not None or len(self._early_encryption) < 100:
+            self._early_encryption[encrypted.id] = encrypted
 
     async def _discard_lost_request(self, chat_id):
         # Plan 027, observed live 2026-09-29: another device's chats reach this session

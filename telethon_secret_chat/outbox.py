@@ -195,6 +195,7 @@ class RetainedOutbox(ManagerHost):
     # retrying unsent records first (docs/adr/0005-serialized-sends-instead-of-invokeaftermsgs.md).
     @serialized
     async def _send(self, chat, message, file=None, *, after_prepare=None, encryption_key=None):
+        self._check_current(chat)
         chat.require_sendable()
         if self._stopping:
             raise ManagerStopping()

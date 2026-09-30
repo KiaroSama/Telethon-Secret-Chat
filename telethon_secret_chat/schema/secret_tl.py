@@ -79,18 +79,20 @@ def _read_vector(r, read_item):
     return [read_item() for _ in range(count)]
 
 
-# Every object field is read untyped, so an object can hold any other object. A real
-# message nests about four deep; the bound keeps a hostile one far from Python's
-# recursion limit, including on the deeper re-parse from the delivery mailbox.
+# Expected TL result families reject misplaced known constructors before reading
+# their fields. Keep a depth bound as independent defense for untyped root readers
+# and future schema changes, including re-parsing from the delivery mailbox.
 MAX_NESTING = 32
 
 
-def read_object(r):
-    """Read one boxed object using THIS schema's registry."""
+def read_object(r, expected=None):
+    """Read one boxed object, optionally constrained to its declared TL result family."""
     constructor_id = r.read_int(signed=False)
     cls = REGISTRY.get(constructor_id)
     if cls is None:
         raise UnknownConstructor(constructor_id)
+    if expected is not None and cls.RESULT_TYPE != expected:
+        raise ValueError("unexpected TL result family")
     depth = getattr(r, "_tsc_depth", 0)
     if depth >= MAX_NESTING:
         raise ValueError("nesting too deep")
@@ -161,7 +163,7 @@ class DecryptedMessage_1f814f1f(SecretTLObject):
         random_id = r.read_long()
         random_bytes = r.tgread_bytes()
         message = r.tgread_bytes().decode("utf-8")
-        media = read_object(r)
+        media = read_object(r, expected="DecryptedMessageMedia")
         return cls(random_id=random_id, random_bytes=random_bytes, message=message, media=media)
 
 
@@ -186,7 +188,7 @@ class DecryptedMessageService8(SecretTLObject):
     def from_reader(cls, r):
         random_id = r.read_long()
         random_bytes = r.tgread_bytes()
-        action = read_object(r)
+        action = read_object(r, expected="DecryptedMessageAction")
         return cls(random_id=random_id, random_bytes=random_bytes, action=action)
 
 
@@ -582,7 +584,7 @@ class DecryptedMessage_204d3878(SecretTLObject):
         random_id = r.read_long()
         ttl = r.read_int()
         message = r.tgread_bytes().decode("utf-8")
-        media = read_object(r)
+        media = read_object(r, expected="DecryptedMessageMedia")
         return cls(random_id=random_id, ttl=ttl, message=message, media=media)
 
 
@@ -604,7 +606,7 @@ class DecryptedMessageService(SecretTLObject):
     @classmethod
     def from_reader(cls, r):
         random_id = r.read_long()
-        action = read_object(r)
+        action = read_object(r, expected="DecryptedMessageAction")
         return cls(random_id=random_id, action=action)
 
 
@@ -737,7 +739,7 @@ class DecryptedMessageLayer(SecretTLObject):
         layer = r.read_int()
         in_seq_no = r.read_int()
         out_seq_no = r.read_int()
-        message = read_object(r)
+        message = read_object(r, expected="DecryptedMessage")
         return cls(
             random_bytes=random_bytes,
             layer=layer,
@@ -983,7 +985,7 @@ class DecryptedMessageActionTyping(SecretTLObject):
 
     @classmethod
     def from_reader(cls, r):
-        action = read_object(r)
+        action = read_object(r, expected="SendMessageAction")
         return cls(action=action)
 
 
@@ -1257,7 +1259,7 @@ class PhotoSize(SecretTLObject):
     @classmethod
     def from_reader(cls, r):
         type = r.tgread_bytes().decode("utf-8")
-        location = read_object(r)
+        location = read_object(r, expected="FileLocation")
         w = r.read_int()
         h = r.read_int()
         size = r.read_int()
@@ -1288,7 +1290,7 @@ class PhotoCachedSize(SecretTLObject):
     @classmethod
     def from_reader(cls, r):
         type = r.tgread_bytes().decode("utf-8")
-        location = read_object(r)
+        location = read_object(r, expected="FileLocation")
         w = r.read_int()
         h = r.read_int()
         bytes = r.tgread_bytes()
@@ -1395,9 +1397,9 @@ class DecryptedMessageMediaExternalDocument(SecretTLObject):
         date = r.read_int()
         mime_type = r.tgread_bytes().decode("utf-8")
         size = r.read_int()
-        thumb = read_object(r)
+        thumb = read_object(r, expected="PhotoSize")
         dc_id = r.read_int()
-        attributes = _read_vector(r, lambda: read_object(r))
+        attributes = _read_vector(r, lambda: read_object(r, expected="DocumentAttribute"))
         return cls(
             id=id,
             access_hash=access_hash,
@@ -1464,8 +1466,12 @@ class DecryptedMessage_36b091de(SecretTLObject):
         random_id = r.read_long()
         ttl = r.read_int()
         message = r.tgread_bytes().decode("utf-8")
-        media = read_object(r) if flags & (1 << 9) else None
-        entities = _read_vector(r, lambda: read_object(r)) if flags & (1 << 7) else None
+        media = read_object(r, expected="DecryptedMessageMedia") if flags & (1 << 9) else None
+        entities = (
+            _read_vector(r, lambda: read_object(r, expected="MessageEntity"))
+            if flags & (1 << 7)
+            else None
+        )
         via_bot_name = r.tgread_bytes().decode("utf-8") if flags & (1 << 11) else None
         reply_to_random_id = r.read_long() if flags & (1 << 3) else None
         return cls(
@@ -1669,7 +1675,7 @@ class DecryptedMessageMediaDocument_7afe8ae2(SecretTLObject):
         size = r.read_int()
         key = r.tgread_bytes()
         iv = r.tgread_bytes()
-        attributes = _read_vector(r, lambda: read_object(r))
+        attributes = _read_vector(r, lambda: read_object(r, expected="DocumentAttribute"))
         caption = r.tgread_bytes().decode("utf-8")
         return cls(
             thumb=thumb,
@@ -1702,7 +1708,7 @@ class DocumentAttributeSticker(SecretTLObject):
     @classmethod
     def from_reader(cls, r):
         alt = r.tgread_bytes().decode("utf-8")
-        stickerset = read_object(r)
+        stickerset = read_object(r, expected="InputStickerSet")
         return cls(alt=alt, stickerset=stickerset)
 
 
@@ -2249,8 +2255,12 @@ class DecryptedMessage(SecretTLObject):
         random_id = r.read_long()
         ttl = r.read_int()
         message = r.tgread_bytes().decode("utf-8")
-        media = read_object(r) if flags & (1 << 9) else None
-        entities = _read_vector(r, lambda: read_object(r)) if flags & (1 << 7) else None
+        media = read_object(r, expected="DecryptedMessageMedia") if flags & (1 << 9) else None
+        entities = (
+            _read_vector(r, lambda: read_object(r, expected="MessageEntity"))
+            if flags & (1 << 7)
+            else None
+        )
         via_bot_name = r.tgread_bytes().decode("utf-8") if flags & (1 << 11) else None
         reply_to_random_id = r.read_long() if flags & (1 << 3) else None
         grouped_id = r.read_long() if flags & (1 << 17) else None
@@ -2386,7 +2396,7 @@ class DecryptedMessageMediaDocument(SecretTLObject):
         size = r.read_long()
         key = r.tgread_bytes()
         iv = r.tgread_bytes()
-        attributes = _read_vector(r, lambda: read_object(r))
+        attributes = _read_vector(r, lambda: read_object(r, expected="DocumentAttribute"))
         caption = r.tgread_bytes().decode("utf-8")
         return cls(
             thumb=thumb,
@@ -2466,7 +2476,7 @@ class JsonObjectValue(SecretTLObject):
     @classmethod
     def from_reader(cls, r):
         key = r.tgread_bytes().decode("utf-8")
-        value = read_object(r)
+        value = read_object(r, expected="JSONValue")
         return cls(key=key, value=value)
 
 
@@ -2563,7 +2573,7 @@ class JsonArray(SecretTLObject):
 
     @classmethod
     def from_reader(cls, r):
-        value = _read_vector(r, lambda: read_object(r))
+        value = _read_vector(r, lambda: read_object(r, expected="JSONValue"))
         return cls(value=value)
 
 
@@ -2585,7 +2595,7 @@ class JsonObject(SecretTLObject):
 
     @classmethod
     def from_reader(cls, r):
-        value = _read_vector(r, lambda: read_object(r))
+        value = _read_vector(r, lambda: read_object(r, expected="JSONObjectValue"))
         return cls(value=value)
 
 
@@ -2610,7 +2620,7 @@ class TextWithEntities(SecretTLObject):
     @classmethod
     def from_reader(cls, r):
         text = r.tgread_bytes().decode("utf-8")
-        entities = _read_vector(r, lambda: read_object(r))
+        entities = _read_vector(r, lambda: read_object(r, expected="MessageEntity"))
         return cls(text=text, entities=entities)
 
 
@@ -2632,7 +2642,7 @@ class GroupCallMessage(SecretTLObject):
     @classmethod
     def from_reader(cls, r):
         random_id = r.read_long()
-        message = read_object(r)
+        message = read_object(r, expected="TextWithEntities")
         return cls(random_id=random_id, message=message)
 
 

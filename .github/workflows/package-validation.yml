@@ -15,22 +15,25 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Same pin as tests.yml and python-lint-format.yml; see tests.yml for why it
-  # is a string per workflow and not `[tool.uv] required-version`.
+  # Same pin as tests.yml and python-lint-format.yml.
   UV_VERSION: "0.12.19"
 
 jobs:
   wheel:
-    name: Installed Wheel and Offline Test Inputs
+    name: Installed Wheel and Offline Inputs (Python ${{ matrix.python }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.13']
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: actions/setup-python@v7
         with:
-          python-version: '3.11'
+          python-version: ${{ matrix.python }}
       - uses: astral-sh/setup-uv@v10.2.0
         with:
           version: ${{ env.UV_VERSION }}
@@ -44,8 +47,6 @@ jobs:
           "$RUNNER_TEMP/wheel-smoke/bin/python" -m pip install dist/*.whl
           cd "$RUNNER_TEMP"
           "$RUNNER_TEMP/wheel-smoke/bin/python" -c "from telethon_secret_chat import SecretChatManager, FileStorage; from telethon_secret_chat.schema import secret_tl; print('installed-wheel imports succeeded')"
-      # pyproject's `license-files` promises both; a wheel without them would
-      # ship GPL code without its licence text.
       - name: Require the licence files in the wheel
         shell: bash
         run: |
@@ -54,25 +55,25 @@ jobs:
           echo "$listing"
           grep -q 'dist-info/licenses/LICENSE' <<<"$listing"
           grep -q 'dist-info/licenses/NOTICE' <<<"$listing"
-      # Nothing downloads this bundle on push, so it is built only on request.
+      # Explicit audit branches opt in; ordinary pushes do not build the bundle.
       - name: Collect reproducible offline test inputs
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'audit/')
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/offline-inputs/wheels"
           git archive --format=tar HEAD > "$RUNNER_TEMP/offline-inputs/source.tar"
           git rev-parse HEAD > "$RUNNER_TEMP/offline-inputs/commit.txt"
-          uv export --locked --all-groups --no-emit-project --no-hashes --format requirements-txt > "$RUNNER_TEMP/offline-inputs/requirements.txt"
+          uv export --locked --all-groups --all-extras --no-emit-project --no-hashes --format requirements-txt > "$RUNNER_TEMP/offline-inputs/requirements.txt"
           python -m pip wheel -r "$RUNNER_TEMP/offline-inputs/requirements.txt" --wheel-dir "$RUNNER_TEMP/offline-inputs/wheels"
           cp dist/*.whl "$RUNNER_TEMP/offline-inputs/wheels/"
           cd "$RUNNER_TEMP/offline-inputs"
           sha256sum source.tar requirements.txt wheels/* > SHA256SUMS
-      - name: Upload source and dependency wheels, never local sessions
-        if: github.event_name == 'workflow_dispatch'
+      - name: Upload tracked source and dependencies, never local sessions
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'audit/')
         uses: actions/upload-artifact@v7
         with:
-          name: offline-test-inputs-py311
+          name: offline-test-inputs-py${{ matrix.python }}
           path: ${{ runner.temp }}/offline-inputs/
           if-no-files-found: error
           retention-days: 7

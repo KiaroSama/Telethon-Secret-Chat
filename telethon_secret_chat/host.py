@@ -37,8 +37,14 @@ class ManagerHost:
     _early_encryption: Dict[int, Any]
     _delivering: Set[int]
     _stopping: bool
+    _generation: int
+    _stop_callers: Set[Any]
+    _draining_handlers: Set[asyncio.Future[Any]]
+    _handler_dependencies: Dict[asyncio.Future[Any], asyncio.Future[Any]]
 
     # Steps one part calls on another.
+    _check_generation: Callable[[int], None]
+    _check_current: Callable[[SecretChat], None]
     _atomic: Callable[[SecretChat], ContextManager[None]]
     _save: Callable[[SecretChat], None]
     _emit: Callable[[Any], None]

@@ -234,7 +234,7 @@ def test_taking_the_gap_queue_is_persisted_not_only_in_memory(tmp_path):
 
 
 def test_a_leftover_store_temp_file_is_removed_on_open(tmp_path):
-    leftover = tmp_path / ".secret-chat-store-abc.tmp"
+    leftover = tmp_path / f".secret-chat-store-{os.getpid()}-abc.tmp"
     leftover.write_text("every key, from a write that never finished")
     unrelated = tmp_path / "other.tmp"
     unrelated.write_text("not ours")

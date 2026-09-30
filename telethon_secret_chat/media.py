@@ -205,8 +205,7 @@ class MediaReference:
 
     def decoded(self):
         """The media object, rebuilt from its bytes."""
-        with BinaryReader(self.media) as reader:
-            return tl.read_object(reader)
+        return _decode_file_media(self.media)
 
     def encrypted_file(self) -> types.EncryptedFile:
         return types.EncryptedFile(
@@ -243,25 +242,33 @@ class MediaReference:
     @classmethod
     def from_dict(cls, data: dict) -> "MediaReference":
         """Raises: ValueError naming the first bad field, never its value."""
-        if not isinstance(data, dict) or data.get("version") != cls.FORMAT:
+        if (
+            not isinstance(data, dict)
+            or type(data.get("version")) is not int
+            or data["version"] != cls.FORMAT
+        ):
             raise ValueError("unsupported media reference version")
         for name in ("chat_id", "file_id", "access_hash", "dc_id", "key_fingerprint"):
             if type(data.get(name)) is not int:
                 raise ValueError(f"media reference field {name} must be an integer")
         try:
             media = bytes.fromhex(data["media"])
-            with BinaryReader(media) as reader:
-                decoded = tl.read_object(reader)
+            decoded = _decode_file_media(media)
         except Exception:
             raise ValueError("media reference field media is not a serialized media") from None
-        if not (
-            isinstance(getattr(decoded, "key", None), bytes)
-            and len(decoded.key) == 32
-            and isinstance(getattr(decoded, "iv", None), bytes)
-            and len(decoded.iv) == 32
-            and type(getattr(decoded, "size", None)) is int
-        ):
-            raise ValueError("media reference field media carries no usable file key")
+        # Local import avoids the files -> media module dependency during import.
+        from .files import verify_file_fingerprint
+        from .errors import MessageRejected
+
+        try:
+            verify_file_fingerprint(
+                chat_id=data["chat_id"],
+                key=decoded.key,
+                iv=decoded.iv,
+                claimed=data["key_fingerprint"],
+            )
+        except MessageRejected:
+            raise ValueError("media reference field key_fingerprint does not match") from None
         return cls(
             chat_id=data["chat_id"],
             file_id=data["file_id"],
@@ -275,3 +282,27 @@ class MediaReference:
         return f"MediaReference(chat_id={self.chat_id}, file_id={self.file_id})"
 
     __str__ = __repr__
+
+
+def _decode_file_media(data):
+    try:
+        if not isinstance(data, bytes):
+            raise ValueError
+        with BinaryReader(data) as reader:
+            media = tl.read_object(reader, expected="DecryptedMessageMedia")
+            if reader.tell_position() != len(data):
+                raise ValueError
+        if not (
+            isinstance(getattr(media, "key", None), bytes)
+            and len(media.key) == 32
+            and isinstance(getattr(media, "iv", None), bytes)
+            and len(media.iv) == 32
+            and type(getattr(media, "size", None)) is int
+            and media.size >= 0
+        ):
+            raise ValueError
+        return media
+    except Exception:
+        raise ValueError(
+            "media reference field media is not one usable file media object"
+        ) from None

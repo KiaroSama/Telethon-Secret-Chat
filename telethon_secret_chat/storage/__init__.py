@@ -15,11 +15,11 @@ from __future__ import annotations
 import json
 import logging
 import os
-import tempfile
 import threading
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from copy import deepcopy
+from .. import temporary
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -206,12 +206,11 @@ class FileStorage(MemoryStorage):
         self.path = Path(path)
         if self.path.is_symlink():
             raise ValueError("the secret-chat store must not be a symbolic link")
-        # A kill between mkstemp and os.replace leaves a full copy of every key beside
-        # the store; the prefix makes such a file ours to delete (single process).
+        # Never mistake another live store's temporary commit for a crash leftover.
         if self.path.parent.is_dir():
-            for leftover in self.path.parent.glob(TEMP_PREFIX + "*.tmp"):
-                leftover.unlink(missing_ok=True)
+            temporary.cleanup(self.path.parent, TEMP_PREFIX)
         if self.path.exists():
+            self._restrict(self.path)
             try:
                 state = json.loads(self.path.read_text(encoding="utf-8"), object_hook=self._decode)
                 if not isinstance(state, dict) or any(
@@ -221,7 +220,6 @@ class FileStorage(MemoryStorage):
                 self._state = state
             except (ValueError, TypeError, UnicodeError):
                 raise ValueError("the secret-chat store is not a valid storage document") from None
-            self._restrict(self.path)
         else:
             self._write()
 
@@ -240,24 +238,24 @@ class FileStorage(MemoryStorage):
     def _write(self) -> None:
         directory = self.path.parent
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-        created, temporary = tempfile.mkstemp(
-            dir=str(directory), prefix=TEMP_PREFIX, suffix=".tmp"
-        )
+        created, temp_name = temporary.create(directory, TEMP_PREFIX)
         handle: Optional[int] = created
         try:
             # mkstemp is owner-only on POSIX. Apply the restriction before data.
-            self._restrict(Path(temporary))
+            self._restrict(Path(temp_name))
             with os.fdopen(created, "w", encoding="utf-8", newline="\n") as fh:
                 handle = None
                 json.dump(self._state, fh, default=self._encode, indent=1, sort_keys=True)
                 fh.flush()
                 os.fsync(fh.fileno())
-            os.replace(temporary, self.path)
+            os.replace(temp_name, self.path)
         except BaseException:
             if handle is not None:
                 os.close(handle)
-            Path(temporary).unlink(missing_ok=True)
+            Path(temp_name).unlink(missing_ok=True)
             raise
+        finally:
+            temporary.release(temp_name)
         # A directory fsync failure occurs AFTER replace has committed. It cannot
         # be reported as a rollback: that would put memory behind the durable file.
         if os.name != "nt":
