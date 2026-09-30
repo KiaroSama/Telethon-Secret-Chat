@@ -61,6 +61,7 @@ dev = [
     "black>=26",
     "flake8>=7.4",
     "mypy>=2.3",
+    "hypothesis>=6.168",
 ]
 
 [build-system]

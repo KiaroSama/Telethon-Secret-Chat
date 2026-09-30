@@ -7,6 +7,12 @@ package by commit and reads this file before moving its pin. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- A stateful property test generates long start/stop/restart, send, TTL, close and
+  storage-failure sequences and checks after every step that memory and storage agree,
+  closed chats hold no key material, and a returned `start()` leaves a running manager.
+
 ### Fixed
 
 - Track returned handler Tasks with their wrappers during shutdown: avoid cleanup deadlocks,
