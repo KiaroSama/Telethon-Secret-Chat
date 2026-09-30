@@ -196,10 +196,9 @@ def test_repr_carries_no_values():
     assert "quick brown fox" not in str(obj)
 
 
-def test_nesting_beyond_the_bound_is_refused_before_the_recursion_limit():
-    """Every object field is read untyped, so a wrapper can hold a wrapper.
-    An authenticated peer nesting them must meet a bounded refusal, not a
-    RecursionError on a later, deeper re-parse."""
+def test_a_nested_layer_is_refused_at_the_declared_message_type_boundary():
+    """A wrapper is not a DecryptedMessage. Reject this malformed nesting before
+    recursing, independently of the depth limit used for untyped root readers."""
     from telethon.extensions import BinaryReader
 
     body = tl.DecryptedMessageService(random_id=1, action=tl.DecryptedMessageActionNoop())
@@ -208,5 +207,13 @@ def test_nesting_beyond_the_bound_is_refused_before_the_recursion_limit():
             random_bytes=b"\x00" * 15, layer=144, in_seq_no=0, out_seq_no=0, message=body
         )
     with BinaryReader(bytes(body)) as reader:
+        with pytest.raises(ValueError, match="unexpected TL result family"):
+            tl.read_object(reader)
+
+
+def test_untyped_root_parsing_still_enforces_the_depth_bound():
+    with BinaryReader(bytes(tl.DecryptedMessageMediaEmpty())) as reader:
+        reader._tsc_depth = tl.MAX_NESTING
         with pytest.raises(ValueError, match="nesting too deep"):
             tl.read_object(reader)
+        assert reader._tsc_depth == tl.MAX_NESTING
