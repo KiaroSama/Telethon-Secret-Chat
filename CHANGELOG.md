@@ -9,6 +9,10 @@ package by commit and reads this file before moving its pin. The format follows
 
 ### Added
 
+- `delete_secret_chat(chat_id)` and `delete_secret_chat_both_sides(chat_id)`: delete a chat on this
+  side only, or also ask Telegram to erase the peer's history (`messages.discardEncryption`
+  `delete_history`, as TDLib does). A peer's delete for both sides removes the chat here, and
+  `ChatClosedEvent` gains `history_deleted`.
 - A stateful property test generates long start/stop/restart, send, TTL, close and
   storage-failure sequences and checks after every step that memory and storage agree,
   closed chats hold no key material, and a returned `start()` leaves a running manager.

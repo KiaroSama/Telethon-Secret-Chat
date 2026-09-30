@@ -159,4 +159,6 @@ async def pair_chat(client_a, manager_a, manager_b):
         )
         yield chat.id, ready_a, ready_b
     finally:
-        await manager_a.close(chat.id, reason="pair tier case finished")
+        # A delete case (test_pair_delete.py) leaves nothing to close.
+        if chat.id in [one.id for one in manager_a.list()]:
+            await manager_a.close(chat.id, reason="pair tier case finished")

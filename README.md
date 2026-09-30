@@ -124,7 +124,7 @@ ciphertext.
 |---|---|
 | `ChatRequested(chat_id, peer_user_id)` | the peer asked for a chat; call `accept()` |
 | `ChatReady(chat_id, peer_user_id, key_fingerprint, key_hash)` | the chat is established |
-| `ChatClosedEvent(chat_id, reason)` | the chat ended, here or at the peer (`on("ChatClosed", ...)` is an accepted alias) |
+| `ChatClosedEvent(chat_id, reason, history_deleted)` | the chat ended, here or at the peer (`on("ChatClosed", ...)` is an accepted alias); `history_deleted` is `True` when it was deleted for both sides - erase your own copy too |
 | `MessageReceived(chat_id, random_id, seq_no, text, entities, ttl, media, file, reply_to, media_reference)` | a message, in conversation order; `media_reference` is set when it carries a file |
 | `MessageAcknowledged(chat_id, seq_no, random_ids)` | the peer's counter passed a message this side sent |
 | `ServiceActionReceived(chat_id, action_name, action, applied)` | one of the thirteen service actions, reported even when handled internally |
@@ -169,6 +169,8 @@ that legitimately calls `stop()` is not cancelled through its wrapper.
 | `await accept(chat_id)` | `ChatSnapshot` | answer a `ChatRequested`; `ChatNotReady` if there is no request |
 | `await close(chat_id, reason=...)` | `None` | end the chat here and discard it on the server |
 | `await forget(chat_id)` | `None` | drop a CLOSED chat's record; `list()` no longer shows it (`ValueError` if not closed) |
+| `await delete_secret_chat(chat_id)` | `None` | delete on this side only: an open chat ends (the peer sees it end and keeps its history), then its record, queues and history are removed here; export first if the messages matter |
+| `await delete_secret_chat_both_sides(chat_id)` | `bool` | as above, and ask Telegram to erase the peer's history too; best effort ("when possible"), also for an already closed chat - `True` when Telegram accepted it. A peer's delete for both sides removes the chat here on arrival (`ChatClosedEvent.history_deleted`) |
 | `list()` / `status(chat_id)` | `ChatSnapshot` list / `ChatSnapshot` | what exists (see below) |
 | `await send_message(chat_id, text, entities=None, reply_to=None)` | `random_id` | send text; `reply_to` is the `random_id` replied to |
 | `await send_file(chat_id, source, *, file_name=None, caption="", mime_type=None, kind=None, reply_to=None, <media metadata>)` | `random_id` | send a path, bytes or a seekable stream as one of the eight `MEDIA_KINDS` (see below) |

@@ -104,6 +104,18 @@ The record of a closed chat, kept with its keys erased so the chat id cannot be 
 until the application forgets it.
 _Avoid_: dead chat, closed record (in writing), deleted chat
 
+**Delete (one side)**:
+Ending a chat and removing everything this side holds of it - tombstone, history and queued
+messages - while the peer keeps its own copy and only sees the chat end. Exporting first is
+the application's job.
+_Avoid_: forget (that removes only a tombstone), clear, wipe
+
+**Delete for both sides**:
+A delete that also asks Telegram to have the peer's client erase its history of the chat; best
+effort, because a chat already ended on the server can no longer carry the request. A peer's
+delete for both sides removes the chat from this side on arrival.
+_Avoid_: revoke, flush (that clears history in a chat that stays open)
+
 ## Verification
 
 **Interop tier**:

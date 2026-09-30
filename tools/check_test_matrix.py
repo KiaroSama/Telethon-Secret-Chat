@@ -39,6 +39,7 @@ LIVE_SKIPS = {
     "tests.live_pair.test_pair_chat::test_one_chat_through_text_rekey_files_and_a_restart",
     "tests.live_pair.test_pair_close::test_a_close_reaches_the_other_side_on_its_next_update_sync",
     "tests.live_pair.test_pair_close::test_sending_into_a_chat_the_peer_closed_closes_it_here",
+    "tests.live_pair.test_pair_delete::test_a_delete_for_both_sides_removes_the_chat_on_the_other_side",
 }
 PLATFORM_SKIPS = {
     "cases-windows-latest-py3.13": {
