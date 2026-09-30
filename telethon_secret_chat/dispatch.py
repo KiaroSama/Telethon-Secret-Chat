@@ -54,6 +54,8 @@ class EventDispatch(ManagerHost):
             if inspect.isawaitable(result) and self._stopping:
                 if inspect.iscoroutine(result):
                     result.close()  # Stopping: nothing would ever await it.
+                elif asyncio.isfuture(result):
+                    result.cancel()
                 continue
             if inspect.isawaitable(result):
                 task = asyncio.ensure_future(self._run_handler(handler, result))
@@ -76,7 +78,11 @@ class EventDispatch(ManagerHost):
             log.error("secret-chat handler %s failed", self._handler_name(handler))
 
     async def _cancel_handler_tasks(self):
-        tasks = [task for task in self._handler_tasks if task is not asyncio.current_task()]
+        tasks = [
+            task
+            for task in self._handler_tasks
+            if task is not asyncio.current_task() and task not in self._stop_callers
+        ]
         for task in tasks:
             task.cancel()
         if tasks:

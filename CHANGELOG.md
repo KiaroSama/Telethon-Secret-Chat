@@ -7,6 +7,20 @@ package by commit and reads this file before moving its pin. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Verify the final ciphertext stream length before replacing a saved file.
+- Protect active file/store temporary writers; retain legacy temporary names until offline cleanup.
+- Reject stale operations across stop/start, isolate the new send queue, and share concurrent shutdown.
+- Preserve a peer discard arriving before the create RPC response; validate persisted runtime fields.
+- Validate file-key fingerprints on forwarding and reject malformed serialized media references.
+- Enforce declared TL result families in generated readers; persist TTL/layer service effects atomically.
+
+### Changed
+
+- CI explicitly exercises the native `cryptg` backend in addition to the default backend.
+- `ManagerStopping` also identifies an operation invalidated by a stop/start lifecycle change.
+
 ## [0.2.0] - 2026-09-29
 
 Tagged `v0.2.0`.

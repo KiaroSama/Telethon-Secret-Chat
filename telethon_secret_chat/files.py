@@ -35,7 +35,7 @@ from telethon.crypto import AES
 from telethon.extensions import BinaryReader
 from telethon.tl import types
 
-from . import framing, media as media_module, ogg_tags
+from . import framing, media as media_module, ogg_tags, temporary
 from .errors import MessageRejected
 from .schema import secret_tl as tl
 
@@ -325,8 +325,11 @@ class EncryptingReader:
 def decrypt_stream(pieces, key: bytes, iv: bytes, size: int):
     """Plaintext pieces of a ciphertext stream, trimmed to the declared ``size``."""
     _check_file_key(key, iv)
-    ige, pending, left = _Ige(key, iv), b"", size
+    if type(size) is not int or size < 0:
+        raise ValueError("file size must be a nonnegative integer")
+    ige, pending, left, total = _Ige(key, iv), b"", size, 0
     for piece in pieces:
+        total += len(piece)
         pending += piece
         whole = len(pending) - len(pending) % BLOCK
         if whole and left:
@@ -334,6 +337,9 @@ def decrypt_stream(pieces, key: bytes, iv: bytes, size: int):
             yield plain[:left]
             left -= min(left, len(plain))
         pending = pending[whole:]
+    # A stream can shrink or end early after the initial seek/stat. The final
+    # length is evidence too; never commit partially decrypted plaintext.
+    _check_lengths(total, size)
 
 
 def _check_lengths(total: int, size) -> None:
@@ -387,13 +393,8 @@ def save(
     _check_lengths(total, size)
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    # A kill mid-write leaves decrypted plaintext in a temp file; ours carry a prefix
-    # so the next save can remove them.
-    for leftover in target.parent.glob(TEMP_PREFIX + "*.tmp"):
-        leftover.unlink(missing_ok=True)
-    created, temporary = tempfile.mkstemp(
-        dir=str(target.parent), prefix=TEMP_PREFIX, suffix=".tmp"
-    )
+    # Ownership, not a shared prefix, distinguishes crash leftovers from live writers.
+    created, temp_name = temporary.create(target.parent, TEMP_PREFIX)
     descriptor: Optional[int] = created
     try:
         with os.fdopen(created, "wb") as handle:
@@ -403,12 +404,14 @@ def save(
                 handle.write(plain)
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temporary, target)
+        os.replace(temp_name, target)
     except BaseException:
         if descriptor is not None:
             os.close(descriptor)
-        Path(temporary).unlink(missing_ok=True)
+        Path(temp_name).unlink(missing_ok=True)
         raise
+    finally:
+        temporary.release(temp_name)
     return target
 
 
@@ -487,6 +490,7 @@ def _document_type(chat):
 
 
 async def _send_uploaded(manager, chat, uploaded, document, caption, reply_to) -> int:
+    manager._check_current(chat)
     chat.require_sendable()
     await manager._rekey_if_due(chat)
     random_id = secrets.randbits(63)
@@ -524,16 +528,6 @@ async def receive(manager, message, path) -> Path:
     OUTSIDE it. Comparing them is what says the two belong together - and it happens
     before a byte is written. ``message`` may also be a ``MediaReference``."""
     media, attached = _file_of(message)
-    verify_file_fingerprint(
-        chat_id=message.chat_id, key=media.key, iv=media.iv, claimed=attached.key_fingerprint
-    )
-    if (
-        len(media.key) != 32
-        or len(media.iv) != 32
-        or type(media.size) is not int
-        or media.size < 0
-    ):
-        raise MessageRejected(chat_id=message.chat_id, reason="invalid encrypted-file metadata")
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     # The ciphertext goes to disk, not memory; it is useless without the key.
@@ -556,12 +550,30 @@ async def receive(manager, message, path) -> Path:
 
 
 def _file_of(source):
-    """The media and the server file of a received message or a ``MediaReference``."""
+    """The validated media and server file, shared by saving and forwarding."""
     if isinstance(source, media_module.MediaReference):
-        return source.decoded(), source.encrypted_file()
-    media, attached = media_module.media_of(source)
+        try:
+            media, attached = source.decoded(), source.encrypted_file()
+        except ValueError:
+            raise MessageRejected(
+                chat_id=source.chat_id, reason="invalid encrypted-file metadata"
+            ) from None
+    else:
+        media, attached = media_module.media_of(source)
     if media is None:
         raise MessageRejected(chat_id=source.chat_id, reason="this message carries no file")
+    if not (
+        isinstance(media.key, bytes)
+        and len(media.key) == 32
+        and isinstance(media.iv, bytes)
+        and len(media.iv) == 32
+        and type(media.size) is int
+        and media.size >= 0
+    ):
+        raise MessageRejected(chat_id=source.chat_id, reason="invalid encrypted-file metadata")
+    verify_file_fingerprint(
+        chat_id=source.chat_id, key=media.key, iv=media.iv, claimed=attached.key_fingerprint
+    )
     return media, attached
 
 
@@ -580,6 +592,12 @@ async def forward(manager, chat, source, caption: str = "", reply_to=None) -> in
     the original key can read the forwarded copy too.
     """
     media, attached = _file_of(source)
+    if caption and any(
+        isinstance(attribute, tl.DocumentAttributeSticker)
+        or getattr(attribute, "round_message", False)
+        for attribute in getattr(media, "attributes", None) or ()
+    ):
+        raise ValueError("a sticker or video_note carries no caption")
     media = _with_caption(media, caption)
     if framing.outgoing_layer(chat.layer) < SIZE_LONG_LAYER:
         if media.size >= _INT_SIZE_LIMIT:

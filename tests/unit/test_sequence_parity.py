@@ -155,8 +155,13 @@ def test_a_notify_layer_does_not_raise_the_bar_the_next_wrapper_must_clear():
     import asyncio
 
     chat = a_chat(is_outbound=True)
+    from .helpers import ready_manager
+
+    manager, _ = ready_manager()
+    manager._chats[chat.id] = chat
+    manager._save(chat)
     outcome = asyncio.run(
-        actions.handle(None, chat, tl.DecryptedMessageActionNotifyLayer(layer=143))
+        actions.handle(manager, chat, tl.DecryptedMessageActionNotifyLayer(layer=143))
     )
     assert outcome is True
     assert chat.layer == 143, "a NotifyLayer must still raise the capability layer"

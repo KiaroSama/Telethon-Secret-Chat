@@ -85,7 +85,8 @@ async def handle(manager, chat, action) -> bool:
         # containing information of an upper layer". Raised only - §8.7 measured the
         # archived package assigning unconditionally, so a peer could walk its
         # announced layer back down and out of MTProto 2.0.
-        chat.layer = framing.raise_remote_layer(chat.layer, action.layer)
+        with manager._atomic(chat):
+            chat.layer = framing.raise_remote_layer(chat.layer, action.layer)
         return True
 
     if isinstance(action, tl.DecryptedMessageActionSetMessageTTL):
@@ -96,7 +97,8 @@ async def handle(manager, chat, action) -> bool:
         if action.ttl_seconds < 0:
             await manager.close(chat.id, "negative message lifetime received")
             return False
-        chat.ttl = action.ttl_seconds
+        with manager._atomic(chat):
+            chat.ttl = action.ttl_seconds
         return True
 
     if isinstance(action, tl.DecryptedMessageActionDeleteMessages):

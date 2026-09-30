@@ -159,7 +159,7 @@ def read_expr(ftype: str) -> str:
     vec = re.match(r"[Vv]ector<(.+)>$", ftype)
     if vec:
         return f"_read_vector(r, lambda: {read_expr(vec.group(1))})"
-    return "read_object(r)"
+    return f"read_object(r, expected={ftype!r})"
 
 
 def emit(ctors: List[Ctor]) -> str:
@@ -327,18 +327,20 @@ def _read_vector(r, read_item):
     return [read_item() for _ in range(count)]
 
 
-# Every object field is read untyped, so an object can hold any other object. A real
-# message nests about four deep; the bound keeps a hostile one far from Python's
-# recursion limit, including on the deeper re-parse from the delivery mailbox.
+# Expected TL result families reject misplaced known constructors before reading
+# their fields. Keep a depth bound as independent defense for untyped root readers
+# and future schema changes, including re-parsing from the delivery mailbox.
 MAX_NESTING = 32
 
 
-def read_object(r):
-    """Read one boxed object using THIS schema's registry."""
+def read_object(r, expected=None):
+    """Read one boxed object, optionally constrained to its declared TL result family."""
     constructor_id = r.read_int(signed=False)
     cls = REGISTRY.get(constructor_id)
     if cls is None:
         raise UnknownConstructor(constructor_id)
+    if expected is not None and cls.RESULT_TYPE != expected:
+        raise ValueError("unexpected TL result family")
     depth = getattr(r, "_tsc_depth", 0)
     if depth >= MAX_NESTING:
         raise ValueError("nesting too deep")

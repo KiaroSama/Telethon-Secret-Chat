@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager, contextmanager
 from copy import deepcopy
 from functools import wraps
 from .host import ManagerHost
+from .errors import ManagerStopping
 
 __all__ = ["ChatLocking", "ordered", "serialized"]
 
@@ -52,8 +53,20 @@ class ChatLocking(ManagerHost):
     @asynccontextmanager
     async def _outbound_lock(self, chat_id):
         """Keeps this application's own sends in call order. Not reentrant."""
+        generation = self._generation
+        self._check_generation(generation)
         async with self._outbound_locks.setdefault(chat_id, asyncio.Lock()):
+            self._check_generation(generation)
             yield
+
+    def _check_generation(self, generation):
+        if self._stopping or generation != self._generation:
+            raise ManagerStopping()
+
+    def _check_current(self, chat):
+        # A detached entity must never overwrite the record installed by start().
+        if self._chats.get(chat.id) is not chat:
+            raise ManagerStopping()
 
     @asynccontextmanager
     async def _chat_lock(self, chat_id):
@@ -71,6 +84,7 @@ class ChatLocking(ManagerHost):
 
     @contextmanager
     def _atomic(self, chat):
+        self._check_current(chat)
         previous = deepcopy(vars(chat))
         try:
             with self._storage.transaction():

@@ -302,7 +302,7 @@ def _save_args(content=b"secret bytes"):
 
 
 def test_a_leftover_media_temp_file_is_removed_before_saving(tmp_path):
-    leftover = tmp_path / ".secret-chat-file-x.tmp"
+    leftover = tmp_path / f".secret-chat-file-{os.getpid()}-x.tmp"
     leftover.write_bytes(b"plaintext of a file whose save was killed")
     files.save(tmp_path / "out.bin", **_save_args())
     assert not leftover.exists()
