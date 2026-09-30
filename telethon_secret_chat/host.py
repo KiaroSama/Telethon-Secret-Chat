@@ -37,6 +37,7 @@ class ManagerHost:
     _early_encryption: Dict[int, Any]
     _delivering: Set[int]
     _stopping: bool
+    _autosave: Any
     _generation: int
     _stop_callers: Set[Any]
     _draining_handlers: Set[asyncio.Future[Any]]

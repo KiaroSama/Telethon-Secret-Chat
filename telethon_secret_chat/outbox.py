@@ -232,6 +232,7 @@ class RetainedOutbox(ManagerHost):
             self._storage.queue_out(chat.id, item)
             if after_prepare is not None:
                 after_prepare()
+        self._autosave.sent(chat.id, message)  # committed: saved even if transmission waits
         await self._transmit_or_pending(chat, item)
 
     @serialized

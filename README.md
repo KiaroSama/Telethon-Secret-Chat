@@ -235,6 +235,26 @@ in the message. That fingerprint binds the file's key and IV to this message; it
 is **not** an authentication tag over the file's bytes, and a saved file is not
 proven intact by having been saved.
 
+### Auto-save
+
+Telegram's servers keep no secret-chat history, so anything an application wants to
+keep, it must keep as it happens. Auto-save does that for every chat at once:
+
+| Call | Returns | What it does |
+|---|---|---|
+| `await start_auto_save_secret_chats(folder)` | `None` | from now on, save every message sent or received in any secret chat - self-destructing ones included - and download and decrypt every file at once, whatever its size; stays on across restarts (kept in the storage) |
+| `await stop_auto_save_secret_chats()` | `None` | save nothing more; what was saved stays |
+| `auto_save_secret_chats` | `str` or `None` | the folder while auto-save is on |
+| `read_saved_messages(chat_id)` | `list[dict]` | one chat's saved records in order, also after the chat was deleted: `type` (`message` or `service`), `id`, `date` (when this side saved it), `out`, and `text`, `entities`, `ttl`, `reply_to`, `media` (without its key), `file` (the saved file's path) - or `action` for a service record (timer set, screenshot, deleted messages, cleared history) |
+| `delete_saved_messages(chat_id)` | `None` | remove one chat's saved messages and files; ask your user first |
+
+Each chat gets `<folder>/<chat_id>/messages.jsonl` (appended, never rewritten) and
+`files/`. A deleted message or a deleted chat does not remove its saved copy. The
+folder holds **plaintext**, like an official app's local database: protect it like the
+store. A download that a `stop()` interrupted is retried at the next `start()`; its
+reference waits in `pending.json` until then. A save that fails (a full disk) is logged
+by its type and never stops a message from being sent or delivered.
+
 ### Errors
 
 Everything raised derives from `SecretChatError`, and no error carries a key, a plaintext or

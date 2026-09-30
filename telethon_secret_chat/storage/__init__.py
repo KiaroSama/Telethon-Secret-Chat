@@ -98,6 +98,19 @@ class StorageBackend(ABC):
             for message in messages:
                 self.queue_in(chat_id, message)
 
+    def load_setting(self, name: str) -> Any:
+        """A manager-wide setting (spec 009: the auto-save folder), or None. Custom
+        backends that do not override these keep settings for the process only."""
+        return getattr(self, "_process_settings", {}).get(name)
+
+    def save_setting(self, name: str, value: Any) -> None:
+        """Persist a JSON-safe value; None removes the setting."""
+        settings = self.__dict__.setdefault("_process_settings", {})
+        if value is None:
+            settings.pop(name, None)
+        else:
+            settings[name] = value
+
 
 class MemoryStorage(StorageBackend):
     """Explicit volatile storage with the same transaction contract as FileStorage."""
@@ -141,6 +154,18 @@ class MemoryStorage(StorageBackend):
     def load(self, chat_id: int) -> Optional[Record]:
         with self._lock:
             return deepcopy(self._state["chats"].get(str(chat_id)))
+
+    def load_setting(self, name: str) -> Any:
+        with self._lock:
+            return deepcopy(self._state.get("settings", {}).get(name))
+
+    def save_setting(self, name: str, value: Any) -> None:
+        with self.transaction():
+            settings = self._state.setdefault("settings", {})
+            if value is None:
+                settings.pop(name, None)
+            else:
+                settings[name] = deepcopy(value)
 
     def delete(self, chat_id: int) -> None:
         with self.transaction():
@@ -213,8 +238,12 @@ class FileStorage(MemoryStorage):
             self._restrict(self.path)
             try:
                 state = json.loads(self.path.read_text(encoding="utf-8"), object_hook=self._decode)
-                if not isinstance(state, dict) or any(
-                    not isinstance(state.get(group), dict) for group in ("chats", "out", "in")
+                if (
+                    not isinstance(state, dict)
+                    or any(
+                        not isinstance(state.get(group), dict) for group in ("chats", "out", "in")
+                    )
+                    or not isinstance(state.get("settings", {}), dict)
                 ):
                     raise ValueError
                 self._state = state
