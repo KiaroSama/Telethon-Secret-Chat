@@ -9,6 +9,11 @@ package by commit and reads this file before moving its pin. The format follows
 
 ### Fixed
 
+- Prevent Python 3.14 shield diagnostics from exposing errors after a cancelled shutdown wait.
+- Let cancelled handlers finish without recursively waiting on their own shutdown coordinator;
+  reject a restart from that cleanup, and recover a failed shutdown before restarting.
+- Retain and retrieve failures from handler Tasks cancelled before their wrapper starts or
+  returned while stopping; exception messages never reach the event-loop logger.
 - Verify the final ciphertext stream length before replacing a saved file.
 - Protect active file/store temporary writers; retain legacy temporary names until offline cleanup.
 - Reject stale operations across stop/start, isolate the new send queue, and share concurrent shutdown.

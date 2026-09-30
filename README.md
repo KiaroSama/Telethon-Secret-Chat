@@ -148,6 +148,13 @@ cancelling one caller does not cancel the coordinator. A new `start()` does not 
 an old file upload to finish. That old operation is rejected with `ManagerStopping` if it
 returns, without replacing the restored chat or using a new sequence number.
 
+A handler cancelled by shutdown may call `stop()` from its cleanup: the coordinator
+already owns that shutdown, so this nested call returns without waiting for itself.
+Calling `start()` from that same cleanup raises `ManagerStopping`. After a shutdown save
+fails, a later `start()` first retries shutdown; it does not report a running manager
+whose update subscription has already been removed. Remaining callers receive shutdown
+failures, but cancelled waiters and discarded handler Tasks do not log their raw contents.
+
 ### The operations
 
 | Call | Returns | Does |

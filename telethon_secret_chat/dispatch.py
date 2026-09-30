@@ -52,23 +52,37 @@ class EventDispatch(ManagerHost):
                 log.error("secret-chat handler %s failed", self._handler_name(handler))
                 continue
             if inspect.isawaitable(result) and self._stopping:
-                if inspect.iscoroutine(result):
-                    result.close()  # Stopping: nothing would ever await it.
-                elif asyncio.isfuture(result):
-                    result.cancel()
+                self._discard_awaitable(handler, result)
                 continue
             if inspect.isawaitable(result):
                 task = asyncio.ensure_future(self._run_handler(handler, result))
                 self._handler_tasks.add(task)
 
-                def done(task, result=result):
+                def done(task, result=result, handler=handler):
                     self._handler_tasks.discard(task)
                     if inspect.iscoroutine(result):
                         result.close()  # Also close an awaitable cancelled before its wrapper starts.
-                    elif asyncio.isfuture(result) and not result.done():
-                        result.cancel()
+                    elif asyncio.isfuture(result) and (task.cancelled() or not result.done()):
+                        self._discard_awaitable(handler, result)
 
                 task.add_done_callback(done)
+
+    def _discard_awaitable(self, handler, result):
+        if inspect.iscoroutine(result):
+            result.close()
+        elif asyncio.isfuture(result):
+            # A Task can raise while handling cancellation. Retain it until its
+            # completion and consume its failure rather than leaking it to asyncio.
+            self._handler_tasks.add(result)
+            name = self._handler_name(handler)
+
+            def retrieved(task):
+                self._handler_tasks.discard(task)
+                if not task.cancelled() and task.exception() is not None:
+                    log.error("secret-chat handler %s failed during cleanup", name)
+
+            result.add_done_callback(retrieved)
+            result.cancel()
 
     async def _run_handler(self, handler, awaitable):
         try:
@@ -83,7 +97,11 @@ class EventDispatch(ManagerHost):
             for task in self._handler_tasks
             if task is not asyncio.current_task() and task not in self._stop_callers
         ]
-        for task in tasks:
-            task.cancel()
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
+        self._draining_handlers.update(tasks)
+        try:
+            for task in tasks:
+                task.cancel()
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+        finally:
+            self._draining_handlers.difference_update(tasks)

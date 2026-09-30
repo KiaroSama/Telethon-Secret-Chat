@@ -24,7 +24,7 @@ from . import entities as entities_module, files, framing
 from . import rekey as rekey_module
 from .chat import ChatState, SecretChat
 from .dispatch import EventDispatch
-from .errors import StorageRequired, UnknownChat
+from .errors import ManagerStopping, StorageRequired, UnknownChat
 from .events import ChatClosedEvent, ChatRequested
 from .establishment import Establishment
 from .locking import ChatLocking, ordered, serialized
@@ -77,6 +77,7 @@ class SecretChatManager(ChatLocking, EventDispatch, RetainedOutbox, Establishmen
         self._generation = 0
         self._stop_task: asyncio.Task[None] | None = None
         self._stop_callers = set()
+        self._draining_handlers = set()
         self._subscription = self._on_update
 
     async def start(self):
@@ -89,8 +90,14 @@ class SecretChatManager(ChatLocking, EventDispatch, RetainedOutbox, Establishmen
         Raises: StoreCorrupt if any stored record fails validation; nothing is then
         installed.
         """
+        if asyncio.current_task() in self._draining_handlers:
+            raise ManagerStopping()
         if self._stop_task is not None and not self._stop_task.done():
-            await asyncio.shield(self._stop_task)
+            await self._wait_stopped()
+        elif self._stopping and self._running:
+            # A failed save already removed the subscription. Finish that shutdown
+            # before returning to RUNNING; otherwise start() would silently do nothing.
+            await self.stop()
         if self._running:
             return
         loaded = {}
@@ -140,6 +147,10 @@ class SecretChatManager(ChatLocking, EventDispatch, RetainedOutbox, Establishmen
         storage and are retried by the next ``start``.
         """
         caller = asyncio.current_task()
+        if self._stopping and caller in self._draining_handlers:
+            # The coordinator is already waiting for this handler's cancellation
+            # cleanup. Waiting for the coordinator here would create a cycle.
+            return
         self._stop_callers.add(caller)
         try:
             if self._stop_task is None or self._stop_task.done():
@@ -151,9 +162,19 @@ class SecretChatManager(ChatLocking, EventDispatch, RetainedOutbox, Establishmen
                 self._stop_task.add_done_callback(self._report_stop_failure)
             # Cancelling one caller must not cancel the shared shutdown or another
             # handler waiting for it. Those handlers are excluded from the drain.
-            await asyncio.shield(self._stop_task)
+            await self._wait_stopped()
         finally:
             self._stop_callers.discard(caller)
+
+    async def _wait_stopped(self) -> None:
+        task = self._stop_task
+        if task is None:
+            return
+        # wait() isolates caller cancellation without an exceptional proxy Future.
+        # Python 3.14 shield() can report the raw exception after a cancelled wait,
+        # even when our done callback has already retrieved/redacted that exception.
+        await asyncio.wait((task,))
+        task.result()  # A remaining caller still receives the original failure.
 
     @staticmethod
     def _report_stop_failure(task):
