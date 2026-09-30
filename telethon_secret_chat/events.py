@@ -63,6 +63,9 @@ class ChatClosedEvent:
 
     chat_id: int
     reason: str
+    # True when the chat was deleted for both sides (here or by the peer): the
+    # application should erase its own copy too. Spec 007.
+    history_deleted: bool = False
 
 
 @dataclass

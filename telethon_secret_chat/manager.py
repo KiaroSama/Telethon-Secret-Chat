@@ -228,14 +228,58 @@ class SecretChatManager(ChatLocking, EventDispatch, RetainedOutbox, Establishmen
     def _save(self, chat):
         self._storage.save(chat.to_record())
 
-    def _close_local(self, chat, reason):
+    def _close_local(self, chat, reason, history_deleted=False):
         with self._atomic(chat):
             # Scrub legacy closed records too, while preserving their first reason.
             reason = chat.closed_reason or reason
             chat.close(reason)
             self._storage.delete(chat.id)
         self._forget_history(chat.id)
-        self._emit(ChatClosedEvent(chat.id, reason))
+        self._emit(ChatClosedEvent(chat.id, reason, history_deleted))
+
+    def _remove_chat(self, chat):
+        """Nothing of a closed chat stays here: record, queues, history (spec 007)."""
+        with self._storage.transaction():
+            self._storage.delete(chat.id)
+        self._chats.pop(chat.id, None)
+        self._forget_history(chat.id)
+
+    def _deletable(self, chat_id):
+        if self._stopping:
+            raise ManagerStopping()
+        return self._require(chat_id)
+
+    @serialized
+    async def delete_secret_chat(self, chat_id):
+        """Delete a chat on this side only: an open chat ends (the peer sees it end and
+        keeps its history), then its record, queues and history are removed here.
+        Export first if the messages matter. Saved messages are not touched.
+
+        Raises: UnknownChat; ManagerStopping.
+        """
+        chat = self._deletable(chat_id)
+        if chat.state is not ChatState.CLOSED:
+            self._close_local(chat, "deleted by this application")
+            await self._discard_remote(chat.id)
+        self._remove_chat(chat)
+
+    @serialized
+    async def delete_secret_chat_both_sides(self, chat_id) -> bool:
+        """Delete a chat here and ask Telegram to erase the peer's history of it too.
+
+        Best effort, like the official apps' "delete for both sides when possible": a
+        chat that already ended on the server can no longer carry the request. This
+        side is cleared either way. Saved messages are not touched.
+
+        Returns: True when Telegram accepted the request, False when it could not.
+        Raises: UnknownChat; ManagerStopping.
+        """
+        chat = self._deletable(chat_id)
+        if chat.state is not ChatState.CLOSED:
+            self._close_local(chat, "deleted for both sides", history_deleted=True)
+        reached = await self._discard_remote(chat.id, delete_history=True)
+        self._remove_chat(chat)
+        return reached
 
     @serialized
     async def close(self, chat_id, reason="closed by this application"):

@@ -214,7 +214,12 @@ class Establishment(ManagerHost):
                 await self._discard_lost_request(encrypted.id)
         elif isinstance(encrypted, types.EncryptedChatDiscarded):
             chat = self._chats.get(encrypted.id)
-            if chat is not None and chat.state is not ChatState.CLOSED:
+            if chat is not None and getattr(encrypted, "history_deleted", False):
+                # The peer deleted the chat for both sides: nothing of it stays here
+                # (TDLib: cancel_chat(history_deleted, is_already_discarded=true)).
+                self._close_local(chat, "the peer deleted the chat", history_deleted=True)
+                self._remove_chat(chat)
+            elif chat is not None and chat.state is not ChatState.CLOSED:
                 self._close_local(chat, "the peer discarded the chat")
             elif chat is None and self._creating:
                 self._remember_early(encrypted)
@@ -245,15 +250,21 @@ class Establishment(ManagerHost):
         dh.check_config(g=config.g, p=p)
         return config.g, p
 
-    async def _discard_remote(self, chat_id):
-        """Best effort: the local state is already what counts."""
+    async def _discard_remote(self, chat_id, delete_history=False) -> bool:
+        """Best effort: the local state is already what counts. True when Telegram
+        accepted the discard; ``delete_history`` asks the peer to erase its history too
+        (TDLib ``do_close_chat_impl``)."""
         try:
             await self._client(
-                functions.messages.DiscardEncryptionRequest(chat_id=chat_id, delete_history=False)
+                functions.messages.DiscardEncryptionRequest(
+                    chat_id=chat_id, delete_history=delete_history
+                )
             )
+            return True
         except Exception as failure:
             # The local close already happened; the peer only learns of it from this
             # call, so a failure is worth a warning. The type only, never the text.
             log.warning(
                 "discardEncryption failed for chat %s: %s", chat_id, type(failure).__name__
             )
+            return False

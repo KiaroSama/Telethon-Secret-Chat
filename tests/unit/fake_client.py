@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 
+from telethon import errors
 from telethon.tl import functions, types
 
 from .dh_material import SAFE_PRIME
@@ -34,6 +35,7 @@ class FakeClient:
         self.sent = []  # every request passed to __call__
         self.handlers = []
         self._next_chat_id = 500
+        self.discarded = set()  # chat ids this account discarded
         self.peer = None  # a Wire sets this to the other FakeClient
         # "The server sent something else." An override rather than a patched
         # __call__, because Python looks __call__ up on the TYPE - assigning it to
@@ -128,10 +130,17 @@ class FakeClient:
                 ),
             )
         if isinstance(request, functions.messages.DiscardEncryptionRequest):
+            # The server refuses a second discard of one chat (TDLib never sends one).
+            if request.chat_id in self.discarded:
+                raise errors.EncryptionAlreadyDeclinedError(request=request)
+            self.discarded.add(request.chat_id)
             if self.peer is not None and not self.hold:
                 await self.peer.deliver_update(
                     types.UpdateEncryption(
-                        chat=types.EncryptedChatDiscarded(id=request.chat_id), date=0
+                        chat=types.EncryptedChatDiscarded(
+                            id=request.chat_id, history_deleted=bool(request.delete_history)
+                        ),
+                        date=0,
                     )
                 )
             return True  # Telethon maps boolTrue to Python's True; types has no BoolTrue.
