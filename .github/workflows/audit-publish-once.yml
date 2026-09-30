@@ -1,0 +1,103 @@
+name: Publish Verified Audit Patch Once
+
+# One-use transport for the locally tested patch authorized for PR 19. Writes
+# only that existing PR branch, never main; never merges or closes a PR. The
+# auditor removes this workflow and its transport files through the GitHub
+# connector after confirming publication. This job does not edit workflows.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: audit-publish-pr19
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'KiaroSama/Telethon-Secret-Chat' && github.event.pull_request.number == 19 && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'audit/2026-09-30-correctness'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      TSC_TEST_AES_BACKEND: cryptg
+      GIT_AUTHOR_NAME: KiaroSama
+      GIT_AUTHOR_EMAIL: Kiaro.Sama.Dev@gmail.com
+      GIT_COMMITTER_NAME: KiaroSama
+      GIT_COMMITTER_EMAIL: Kiaro.Sama.Dev@gmail.com
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+          persist-credentials: true
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          version: '0.12.19'
+      - name: Verify exact base and patch checksum before changing files
+        run: |
+          python - <<'PY'
+          import base64, hashlib, logging, os, pathlib, subprocess, zlib
+          logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True).strip()
+          base = '31ac2b7ed26d841e0816b29f502b1b342f4c6c91'
+          if git('rev-parse', 'HEAD^') != base:
+              logging.error('The publication base changed; refusing to overwrite work')
+              raise SystemExit(1)
+          expected = {'.github/workflows/audit-publish-once.yml', '.github/workflows/tests.yml'} | {
+              f'.github/audit-transfer/{i:02d}.b64' for i in range(4)
+          }
+          if set(git('diff', '--name-only', base, 'HEAD').splitlines()) != expected:
+              logging.error('Unexpected changes in the transport commit')
+              raise SystemExit(1)
+          workflow = pathlib.Path('.github/workflows/tests.yml').read_bytes()
+          if hashlib.sha256(workflow).hexdigest() != 'b86fb47aa0a546368418e99d3f6e3e3b46fa4cc1606569c8cac888826d7085ef':
+              logging.error('The separately published workflow differs from the tested version')
+              raise SystemExit(1)
+          encoded = ''.join(pathlib.Path(f'.github/audit-transfer/{i:02d}.b64').read_text() for i in range(4))
+          patch = zlib.decompress(base64.b64decode(encoded, validate=True))
+          digest = hashlib.sha256(patch).hexdigest()
+          if digest != 'b793cb9d33b7fcaa9e7c95a869211f74394aa6e8070264a929696fad7cb095de':
+              logging.error('The transferred patch checksum does not match')
+              raise SystemExit(1)
+          target = pathlib.Path(os.environ['RUNNER_TEMP']) / 'audit.patch'
+          target.write_bytes(patch)
+          logging.debug('Patch size: %d bytes', len(patch))
+          subprocess.run(['git', 'apply', '--check', '--exclude=.github/workflows/tests.yml', str(target)], check=True)
+          subprocess.run(['git', 'apply', '--index', '--exclude=.github/workflows/tests.yml', str(target)], check=True)
+          logging.info('Verified and applied patch %s', digest)
+          logging.warning('Live Telegram tests require accounts and must not count as passing')
+          PY
+      - name: Validate the complete patched tree before publishing it
+        run: |
+          set -euo pipefail
+          uv run --locked --extra fast python -m black --check .
+          uv run --locked --extra fast python -m flake8
+          uv run --locked --extra fast python -m mypy
+          uv run --locked --extra fast python tools/generate_schema.py --check
+          uv run --locked --extra fast python -m pytest -q --cov --cov-fail-under=90 --junitxml=publication-junit.xml
+      - name: Push only runtime fixes to the existing PR branch without force
+        run: |
+          set -euo pipefail
+          branch='audit/2026-09-30-correctness'
+          expected="$(git rev-parse HEAD)"
+          actual="$(git ls-remote origin "refs/heads/$branch" | cut -f1)"
+          test "$actual" = "$expected"
+          git diff --cached --check
+          git commit -m 'fix: close reproduced lifecycle, file durability and typed-boundary defects'
+          git push origin "HEAD:refs/heads/$branch"
+          printf 'Published runtime fixes: `%s`\n' "$(git rev-parse HEAD)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve test evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: audit-publication-evidence
+          path: publication-junit.xml
+          if-no-files-found: warn

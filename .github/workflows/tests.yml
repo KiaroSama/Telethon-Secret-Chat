@@ -38,7 +38,7 @@ jobs:
       - run: uv run --locked python tools/generate_schema.py --check
 
   test:
-    name: Pytest (${{ matrix.os }}, ${{ matrix.python }})
+    name: Pytest (${{ matrix.os }}, ${{ matrix.python }}, ${{ matrix.backend }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
@@ -46,9 +46,16 @@ jobs:
       matrix:
         os: [ubuntu-latest]
         python: ["3.11", "3.12", "3.13", "3.14"]
+        backend: [default]
         include:
           - os: windows-latest
             python: "3.13"
+            backend: default
+          - os: ubuntu-latest
+            python: "3.13"
+            backend: cryptg
+    env:
+      TSC_TEST_AES_BACKEND: ${{ matrix.backend }}
     defaults:
       run:
         shell: pwsh
@@ -71,12 +78,12 @@ jobs:
       - name: Verify the selected interpreter
         run: uv run --locked python -c "import sys; assert '.'.join(map(str, sys.version_info[:2])) == '${{ matrix.python }}'"
       - name: Execute tests, not only collection
-        run: uv run --locked python -m pytest -q --cov --cov-fail-under=90 --cov-report=term-missing --cov-report=xml --junitxml=junit.xml
+        run: uv run --locked ${{ matrix.backend == 'cryptg' && '--extra fast' || '' }} python -m pytest -q --cov --cov-fail-under=90 --cov-report=term-missing --cov-report=xml --junitxml=junit.xml
       - name: Upload exact case evidence
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: cases-${{ matrix.os }}-py${{ matrix.python }}
+          name: cases-${{ matrix.os }}-py${{ matrix.python }}${{ matrix.backend == 'cryptg' && '-cryptg' || '' }}
           path: |
             junit.xml
             coverage.xml
@@ -116,7 +123,7 @@ jobs:
           TEST_RESULT: ${{ needs.test.result }}
         run: test "$TEST_RESULT" = success
       # The leg names come from the artifacts the matrix uploaded; the count is
-      # what stops a leg that uploaded nothing from passing unnoticed. Five = the
-      # four ubuntu Pythons plus the windows include above.
+      # what stops a leg that uploaded nothing from passing unnoticed. Six = the
+      # four default ubuntu Pythons, Windows, and the explicit native-AES leg.
       - name: Require every leg, identical cases, and only declared skips
-        run: python tools/check_test_matrix.py records --expect-legs 5 $(ls records)
+        run: python tools/check_test_matrix.py records --expect-legs 6 $(ls records)
