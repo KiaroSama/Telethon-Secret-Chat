@@ -47,15 +47,13 @@ jobs:
           logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
           def git(*args):
               return subprocess.check_output(['git', *args], text=True).strip()
-          base = '31ac2b7ed26d841e0816b29f502b1b342f4c6c91'
+          base = 'be3e68eddf44d0fba55d9c845024dda165a503ea'
           if git('rev-parse', 'HEAD^') != base:
               logging.error('The publication base changed; refusing to overwrite work')
               raise SystemExit(1)
-          expected = {'.github/workflows/audit-publish-once.yml', '.github/workflows/tests.yml'} | {
-              f'.github/audit-transfer/{i:02d}.b64' for i in range(4)
-          }
+          expected = {'.github/workflows/audit-publish-once.yml'}
           if set(git('diff', '--name-only', base, 'HEAD').splitlines()) != expected:
-              logging.error('Unexpected changes in the transport commit')
+              logging.error('Unexpected changes in the retry commit')
               raise SystemExit(1)
           workflow = pathlib.Path('.github/workflows/tests.yml').read_bytes()
           if hashlib.sha256(workflow).hexdigest() != 'b86fb47aa0a546368418e99d3f6e3e3b46fa4cc1606569c8cac888826d7085ef':
