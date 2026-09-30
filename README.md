@@ -143,7 +143,21 @@ your next send into that chat, which the server refuses and which then raises `C
 
 A synchronous handler runs before the message leaves the durable mailbox, so after a crash
 it can run again (at-least-once); an asynchronous handler is scheduled, and scheduling is
-not completion. Handlers own their own idempotency.
+not completion. Handlers own their own idempotency. Concurrent `stop()` callers share one shutdown;
+cancelling one caller does not cancel the coordinator. A new `start()` does not wait for
+an old file upload to finish. That old operation is rejected with `ManagerStopping` if it
+returns, without replacing the restored chat or using a new sequence number.
+
+A handler cancelled by shutdown may call `stop()` from its cleanup: the coordinator
+already owns that shutdown, so this nested call returns without waiting for itself.
+Calling `start()` from that same cleanup raises `ManagerStopping`. After a shutdown save
+fails, a later `start()` first retries shutdown; it does not report a running manager
+whose update subscription has already been removed. Remaining callers receive shutdown
+failures, but cancelled waiters and discarded handler Tasks do not log their raw contents.
+
+A handler may return an existing `asyncio.Task` as well as a coroutine. Its direct wrapper
+and returned task share shutdown ownership: cleanup cannot restart the manager, and a task
+that legitimately calls `stop()` is not cancelled through its wrapper.
 
 ### The operations
 
@@ -199,6 +213,11 @@ keeps its own.
 that is not 256 bytes, a fingerprint that no longer matches its key, an unknown
 state) raises `StoreCorrupt` naming the chat, and no chat is started.
 
+Temporary files now carry their writer process ID. Cleanup removes only owned, inactive
+leftovers; it never removes another live writer’s file. Legacy temporary names without a
+process ID are preserved because their ownership cannot be proved: remove them only in an
+offline maintenance window after stopping **all** writers using that directory.
+
 `FileStorage` writes the whole store through a temporary file and an atomic replace. A crash
 between the two can leave a `.secret-chat-store-*.tmp` beside the store, and a crash while
 saving a received file a `.secret-chat-file-*.tmp` beside it; both hold key material or
@@ -224,7 +243,7 @@ a wire object.
 | `UnknownChat` | no chat with that id in this manager (also a `KeyError`) |
 | `ChatNotReady` | the chat is not established, or there is no request to accept |
 | `ChatClosed` | the chat is closed, or Telegram answered a send saying it no longer exists (the exception; the event is `ChatClosedEvent`) |
-| `ManagerStopping` | a send while `stop()` is running (also a `RuntimeError`) |
+| `ManagerStopping` | a send while stopping, or an operation belonging to a previous `stop()`/`start()` lifecycle (also a `RuntimeError`) |
 | `SendPending` | the message is stored and will be sent, but its transmission failed; carries `random_id` — **do not resend**, the next send or `start()` retries it |
 | `ParameterRejected` | a Diffie-Hellman value failed a required check |
 | `ResendUnsatisfiable` | the peer asked for messages this side no longer holds; the chat ends |

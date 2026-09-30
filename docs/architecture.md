@@ -98,7 +98,9 @@ entry to the outermost transaction. `FileStorage` extends it with a whole-state 
 commit serializes the whole store to a temporary file in the same directory, fsyncs it and
 `os.replace`s it over the store (plus a directory fsync on POSIX). It is one-process storage,
 not a lock between processes, and it is not encrypted at rest. Opening it deletes
-crash-leftover `.secret-chat-store-*.tmp` files.
+inactive, PID-owned `.secret-chat-store-<pid>-*.tmp` files. Cleanup preserves active,
+unqueryable and legacy owners; a filename prefix alone is not evidence of a crash.
+The same ownership registry protects decrypted-file writes in `files.save`.
 
 ## 4. The event contract
 

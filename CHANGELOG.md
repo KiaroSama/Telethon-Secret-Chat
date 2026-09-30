@@ -7,6 +7,27 @@ package by commit and reads this file before moving its pin. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Track returned handler Tasks with their wrappers during shutdown: avoid cleanup deadlocks,
+  cancellation of a stop caller through its wrapper, and restart from discarded-task cleanup.
+- Prevent Python 3.14 shield diagnostics from exposing errors after a cancelled shutdown wait.
+- Let cancelled handlers finish without recursively waiting on their own shutdown coordinator;
+  reject a restart from that cleanup, and recover a failed shutdown before restarting.
+- Retain and retrieve failures from handler Tasks cancelled before their wrapper starts or
+  returned while stopping; exception messages never reach the event-loop logger.
+- Verify the final ciphertext stream length before replacing a saved file.
+- Protect active file/store temporary writers; retain legacy temporary names until offline cleanup.
+- Reject stale operations across stop/start, isolate the new send queue, and share concurrent shutdown.
+- Preserve a peer discard arriving before the create RPC response; validate persisted runtime fields.
+- Validate file-key fingerprints on forwarding and reject malformed serialized media references.
+- Enforce declared TL result families in generated readers; persist TTL/layer service effects atomically.
+
+### Changed
+
+- CI explicitly exercises the native `cryptg` backend in addition to the default backend.
+- `ManagerStopping` also identifies an operation invalidated by a stop/start lifecycle change.
+
 ## [0.2.0] - 2026-09-29
 
 Tagged `v0.2.0`.
