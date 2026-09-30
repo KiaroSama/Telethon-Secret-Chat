@@ -54,22 +54,24 @@ jobs:
           echo "$listing"
           grep -q 'dist-info/licenses/LICENSE' <<<"$listing"
           grep -q 'dist-info/licenses/NOTICE' <<<"$listing"
-      # Nothing downloads this bundle on push, so it is built only on request.
+      # Normal pushes do not build a bundle. An explicit audit/ PR opts in so
+      # a disconnected reviewer can execute exactly the code and dependencies
+      # that CI used, including the optional native AES implementation.
       - name: Collect reproducible offline test inputs
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'audit/')
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/offline-inputs/wheels"
           git archive --format=tar HEAD > "$RUNNER_TEMP/offline-inputs/source.tar"
           git rev-parse HEAD > "$RUNNER_TEMP/offline-inputs/commit.txt"
-          uv export --locked --all-groups --no-emit-project --no-hashes --format requirements-txt > "$RUNNER_TEMP/offline-inputs/requirements.txt"
+          uv export --locked --all-groups --all-extras --no-emit-project --no-hashes --format requirements-txt > "$RUNNER_TEMP/offline-inputs/requirements.txt"
           python -m pip wheel -r "$RUNNER_TEMP/offline-inputs/requirements.txt" --wheel-dir "$RUNNER_TEMP/offline-inputs/wheels"
           cp dist/*.whl "$RUNNER_TEMP/offline-inputs/wheels/"
           cd "$RUNNER_TEMP/offline-inputs"
           sha256sum source.tar requirements.txt wheels/* > SHA256SUMS
       - name: Upload source and dependency wheels, never local sessions
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'audit/')
         uses: actions/upload-artifact@v7
         with:
           name: offline-test-inputs-py311
