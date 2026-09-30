@@ -155,6 +155,10 @@ fails, a later `start()` first retries shutdown; it does not report a running ma
 whose update subscription has already been removed. Remaining callers receive shutdown
 failures, but cancelled waiters and discarded handler Tasks do not log their raw contents.
 
+A handler may return an existing `asyncio.Task` as well as a coroutine. Its direct wrapper
+and returned task share shutdown ownership: cleanup cannot restart the manager, and a task
+that legitimately calls `stop()` is not cancelled through its wrapper.
+
 ### The operations
 
 | Call | Returns | Does |

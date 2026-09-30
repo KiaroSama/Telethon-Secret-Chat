@@ -65,6 +65,7 @@ class SecretChatManager(ChatLocking, EventDispatch, RetainedOutbox, Establishmen
         self._history_ids: Dict[int, set] = {}
         self._handlers: Dict[str, List[Callable]] = {}
         self._handler_tasks = set()
+        self._handler_dependencies = {}
         self._locks = {}
         self._outbound_locks = {}
         self._lock_owners = {}
@@ -178,7 +179,7 @@ class SecretChatManager(ChatLocking, EventDispatch, RetainedOutbox, Establishmen
 
     @staticmethod
     def _report_stop_failure(task):
-        # A caller may cancel its shielded wait; still retrieve the coordinator
+        # A caller may cancel its isolated wait; still retrieve the coordinator
         # exception without exposing storage error contents or a traceback.
         if not task.cancelled() and (failure := task.exception()) is not None:
             log.error("secret-chat shutdown failed: %s", type(failure).__name__)

@@ -40,6 +40,7 @@ class ManagerHost:
     _generation: int
     _stop_callers: Set[Any]
     _draining_handlers: Set[asyncio.Future[Any]]
+    _handler_dependencies: Dict[asyncio.Future[Any], asyncio.Future[Any]]
 
     # Steps one part calls on another.
     _check_generation: Callable[[int], None]

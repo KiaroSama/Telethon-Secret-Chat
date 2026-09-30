@@ -7,6 +7,9 @@ package by commit and reads this file before moving its pin. The format follows
 
 ## [Unreleased]
 
+- Track returned handler Tasks with their wrappers during shutdown: avoid cleanup deadlocks,
+  cancellation of a stop caller through its wrapper, and restart from discarded-task cleanup.
+
 ### Fixed
 
 - Prevent Python 3.14 shield diagnostics from exposing errors after a cancelled shutdown wait.

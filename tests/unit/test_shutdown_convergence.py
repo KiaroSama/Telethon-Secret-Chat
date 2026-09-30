@@ -12,7 +12,8 @@ from .helpers import ready_manager
 
 
 @pytest.mark.parametrize("operation", ["start", "stop"])
-async def test_handler_lifecycle_requests_during_cancellation_cleanup(operation):
+@pytest.mark.parametrize("shape", ["coroutine", "task"])
+async def test_handler_lifecycle_requests_during_cancellation_cleanup(operation, shape):
     manager, _ = ready_manager()
     await manager.start()
     entered, cleaned = asyncio.Event(), asyncio.Event()
@@ -29,7 +30,10 @@ async def test_handler_lifecycle_requests_during_cancellation_cleanup(operation)
                     await manager.start()
             cleaned.set()
 
-    manager.on("ChatReady", handler)
+    manager.on(
+        "ChatReady",
+        handler if shape == "coroutine" else lambda event: asyncio.create_task(handler(event)),
+    )
     manager._emit(ChatReady(7, 9, 0))
     await asyncio.wait_for(entered.wait(), 2)
     handlers = list(manager._handler_tasks)
@@ -155,4 +159,53 @@ async def test_discarded_handler_failures_are_retrieved_without_sensitive_logs(
         assert "sensitive handler cleanup details" not in caplog.text
     finally:
         loop.set_exception_handler(previous)
+        await manager.stop()
+
+
+async def test_returned_task_can_stop_without_its_wrapper_cancelling_it():
+    manager, _ = ready_manager()
+    await manager.start()
+    finished = asyncio.Event()
+
+    async def stop_from_handler():
+        await manager.stop()
+        finished.set()
+
+    manager.on("ChatReady", lambda event: asyncio.create_task(stop_from_handler()))
+    manager._emit(ChatReady(7, 9, 0))
+    handlers = list(manager._handler_tasks)
+    try:
+        await asyncio.wait_for(finished.wait(), 2)
+        assert not manager._running
+    finally:
+        for task in handlers:
+            task.cancel()
+        await asyncio.gather(*handlers, return_exceptions=True)
+        await manager.stop()
+
+
+async def test_discarded_task_cleanup_cannot_restart_the_stopping_manager():
+    manager, _ = ready_manager()
+    await manager.start()
+    entered, finished = asyncio.Event(), asyncio.Event()
+
+    async def cleanup():
+        try:
+            entered.set()
+            await asyncio.Event().wait()
+        finally:
+            with pytest.raises(ManagerStopping):
+                await manager.start()
+            finished.set()
+
+    task = asyncio.create_task(cleanup())
+    await asyncio.wait_for(entered.wait(), 2)
+    manager.on("ChatReady", lambda event: task)
+    manager._stopping = True
+    try:
+        manager._emit(ChatReady(7, 9, 0))
+        await asyncio.wait_for(finished.wait(), 2)
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
         await manager.stop()

@@ -57,9 +57,12 @@ class EventDispatch(ManagerHost):
             if inspect.isawaitable(result):
                 task = asyncio.ensure_future(self._run_handler(handler, result))
                 self._handler_tasks.add(task)
+                if asyncio.isfuture(result):
+                    self._handler_dependencies[task] = result
 
                 def done(task, result=result, handler=handler):
                     self._handler_tasks.discard(task)
+                    self._handler_dependencies.pop(task, None)
                     if inspect.iscoroutine(result):
                         result.close()  # Also close an awaitable cancelled before its wrapper starts.
                     elif asyncio.isfuture(result) and (task.cancelled() or not result.done()):
@@ -74,10 +77,12 @@ class EventDispatch(ManagerHost):
             # A Task can raise while handling cancellation. Retain it until its
             # completion and consume its failure rather than leaking it to asyncio.
             self._handler_tasks.add(result)
+            self._draining_handlers.add(result)
             name = self._handler_name(handler)
 
             def retrieved(task):
                 self._handler_tasks.discard(task)
+                self._draining_handlers.discard(task)
                 if not task.cancelled() and task.exception() is not None:
                     log.error("secret-chat handler %s failed during cleanup", name)
 
@@ -95,13 +100,23 @@ class EventDispatch(ManagerHost):
         tasks = [
             task
             for task in self._handler_tasks
-            if task is not asyncio.current_task() and task not in self._stop_callers
+            if task is not asyncio.current_task()
+            and task not in self._stop_callers
+            and self._handler_dependencies.get(task) not in self._stop_callers
         ]
-        self._draining_handlers.update(tasks)
+        # Cancellation of a wrapper propagates to the Task it awaits. Both are
+        # in the same drain, but only cancel the wrapper to avoid double requests.
+        draining = set(tasks)
+        draining.update(
+            self._handler_dependencies[task]
+            for task in tasks
+            if task in self._handler_dependencies
+        )
+        self._draining_handlers.update(draining)
         try:
             for task in tasks:
                 task.cancel()
             if tasks:
                 await asyncio.gather(*tasks, return_exceptions=True)
         finally:
-            self._draining_handlers.difference_update(tasks)
+            self._draining_handlers.difference_update(draining)
