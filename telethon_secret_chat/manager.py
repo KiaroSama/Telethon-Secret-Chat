@@ -478,6 +478,44 @@ class SecretChatManager(ChatLocking, EventDispatch, RetainedOutbox, Establishmen
         """Remove one chat's saved messages and files. Ask the user first."""
         self._autosave.delete(chat_id)
 
+    async def export_saved_messages(
+        self,
+        chat_id,
+        path,
+        *,
+        self_user,
+        peer_user,
+        format="html",
+        media_types=None,
+        size_limit=8 * 1024 * 1024,
+        date_from=0,
+        date_till=0,
+        force_sub_path=False,
+    ):
+        """Export the retained saved copy as Desktop HTML, JSON or both, without RPCs.
+
+        Supply participant Telethon Users; deleted chats remain exportable. Media groups:
+        photo, video, voice_message, video_message, sticker, gif, file (default photos).
+        Date bounds are Unix timestamps; 0 is open. Source data is never removed.
+        Returns the shared ExportResult. Raises ValueError for invalid options, OSError
+        for an export failure. Output contains plaintext; protect it like the saved copy.
+        """
+        from .saved_export import export
+
+        return export(
+            self.read_saved_messages(chat_id),
+            path,
+            self_user=self_user,
+            peer_user=peer_user,
+            source_folder=self._autosave.saved_in,
+            format=format,
+            media_types=media_types,
+            size_limit=size_limit,
+            date_from=date_from,
+            date_till=date_till,
+            force_sub_path=force_sub_path,
+        )
+
     async def save_file(self, message, path) -> Path:
         """Download, verify and decrypt a received file to ``path``.
 

@@ -49,6 +49,21 @@ PLATFORM_SKIPS = {
         "tests.unit.test_guards::test_a_directory_fsync_failure_is_a_warning_not_a_rollback",
     },
 }
+# The optional native JPEG encoder is supplied only on Windows; Linux still
+# exercises image decoding, Pillow fallback and NumPy ICC oracle fixtures.
+NATIVE_THUMB_SKIPS = {
+    f"tests.test_tdexport_thumbs::{name}"
+    for name in (
+        "test_thumb_is_mozjpeg_progressive_444_with_desktop_tables",
+        "test_thumb_carries_source_density_and_icc",
+        "test_unscaled_grayscale_stays_one_component",
+        "test_thumb_bytes_are_pinned",
+        "test_cmyk_thumbnail_uses_desktop_rgb_conversion[size0]",
+        "test_cmyk_thumbnail_uses_desktop_rgb_conversion[size1]",
+        "test_jpeg_comments_use_qt_key_order_and_utf8",
+        "test_non_srgb_thumbnail_matches_exact_qt_oracle",
+    )
+}
 OPTIONAL_SKIPS = {
     "tests.vectors.test_official_client_frames::test_official_client_frames_replay_offline",
 }
@@ -64,6 +79,8 @@ def _sample(identities):
 def case_set(path: Path, leg: str | None = None):
     leg = leg or path.parent.name
     expected_skips = LIVE_SKIPS | PLATFORM_SKIPS.get(leg, set())
+    if leg.startswith("cases-ubuntu-"):
+        expected_skips |= NATIVE_THUMB_SKIPS
     root = ET.parse(path).getroot()
     cases, skipped = set(), set()
     for case in root.iter("testcase"):

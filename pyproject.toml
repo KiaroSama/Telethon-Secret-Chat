@@ -36,6 +36,7 @@ dependencies = [
     # package calls one private v1 method (TelegramClient._parse_message_text,
     # guarded by tests/unit/test_telethon_canary.py).
     "telethon>=1.45.0,<2",
+    "pillow>=12.3.0",
 ]
 
 [project.optional-dependencies]
@@ -43,6 +44,8 @@ dependencies = [
 # Python, which is correct but slow on large media. 0.6.0 ships wheels for
 # CPython 3.11-3.14 on Linux, macOS and Windows, so no marker is needed.
 fast = ["cryptg>=0.6.0"]
+# Windows mozjpeg reproduces Desktop JPEGs; other platforms use Pillow's fallback.
+thumbs = ["imagecodecs>=2026.3.6; sys_platform == 'win32'"]
 
 [project.urls]
 Homepage = "https://github.com/KiaroSama/Telethon-Secret-Chat"
@@ -60,8 +63,10 @@ dev = [
     "pytest-timeout>=2.4",
     "black>=26",
     "flake8>=7.4",
-    "mypy>=2.3",
+    "mypy>=2.4",
     "hypothesis>=6.168",
+    # Exercise copied Qt ICC arithmetic on every CI platform, not through skips.
+    "numpy>=2.4.6",
 ]
 
 [build-system]
@@ -79,6 +84,7 @@ include = ["telethon_secret_chat*"]
 # PEP 561 marker: tells a consumer's type checker to read the inline annotations.
 # schema/end-to-end.tl is not shipped; only tools/generate_schema.py reads it.
 telethon_secret_chat = ["py.typed"]
+"telethon_secret_chat.tdexport" = ["assets/css/*", "assets/js/*", "assets/images/*"]
 
 [tool.black]
 # 99, matching the reference project this was scaffolded from, so a file moved
@@ -132,3 +138,15 @@ check_untyped_defs = true
 # `exclude` stops discovery only; imports of the schema would still be followed.
 module = "telethon_secret_chat.schema.*"
 follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+# Verbatim shared port: retain its existing Telethon ignore annotations without
+# changing source bytes; our integration boundary remains type-checked.
+module = "telethon_secret_chat.tdexport.*"
+warn_unused_ignores = false
+
+[[tool.mypy.overrides]]
+# Upstream validates nullable ICC curves before indexing; mypy cannot narrow the
+# tuple through that runtime predicate. Keep this scoped to the unchanged copy.
+module = "telethon_secret_chat.tdexport.qt_icc"
+disable_error_code = ["index"]

@@ -255,6 +255,43 @@ store. A download that a `stop()` interrupted is retried at the next `start()`; 
 reference waits in `pending.json` until then. A save that fails (a full disk) is logged
 by its type and never stops a message from being sent or delivered.
 
+### Export saved messages
+
+`export_saved_messages` uses the shared Telegram Desktop v7.2.10 exporter and original
+CSS/JS/images, copied unchanged from Telegram-mcp. It reads the retained auto-save copy,
+not server history; it works after auto-save is off or the chat has been deleted.
+Supply participant metadata you already hold; no login, takeout or account RPC is performed.
+
+```python
+result = await manager.export_saved_messages(
+    chat_id, "exports/chat", self_user=my_user, peer_user=peer_user,
+    format="both",                         # html (default), json, both
+    media_types=["photo", "video", "voice_message", "video_message", "sticker", "gif", "file"],
+    size_limit=8 * 1024 * 1024,             # bytes; 0..4000 MiB
+    date_from=0, date_till=0,               # Unix timestamps; 0 = open bound
+)
+```
+
+Participants are Telethon `types.User` objects. `media_types=None` selects photos (Desktop's
+8 MiB default); an empty list excludes files. `force_sub_path=True` always creates a
+`ChatExport_YYYY-MM-DD` subfolder; nonempty destinations get one automatically. Result fields:
+`path`, `takeout` (always false here), `takeout_error`, `messages`, `files`; counts follow the
+shared adapter (messages can include records subsequently filtered by date in the writer).
+Saved records/files are never deleted or rewritten. Destination/source overlap and invalid
+options raise `ValueError` before output; export failures raise a sanitized `OSError`.
+Output is **plaintext** and must be protected like the saved copy. Logs contain counts and
+exception types, never contents or keys. Pending downloads are not waited for: missing media
+is represented as unavailable by the Desktop writer.
+
+Pillow is required for image decoding. The optional `thumbs` extra supplies Windows mozjpeg
+and NumPy for the Desktop JPEG/ICC path, verified against maintained synthetic Qt 5.15.19
+oracle cases (RGB/gray, supported matrix/TRC profiles, CMYK and comments). This is **bounded
+Windows parity**, not a guarantee for every input/platform. Without that codec, including
+Linux/macOS, Pillow writes usable thumbnails whose JPEG bytes need not match Desktop.
+No Qt production runtime is installed. Source provenance, hashes and fixture evidence are in
+[the export copy manifest](tests/fixtures/tdexport-source.json) and
+[ICC fixture notes](tests/fixtures/tdexport_icc/README.md).
+
 ### Errors
 
 Everything raised derives from `SecretChatError`, and no error carries a key, a plaintext or

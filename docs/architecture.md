@@ -25,6 +25,8 @@ manager composes them, and only the manager's parts (`manager.py`, `establishmen
 | `media.py` | media metadata checks, send sources (path, bytes, stream), `MediaReference` | §6 |
 | `visualization.py` | `key_visualization`: the key picture as a colour grid and hex (standard library only) | §1.6 |
 | `autosave.py` | auto-save: every message and file of every chat into an application folder (spec 009) | - |
+| `saved_export.py` | offline saved-export input validation and writer selection; no client calls | — |
+| `tdexport/` | unchanged shared Desktop v7.2.10 port, saved-record adapter, assets and image conversion | — |
 | `ogg_tags.py` | voice note or music: reads the Ogg comment block, never the audio | — |
 | `chat.py` | the `SecretChat` entity, its state table and record validation | — |
 | `storage/` | `StorageBackend` and the two shipped backends | — |

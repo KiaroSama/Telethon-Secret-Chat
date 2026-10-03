@@ -9,6 +9,10 @@ package by commit and reads this file before moving its pin. The format follows
 
 ### Added
 
+- `export_saved_messages`: offline Desktop-style HTML, JSON or both from retained saved
+  records, with media, size, date and destination options. The shared exporter and assets
+  are copied unchanged; Pillow handles images and the optional Windows `thumbs` extra
+  enables the tested Desktop JPEG/ICC path. No new login or server takeout is needed.
 - Auto-save: `start_auto_save_secret_chats(folder)` / `stop_auto_save_secret_chats()` save every
   message of every secret chat (self-destructing ones included) and download every file at once;
   `read_saved_messages` / `delete_saved_messages`. The switch is kept in the storage, which gains
