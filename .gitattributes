@@ -19,3 +19,7 @@
 # the tree today; this is here so that adding one cannot break it.
 *.bat text eol=crlf
 *.cmd text eol=crlf
+
+# Desktop export resources are byte-identical originals (including CRLF).
+telethon_secret_chat/tdexport/assets/css/style.css -text
+telethon_secret_chat/tdexport/assets/js/script.js -text
