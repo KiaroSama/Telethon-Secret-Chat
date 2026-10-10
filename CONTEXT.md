@@ -121,6 +121,28 @@ effort, because a chat already ended on the server can no longer carry the reque
 delete for both sides removes the chat from this side on arrival.
 _Avoid_: revoke, flush (that clears history in a chat that stays open)
 
+## Transient handling
+
+**Ordinary payload**:
+The content of a conversation and the material needed to decrypt, deliver or retransmit it,
+including a file's one-time key and media reference.
+_Avoid_: protocol state, metadata-only (when it includes message material)
+
+**Protected protocol state**:
+A conversation's authorization binding, shared keys, counters and exchange state, excluding
+ordinary payload. Holding it does not mean lost message content can be recovered.
+_Avoid_: history, payload backup
+
+**Transient retention**:
+A bounded volatile copy held for delivery, gap handling or exact retransmission, which does
+not survive losing the process's memory.
+_Avoid_: archive, durable mailbox
+
+**Suspended conversation**:
+A conversation whose protected state is still held but whose protocol participation is
+refused; it is neither deleted nor remotely discarded and is not promised resumable.
+_Avoid_: closed chat, recovered chat
+
 ## Verification
 
 **Interop tier**:

@@ -48,7 +48,7 @@ jobs:
           cp tests/wheel_export_smoke.py "$RUNNER_TEMP/wheel-export-smoke.py"
           cp tests/fixtures/tdexport-source.json "$RUNNER_TEMP/tdexport-source.json"
           cd "$RUNNER_TEMP"
-          "$RUNNER_TEMP/wheel-smoke/bin/python" -c "from telethon_secret_chat import SecretChatManager, FileStorage; from telethon_secret_chat.schema import secret_tl; print('installed-wheel imports succeeded')"
+          "$RUNNER_TEMP/wheel-smoke/bin/python" -c "from telethon_secret_chat import SecretChatManager, FileStorage, TransientSecretChatManager, ProtectedFileStorage, TransientLimits; from telethon_secret_chat.schema import secret_tl; assert TransientLimits().tasks == 8; print('installed-wheel imports succeeded')"
           "$RUNNER_TEMP/wheel-smoke/bin/python" "$RUNNER_TEMP/wheel-export-smoke.py" "$RUNNER_TEMP/tdexport-source.json"
       - name: Require the licence files in the wheel
         shell: bash

@@ -9,6 +9,11 @@ package by commit and reads this file before moving its pin. The format follows
 
 ### Added
 
+- Opt-in `TransientSecretChatManager`, `ProtectedFileStorage` and validated `TransientLimits`:
+  ordinary and service payloads remain bounded RAM-only, using the caller's existing client.
+  Protected keys/counters survive; stop/reconstruction permanently suspends known chats without
+  automatic discard or claimed lossless replay. Includes explicit acceptance control, bounded
+  async callbacks and memory-only media receipt. See [limitations](docs/transient-mode.md).
 - `export_saved_messages`: offline Desktop-style HTML, JSON or both from retained saved
   records, with media, size, date and destination options. The shared exporter and assets
   are copied unchanged; Pillow handles images and the optional Windows `thumbs` extra
