@@ -68,8 +68,9 @@ shows it processed them, so a resend can be answered with the original bytes.
 _Avoid_: send queue, outbox (unqualified), sent history
 
 **Delivery mailbox**:
-Received messages accepted in order but not yet handed to the application; it survives a
-restart, so a message is handed over at least once.
+Received messages accepted in order but not yet handed to the application. In durable mode
+it survives a restart, so a message is handed over at least once; transient mode keeps only
+a volatile counterpart.
 _Avoid_: inbox, receive queue, pending messages
 
 **Acknowledgement**:

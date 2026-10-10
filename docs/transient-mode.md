@@ -2,7 +2,7 @@
 
 **Library CI validated; consumer integration not exercised.** The implementation at `685181b4ed1519f3bc77638454075ddeeddeb0be` passed the full Linux/Windows matrix and installed-wheel checks. It is available for an explicitly authorized consumer integration under the limitations below, not a claim that a consumer or live Telegram deployment was tested. No new release/tag has been issued.
 
-Use `TransientSecretChatManager` explicitly, not `history_limit=0` on the default manager. The default manager remains unchanged and persists its protocol mailbox, gap and original-wire outbox. This opt-in mode uses the caller's exact existing connected Telethon client and authorization, without creating, connecting or disconnecting another client, copying a session, logging in, or changing device settings.
+Use `TransientSecretChatManager` explicitly, not `history_limit=0` on the default manager. The recommended default `SecretChatManager` with `FileStorage` persists its protocol mailbox, gap and original-wire outbox and resumes healthy chats after restart. It also defaults auto-save ON into `saved-secret-chats` beside the state file when no prior preference exists; use it when restart continuity and saved history are wanted. The explicit transient class below keeps its no-payload-write contract and does not inherit that auto-save default. This opt-in mode uses the caller's exact existing connected Telethon client and authorization, without creating, connecting or disconnecting another client, copying a session, logging in, or changing device settings.
 
 ## Minimal same-existing-client example
 

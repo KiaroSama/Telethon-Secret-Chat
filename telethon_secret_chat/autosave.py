@@ -96,7 +96,11 @@ class AutoSave:
     # --- the switch ---------------------------------------------------------------
 
     def load(self) -> None:
-        setting = self._manager._storage.load_setting(SETTING) or {}
+        setting = self._manager._storage.load_setting(SETTING)
+        if setting is None and self._manager._default_save_folder is not None:
+            self.enable(self._manager._default_save_folder)
+            return
+        setting = setting or {}
         self.saved_in = Path(setting["folder"]) if setting.get("folder") else None
         self.folder = self.saved_in if setting.get("on") else None
 
@@ -105,10 +109,10 @@ class AutoSave:
         self.folder = self.saved_in = Path(folder)
 
     def disable(self) -> None:
-        if self.saved_in is not None:
-            self._manager._storage.save_setting(
-                SETTING, {"folder": str(self.saved_in), "on": False}
-            )
+        self._manager._storage.save_setting(
+            SETTING,
+            {"folder": str(self.saved_in) if self.saved_in is not None else None, "on": False},
+        )
         self.folder = None
 
     # --- recording ----------------------------------------------------------------

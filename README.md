@@ -104,6 +104,20 @@ random_id = await manager.send_message(chat.id, "**hello**")
 Register handlers before `start()`: it re-announces pending requests and delivers stored
 messages immediately, and an event with no handler is dropped and counted as delivered.
 
+**Recommended default: durable chats and automatic saved copies.** Use the same protected
+`FileStorage` path and the same Telethon authorization after restart: `SecretChatManager`
+loads its chat keys/counters and resumes mailbox/outbox/gap work; it does not permanently
+suspend healthy chats. Auto-save is enabled when no preference has been saved, into
+`<state-file-directory>/saved-secret-chats`. Saved messages and decrypted files—including
+timed messages—are plaintext: protect this directory and its backups. Existing explicitly
+saved OFF settings and chosen archive folders remain authoritative.
+
+Pass `auto_save_folder=...` to select the initial archive for a custom backend. Explicit
+`MemoryStorage` remains volatile and has no automatic disk destination unless this argument
+is supplied. The library still requires an explicit state backend; it never guesses where
+secret keys should be written. Previously lost transient RAM cannot be recovered by changing
+managers; the optional transient mode is not the restart-continuity mode.
+
 `e.key_hash` is 36 bytes, the input to Telegram's key visualization — what the peer's
 official client draws on its "Encryption Key" screen. `key_visualization(e.key_hash)` returns
 the same picture as data: `rows`, 12 rows of 12 indexes into `PALETTE`, and `hex`, the 64 hex
@@ -248,7 +262,10 @@ proven intact by having been saved.
 ### Auto-save
 
 Telegram's servers keep no secret-chat history, so anything an application wants to
-keep, it must keep as it happens. Auto-save does that for every chat at once:
+keep, it must keep as it happens. Auto-save does that for every chat at once. On ordinary
+file-backed managers it defaults ON before startup backlog delivery when no saved preference
+exists; explicitly stopping it stays OFF after restart. Change the destination using
+`start_auto_save_secret_chats(folder)` or supply the initial `auto_save_folder=` argument:
 
 | Call | Returns | What it does |
 |---|---|---|
