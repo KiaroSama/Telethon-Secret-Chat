@@ -121,8 +121,9 @@ The separate `TransientSecretChatManager` keeps ordinary and service payloads in
 while committing only protected protocol state. It requires a fresh `ProtectedFileStorage`;
 `history_limit=0` on the default manager is not this mode. Stop/reconstruction permanently
 suspends existing chats without automatic remote discard, so no lossless restart or server
-replay is promised. **Development / not integration-ready:** see the exact APIs, budgets,
-protected schema and verification limits in [transient mode](docs/transient-mode.md).
+replay is promised. **Library CI validated; live consumer integration not exercised:** see
+its exact tested commit pin, APIs, budgets, protected schema and verification limits in
+[transient mode](docs/transient-mode.md).
 
 ### Events
 
