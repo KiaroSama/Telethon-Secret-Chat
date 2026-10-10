@@ -362,9 +362,19 @@ async def test_cancellation_resistant_network_reports_incomplete_cleanup(tmp_pat
     await a.start()
     await b.start()
     release, resisted = asyncio.Event(), asyncio.Event()
+    deadlines = []
+    timeout = asyncio.timeout
     try:
         chat, _ = await establish(a, b, wire)
         original = type(wire.a).__call__
+
+        def tracked_timeout(delay):
+            scope = timeout(1 if delay is not None else None)
+            if delay is not None:
+                deadlines.append(scope)
+            return scope
+
+        monkeypatch.setattr(asyncio, "timeout", tracked_timeout)
 
         async def resist(client, request):
             from telethon.tl import functions
@@ -374,6 +384,11 @@ async def test_cancellation_resistant_network_reports_incomplete_cleanup(tmp_pat
                     await release.wait()
                 except asyncio.CancelledError:
                     resisted.set()
+                    # Force the inner deadline behind the owner's cancellation,
+                    # instead of relying on runner load to choose their ordering.
+                    for scope in deadlines:
+                        if not scope.expired():
+                            scope.reschedule(asyncio.get_running_loop().time())
                     await release.wait()
                 return await original(client, request)
             return await original(client, request)
