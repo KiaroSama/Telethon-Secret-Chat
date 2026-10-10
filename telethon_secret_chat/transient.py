@@ -48,6 +48,7 @@ class TransientSecretChatManager(SecretChatManager):
         self._transient = TransientStorage(storage, limits)
         super().__init__(client, self._transient, history_limit=0)
         self._owned: dict[asyncio.Task, int | None] = {}
+        self._deadline_owned: set[asyncio.Task] = set()
         self._callback_bytes = 0
         self._input_bytes = 0
         self._accepting = True
@@ -254,7 +255,9 @@ class TransientSecretChatManager(SecretChatManager):
         # Reserve ownership before the child first runs. Its work scope will remove
         # it only after actual completion, even if the caller's deadline expires.
         self._handler_tasks.add(child)
+        self._deadline_owned.add(child)
         child.add_done_callback(self._handler_tasks.discard)
+        child.add_done_callback(self._deadline_owned.discard)
 
         def retrieve(task):
             if not task.cancelled():
@@ -321,7 +324,10 @@ class TransientSecretChatManager(SecretChatManager):
         self._input_bytes += size
         self._transient.external_bytes = self._callback_bytes + self._input_bytes
         try:
-            async with asyncio.timeout(self.limits.operation_seconds):
+            # _execute owns its child's deadline and cancellation drain. A second
+            # timer here could cancel a resistant child twice and falsify cleanup.
+            deadline = None if task in self._deadline_owned else self.limits.operation_seconds
+            async with asyncio.timeout(deadline):
                 yield
         except asyncio.CancelledError:
             if chat_id is not None:

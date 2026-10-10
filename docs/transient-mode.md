@@ -88,7 +88,7 @@ Transactions coordinate complete RAM rollback with the existing synchronous atom
 
 Records count global retained outbox, gaps and delivery mailbox. Bytes charge strings/bytes/containers, active inputs and callback events; an additional4x state reservation accommodates rollback/serialization copies. This is a finite **content accounting budget, not a process-RSS guarantee**. Callers, Telethon's own update queues/serialization/retries, interpreter allocation, OS swap/crash dumps and external logs are outside library control. Returned objects/bytes become the consumer's responsibility. The library cannot guarantee RAM erasure.
 
-Expired or missing required frames cause suspension, never silent eviction followed by continued protocol. Attempts cap each original retained frame. Uncertain/permanent transport failure suspends rather than making the default durable `SendPending` promise. Every async operation has a cooperative asyncio deadline; cancellation-resistant client/consumer code can prevent true settlement, which is reported as incomplete cleanup instead of hidden success. No cooperative Python library can forcibly terminate an arbitrary coroutine/thread without owning its process.
+Expired or missing required frames cause suspension, never silent eviction followed by continued protocol. Attempts cap each original retained frame. Uncertain/permanent transport failure suspends rather than making the default durable `SendPending` promise. Each owned operation has one deadline coordinator rather than competing cancellation timers; direct callbacks retain their own cooperative deadline. Cancellation-resistant client/consumer code can prevent true settlement, which is reported as incomplete cleanup instead of hidden success. No cooperative Python library can forcibly terminate an arbitrary coroutine/thread without owning its process.
 
 ## Restart, gaps and PFS limitations
 
@@ -102,11 +102,7 @@ Expired or missing required frames cause suspension, never silent eviction follo
 
 ## Evidence and pins
 
-Exact CI-tested implementation pin: `685181b4ed1519f3bc77638454075ddeeddeb0be`. Distribution metadata remains `kiaro-telethon-secret-chat==0.2.0` (alpha), Python>=3.11, Telethon>=1.45,<2. The existing `v0.2.0` tag predates these APIs: pin this commit rather than the version/tag alone. Dependencies remain those in its `uv.lock`; no additional runtime dependency was introduced.
-
-```bash
-python -m pip install "kiaro-telethon-secret-chat @ git+https://github.com/KiaroSama/Telethon-Secret-Chat.git@685181b4ed1519f3bc77638454075ddeeddeb0be"
-```
+Initial CI-tested implementation pin: `685181b4ed1519f3bc77638454075ddeeddeb0be`. A later CI run exposed a cancellation-ordering race; the single-owner deadline correction is included in subsequent commits. Use the final merged commit supplied in the handoff, not this initial pin, when integrating. Distribution metadata remains `kiaro-telethon-secret-chat==0.2.0` (alpha), Python>=3.11, Telethon>=1.45,<2. The existing `v0.2.0` tag predates these APIs: pin this commit rather than the version/tag alone. Dependencies remain those in its `uv.lock`; no additional runtime dependency was introduced.
 
 [Tests and matrix agreement](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/runs/38087743007), [installed wheel](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/runs/38087742901), [lint/format/types](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/runs/38087742902) and [CodeQL](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/runs/38087743017) completed successfully on that exact SHA. All six matrix legs agreed on 1744 test identities; Linux ran1726 with18 declared skips and91.43% coverage. Live Telegram cases were intentionally not executed.
 
