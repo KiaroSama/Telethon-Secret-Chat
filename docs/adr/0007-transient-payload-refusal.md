@@ -1,0 +1,5 @@
+# Transient payloads refuse rather than invent restart recovery
+
+The default atomic mailbox/outbox/gap contract retains ordinary payloads. The explicit transient manager instead commits only validated protected protocol state, keeping all ordinary and service frames in bounded RAM; the durable service-frame bound is zero. Every stop, reconstruction or required-state loss permanently suspends affected chats, retaining their protected keys and counters without automatic remote discard, sequence reset or replacement messages.
+
+This sacrifices recovery and availability for the requested no-payload-write/no-automatic-deletion boundary. It is local nonparticipation, not an extension of Telegram's protocol: an unsatisfiable Resend normally requires abort, and retained previous keys in suspended chats do not satisfy normal PFS retirement. The caller's existing Telethon connection owns transport qts acknowledgement, which callbacks cannot defer or undo. There is deliberately no resume/migration API; enabling ordinary durable storage later is not recovery of lost content.

@@ -171,6 +171,13 @@ request for the same id cannot revive the chat, until `forget(chat_id)` removes 
 - **Media kinds.** `MEDIA_KINDS` and `CAPTIONLESS_KINDS` (`files.py`) are the vocabulary
   `send_file(kind=...)` accepts; a mismatch between kind and file type is refused, never
   converted.
-- **Text parsing.** `send_message` uses the client's parse mode through the one private
-  Telethon method the package calls (`TelegramClient._parse_message_text`, guarded by
-  `tests/unit/test_telethon_canary.py`); passing `entities=` bypasses it.
+- **Text parsing.** `send_message` uses the client's parse mode through the private
+  Telethon method `TelegramClient._parse_message_text`, guarded by
+  `tests/unit/test_telethon_canary.py`; passing `entities=` bypasses it.
+- **Transient handling.** The opt-in manager reads the caller's public
+  `client.session.auth_key.key_id` and `client.session.dc_id` for authorization binding;
+  `tests/unit/test_transient_lifecycle.py` pins that surface without connecting. No
+  session serialization or private update-box mutation is used. Its strict protected
+  projection and non-resumable suspension boundary are in [transient mode](transient-mode.md)
+  and [ADR 0007](adr/0007-transient-payload-refusal.md); ordinary durable backend semantics
+  and the default manager remain unchanged.

@@ -49,6 +49,9 @@ from .manager import SecretChatManager
 from .media import MediaReference
 from .visualization import PALETTE, KeyVisualization, key_visualization
 from .storage import FileStorage, MemoryStorage, StorageBackend
+from .protected import ProtectedFileStorage
+from .transient_work import TransientLimits, TransientRefused, TransientCleanupIncomplete
+from .transient import TransientSecretChatManager
 
 try:
     # One source of truth: the installed distribution's metadata (pyproject.toml).
@@ -59,6 +62,11 @@ except _metadata.PackageNotFoundError:  # a source tree that was never installed
 __all__ = [
     # what an application constructs and holds
     "SecretChatManager",
+    "TransientSecretChatManager",
+    "TransientLimits",
+    "TransientRefused",
+    "TransientCleanupIncomplete",
+    "ProtectedFileStorage",
     "SecretChat",
     "ChatSnapshot",
     "ChatState",
