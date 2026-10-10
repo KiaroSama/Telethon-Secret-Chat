@@ -228,7 +228,7 @@ class FileStorage(MemoryStorage):
 
     def __init__(self, path):
         super().__init__()
-        self.path = Path(path)
+        self.path = Path(path).absolute()
         if self.path.is_symlink():
             raise ValueError("the secret-chat store must not be a symbolic link")
         # Never mistake another live store's temporary commit for a crash leftover.

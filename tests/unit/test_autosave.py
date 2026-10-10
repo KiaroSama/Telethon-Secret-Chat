@@ -28,7 +28,7 @@ async def test_the_switch_survives_a_restart(tmp_path):
     wire, store = Wire(), tmp_path / "store.json"
     first = SecretChatManager(wire.a, storage=FileStorage(store))
     await first.start()
-    assert first.auto_save_secret_chats is None
+    assert first.auto_save_secret_chats == str(tmp_path / "saved-secret-chats")
     await first.start_auto_save_secret_chats(tmp_path / "saved")
     await first.stop()
 
@@ -135,3 +135,159 @@ async def test_an_interrupted_download_is_retried_at_the_next_start(saving, tmp_
     from pathlib import Path
 
     assert Path(record["file"]).read_bytes() == b"late bytes" * 20
+
+
+@pytest.mark.timeout(10)
+async def test_default_file_storage_saves_and_continues_same_chat_after_restart(tmp_path):
+    from telethon_secret_chat.storage import MemoryStorage
+
+    wire = Wire()
+    path = tmp_path / "state" / "chats.json"
+    first = SecretChatManager(wire.a, FileStorage(path))
+    peer = SecretChatManager(wire.b, MemoryStorage())
+    await first.start()
+    await peer.start()
+    resumed = None
+    try:
+        chat, _ = await establish(first, peer, wire)
+        folder = path.parent / "saved-secret-chats"
+        assert first.auto_save_secret_chats == str(folder)
+        await first.send_message(chat.id, "before restart")
+        before = first.status(chat.id)
+        sent_counter = first._storage.load(chat.id)["out_seq_no"]
+        await first.stop()
+        resumed = SecretChatManager(wire.a, FileStorage(path))
+        incoming = []
+        resumed.on("MessageReceived", incoming.append)
+        await resumed.start()
+        assert resumed.status(chat.id).key_fingerprint == before.key_fingerprint
+        await resumed.send_message(chat.id, "after restart")
+        await peer.send_message(chat.id, "peer after restart")
+        assert [message.text for message in incoming] == ["peer after restart"]
+        assert resumed._storage.load(chat.id)["out_seq_no"] > sent_counter
+        records = resumed.read_saved_messages(chat.id)
+        assert [record["text"] for record in records] == [
+            "before restart",
+            "after restart",
+            "peer after restart",
+        ]
+        assert not wire.a.discarded
+    finally:
+        if resumed is not None:
+            await resumed.stop()
+        await first.stop()
+        await peer.stop()
+
+
+@pytest.mark.timeout(10)
+async def test_default_auto_save_downloads_files_without_manual_enable(tmp_path):
+    from telethon_secret_chat.storage import MemoryStorage
+
+    wire = Wire()
+    a = SecretChatManager(wire.a, FileStorage(tmp_path / "state.json"))
+    b = SecretChatManager(wire.b, MemoryStorage())
+    await a.start()
+    await b.start()
+    try:
+        chat, _ = await establish(a, b, wire)
+        content = b"synthetic auto-saved document"
+        await b.send_file(chat.id, content, file_name="sample.bin")
+        await a.stop_auto_save_secret_chats()  # waits for the real download
+        record = a.read_saved_messages(chat.id)[0]
+        from pathlib import Path
+
+        assert Path(record["file"]).read_bytes() == content
+        assert not (tmp_path / "saved-secret-chats" / str(chat.id) / "pending.json").exists()
+    finally:
+        await a.stop()
+        await b.stop()
+
+
+@pytest.mark.timeout(10)
+async def test_explicit_off_before_first_start_remains_off_after_restart(tmp_path):
+    from telethon_secret_chat.storage import MemoryStorage
+
+    wire = Wire()
+    path = tmp_path / "state.json"
+    first = SecretChatManager(wire.a, FileStorage(path))
+    await first.stop_auto_save_secret_chats()
+    await first.start()
+    await first.stop()
+    second = SecretChatManager(wire.a, FileStorage(path))
+    peer = SecretChatManager(wire.b, MemoryStorage())
+    await second.start()
+    await peer.start()
+    try:
+        chat, _ = await establish(second, peer, wire)
+        await second.send_message(chat.id, "not archived")
+        assert second.auto_save_secret_chats is None
+        assert not (tmp_path / "saved-secret-chats").exists()
+    finally:
+        await second.stop()
+        await peer.stop()
+
+
+@pytest.mark.timeout(10)
+async def test_relative_store_and_default_archive_stay_anchored_when_cwd_changes(
+    tmp_path, monkeypatch
+):
+    original = tmp_path / "original"
+    elsewhere = tmp_path / "elsewhere"
+    original.mkdir()
+    elsewhere.mkdir()
+    monkeypatch.chdir(original)
+    wire = Wire()
+    storage = FileStorage("state.json")
+    manager = SecretChatManager(wire.a, storage)
+    monkeypatch.chdir(elsewhere)
+    await manager.start()
+    try:
+        assert storage.path == original / "state.json"
+        assert manager.auto_save_secret_chats == str(original / "saved-secret-chats")
+        assert not (elsewhere / "state.json").exists()
+        assert storage.load_setting("auto_save_secret_chats")["on"] is True
+    finally:
+        await manager.stop()
+
+
+@pytest.mark.timeout(10)
+async def test_explicit_folder_for_memory_backend_preserves_disabled_preference(tmp_path):
+    from telethon_secret_chat.storage import MemoryStorage
+
+    wire, storage = Wire(), MemoryStorage()
+    first = SecretChatManager(wire.a, storage, auto_save_folder=tmp_path / "chosen")
+    await first.start()
+    assert first.auto_save_secret_chats == str(tmp_path / "chosen")
+    await first.stop_auto_save_secret_chats()
+    await first.stop()
+    second = SecretChatManager(wire.a, storage, auto_save_folder=tmp_path / "different")
+    await second.start()
+    try:
+        assert second.auto_save_secret_chats is None
+        assert second._autosave.saved_in == tmp_path / "chosen"
+    finally:
+        await second.stop()
+
+
+@pytest.mark.timeout(10)
+async def test_initial_auto_save_setting_failure_installs_no_update_handler(tmp_path, monkeypatch):
+    wire = Wire()
+    storage = FileStorage(tmp_path / "state.json")
+    manager = SecretChatManager(wire.a, storage)
+    original = storage._write
+
+    def fail():
+        raise OSError("synthetic setting commit fault")
+
+    monkeypatch.setattr(storage, "_write", fail)
+    with pytest.raises(OSError):
+        await manager.start()
+    assert not wire.a.handlers
+    assert not manager._running
+    assert storage.load_setting("auto_save_secret_chats") is None
+    monkeypatch.setattr(storage, "_write", original)
+    await manager.start()
+    try:
+        assert manager.auto_save_secret_chats == str(tmp_path / "saved-secret-chats")
+    finally:
+        await manager.stop()

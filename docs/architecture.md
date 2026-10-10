@@ -164,8 +164,11 @@ request for the same id cannot revive the chat, until `forget(chat_id)` removes 
 - **A storage backend.** Subclass `StorageBackend`, implement the abstract methods with the
   database's own transaction (never compensating writes), override `peek_in`, and store
   `bytes` and big integers losslessly.
-- **History.** `read_history` is an in-memory convenience bounded by `history_limit`. An
-  application that needs durable history keeps it from `MessageReceived`;
+- **History.** `read_history` is an in-memory convenience bounded by `history_limit`.
+  Ordinary `FileStorage` managers default to the existing auto-save archive beside the state
+  file when no saved preference exists; explicit OFF/folders override initialization. Their
+  protocol mailbox/outbox/gaps resume after restart, unlike explicit transient handling. An
+  application needing its own durable history may instead keep it from `MessageReceived`;
   [design/cutover-history.md](design/cutover-history.md) describes the media reference to
   store with it.
 - **Media kinds.** `MEDIA_KINDS` and `CAPTIONLESS_KINDS` (`files.py`) are the vocabulary

@@ -9,6 +9,10 @@ package by commit and reads this file before moving its pin. The format follows
 
 ### Added
 
+- File-backed `SecretChatManager` automatically enables saved copies beside the state file
+  when no preference exists; `auto_save_folder=` supplies a custom initial destination.
+  Durable chat/queue recovery continues healthy chats after restart. Explicit OFF and
+  previously chosen archive locations persist; the transient opt-in remains payload-free.
 - Opt-in `TransientSecretChatManager`, `ProtectedFileStorage` and validated `TransientLimits`:
   ordinary and service payloads remain bounded RAM-only, using the caller's existing client.
   Protected keys/counters survive; stop/reconstruction permanently suspends known chats without

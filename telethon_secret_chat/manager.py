@@ -32,7 +32,7 @@ from .locking import ChatLocking, ordered, serialized
 from .outbox import RetainedOutbox
 from .receive import Receiving
 from .schema import secret_tl as tl
-from .storage import StorageBackend
+from .storage import FileStorage, StorageBackend
 
 __all__ = ["SecretChatManager"]
 log = logging.getLogger("telethon_secret_chat")
@@ -47,11 +47,21 @@ class SecretChatManager(ChatLocking, EventDispatch, RetainedOutbox, Establishmen
     called in.
 
     Events reach handlers registered with ``on``; register them before ``start``.
-    ``start`` and ``stop`` are idempotent. API reference: ``help(SecretChatManager)``;
+    FileStorage defaults auto-save on beside its state file unless a saved preference
+    overrides it; ``auto_save_folder`` selects an initial destination for other backends.
+    Explicit MemoryStorage has no implicit archive path. ``start`` and ``stop`` are
+    idempotent. API reference: ``help(SecretChatManager)``;
     design: ``docs/architecture.md``.
     """
 
-    def __init__(self, client, storage: Optional[StorageBackend], *, history_limit: int = 1000):
+    def __init__(
+        self,
+        client,
+        storage: Optional[StorageBackend],
+        *,
+        history_limit: int = 1000,
+        auto_save_folder: str | Path | None = None,
+    ):
         if storage is None:
             raise StorageRequired()
         if type(history_limit) is not int or history_limit < 0:
@@ -82,6 +92,15 @@ class SecretChatManager(ChatLocking, EventDispatch, RetainedOutbox, Establishmen
         self._draining_handlers = set()
         self._subscription = self._on_update
         self._autosave = AutoSave(self)
+        self._default_save_folder = (
+            Path(auto_save_folder).absolute()
+            if auto_save_folder is not None
+            else (
+                storage.path.parent / "saved-secret-chats"
+                if isinstance(storage, FileStorage)
+                else None
+            )
+        )
 
     async def start(self):
         """Load every stored chat, subscribe to updates, and resume durable work.
