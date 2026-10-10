@@ -1,6 +1,6 @@
 # Transient payload mode
 
-**Development status: not integration-ready.** Local synthetic seam checks are partial evidence; final exact-SHA CI, distribution pin and complete acceptance coverage remain pending. No new release/tag has been issued.
+**Library CI validated; consumer integration not exercised.** The implementation at `685181b4ed1519f3bc77638454075ddeeddeb0be` passed the full Linux/Windows matrix and installed-wheel checks. It is available for an explicitly authorized consumer integration under the limitations below, not a claim that a consumer or live Telegram deployment was tested. No new release/tag has been issued.
 
 Use `TransientSecretChatManager` explicitly, not `history_limit=0` on the default manager. The default manager remains unchanged and persists its protocol mailbox, gap and original-wire outbox. This opt-in mode uses the caller's exact existing connected Telethon client and authorization, without creating, connecting or disconnecting another client, copying a session, logging in, or changing device settings.
 
@@ -102,8 +102,14 @@ Expired or missing required frames cause suspension, never silent eviction follo
 
 ## Evidence and pins
 
-Current base manifest: `kiaro-telethon-secret-chat==0.2.0` (alpha), Python>=3.11, Telethon>=1.45,<2; implementation remains uncommitted development at this point. A version alone cannot select these new APIs. Use only a final tested commit pin when provided; do not infer readiness from base main or an older installed release.
+Exact CI-tested implementation pin: `685181b4ed1519f3bc77638454075ddeeddeb0be`. Distribution metadata remains `kiaro-telethon-secret-chat==0.2.0` (alpha), Python>=3.11, Telethon>=1.45,<2. The existing `v0.2.0` tag predates these APIs: pin this commit rather than the version/tag alone. Dependencies remain those in its `uv.lock`; no additional runtime dependency was introduced.
 
-Local guarded synthetic checks observed: strict store refusal, same-client ordinary send/receive, callback failure suspension, memory-only media receipt, reconstructed-chat refusal with retained keys, synthetic rekey, policy-off continuation, cancellation-resistant network cleanup refusal, all atomic snapshots/logs/backup sentinel absence, suspension-write-fault cancellation, gap drain and duplicate rejection. These are separate development checks, not a final integrated acceptance pass. Tests use actual file and protocol seams with synthetic transport; they do **not** prove live official-client interoperability. Existing vector/official-client fixtures remain the crypto oracle. Full acceptance suite/Linux/Windows/installed-wheel CI is pending; no live operation was performed or authorized.
+```bash
+python -m pip install "kiaro-telethon-secret-chat @ git+https://github.com/KiaroSama/Telethon-Secret-Chat.git@685181b4ed1519f3bc77638454075ddeeddeb0be"
+```
+
+[Tests and matrix agreement](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/runs/38087743007), [installed wheel](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/runs/38087742901), [lint/format/types](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/runs/38087742902) and [CodeQL](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/runs/38087743017) completed successfully on that exact SHA. All six matrix legs agreed on 1744 test identities; Linux ran1726 with18 declared skips and91.43% coverage. Live Telegram cases were intentionally not executed.
+
+Local guarded synthetic checks observed: strict store refusal, same-client ordinary send/receive, callback failure suspension, memory-only media receipt, reconstructed-chat refusal with retained keys, synthetic rekey, policy-off continuation, cancellation-resistant network cleanup refusal, all atomic snapshots/logs/backup sentinel absence, suspension-write-fault cancellation, gap drain and duplicate rejection. These are separate development checks, not a final integrated acceptance pass. Tests use actual file and protocol seams with synthetic transport; they do **not** prove live official-client interoperability. Existing vector/official-client fixtures remain the crypto oracle. The complete discovered suite passed in the six-leg CI matrix, including the new synthetic acceptance cases and unchanged default-mode regressions; installed-wheel imports passed on Python3.11/3.13. No live operation or consumer integration was performed or authorized. Synthetic phase-restoration tests are not real process-kill/network interoperability evidence.
 
 Sources: [Telegram e2e](https://core.telegram.org/api/end-to-end), [seq_no](https://core.telegram.org/api/end-to-end/seq_no), [PFS](https://core.telegram.org/api/end-to-end/pfs), [Telethon1.45 client](https://docs.telethon.dev/en/stable/modules/client.html). Current upstream references informed the refusal limits; no cryptography was rewritten.
