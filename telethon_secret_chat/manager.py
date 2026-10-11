@@ -140,6 +140,8 @@ class SecretChatManager(ChatLocking, EventDispatch, RetainedOutbox, Establishmen
         # A snapshot: Telethon dispatches each update in its own task, so a request or a
         # create() can add a chat while this loop awaits recovery work.
         for chat in list(self._chats.values()):
+            if not self._startup_allowed(chat):
+                continue
             if chat.state is ChatState.CLOSED:
                 self._scrub_closed_record(chat)
             elif chat.state in (ChatState.REQUESTED, ChatState.PENDING) and not chat.handshake:
@@ -164,6 +166,9 @@ class SecretChatManager(ChatLocking, EventDispatch, RetainedOutbox, Establishmen
                     log.warning("chat %s has durable work awaiting retry", chat.id)
         self._autosave.resume()
         log.info("secret-chat manager started with %s stored chats", len(self._chats))
+
+    def _startup_allowed(self, chat):
+        return True
 
     async def stop(self):
         """Unsubscribe, save every chat, and cancel handler tasks. Idempotent.

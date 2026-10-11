@@ -129,6 +129,16 @@ Text is parsed with the client's default parse mode (`client.parse_mode`, Markdo
 changed), and the resulting entities are mapped to the secret-chat schema; entity types the
 secret-chat layer cannot carry are dropped rather than sent. Pass `entities=` to skip parsing.
 
+### Opt-in bounded durable integration
+
+`BoundedSecretChatManager` adds per-chat admission/pause, finite durable custody, explicit
+safe continuation, consumer-acknowledged relay obligations and capped RAM-only `receive_file`.
+It preserves original uncertain-send identity and does not stop unrelated healthy chats.
+This is **temporary payload-bearing protocol storage**, not the payload-free transient mode.
+For no local archive, explicitly `await manager.stop_auto_save_secret_chats()` before `start()`.
+Telethon qts acknowledgment remains independent; refused ingress is not promised recoverable.
+See [bounded integration](docs/bounded-mode.md) for APIs, limits and consumer responsibilities.
+
 ### Opt-in transient payload handling
 
 The separate `TransientSecretChatManager` keeps ordinary and service payloads in bounded RAM

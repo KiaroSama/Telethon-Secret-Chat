@@ -263,6 +263,11 @@ def test_the_package_exports_exactly_the_contract():
 
     assert set(pkg.__all__) == {
         "SecretChatManager",
+        "BoundedSecretChatManager",
+        "CustodyLimits",
+        "ChatPaused",
+        "PauseStatus",
+        "RelayDelivery",
         "TransientSecretChatManager",
         "TransientLimits",
         "TransientRefused",

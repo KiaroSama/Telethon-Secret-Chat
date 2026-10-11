@@ -52,6 +52,8 @@ from .storage import FileStorage, MemoryStorage, StorageBackend
 from .protected import ProtectedFileStorage
 from .transient_work import TransientLimits, TransientRefused, TransientCleanupIncomplete
 from .transient import TransientSecretChatManager
+from .bounded import BoundedSecretChatManager
+from .bounded_types import CustodyLimits, ChatPaused, PauseStatus, RelayDelivery
 
 try:
     # One source of truth: the installed distribution's metadata (pyproject.toml).
@@ -62,6 +64,11 @@ except _metadata.PackageNotFoundError:  # a source tree that was never installed
 __all__ = [
     # what an application constructs and holds
     "SecretChatManager",
+    "BoundedSecretChatManager",
+    "CustodyLimits",
+    "ChatPaused",
+    "PauseStatus",
+    "RelayDelivery",
     "TransientSecretChatManager",
     "TransientLimits",
     "TransientRefused",

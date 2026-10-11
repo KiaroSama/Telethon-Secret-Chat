@@ -113,6 +113,7 @@ class Receiving(ManagerHost):
                     self._storage.queue_out(chat.id, dict(record, pending=True))
                 chat.pending_deliveries.extend(sequence.pack(item) for item in accepted.ready)
         except SecretChatError as failure:
+            await self._receive_refused(chat, failure)
             if failure.fatal:
                 await self.close(chat.id, failure.reason)
             self._emit(DecryptFailed(chat.id, failure.reason))
@@ -129,6 +130,9 @@ class Receiving(ManagerHost):
         await self._request_due_resend(chat)
         if switched:
             await self._send_action(chat, tl.DecryptedMessageActionNoop())
+
+    async def _receive_refused(self, chat, failure):
+        pass
 
     @serialized
     async def _drain_deliveries(self, chat):
@@ -164,12 +168,26 @@ class Receiving(ManagerHost):
                 ServiceActionReceived(chat.id, type(inner.action).__name__, inner.action, outcome)
             )
             return
+        event = self._message_event(chat.id, wrapper)
+        history = self._history.setdefault(chat.id, collections.deque(maxlen=self._history_limit))
+        seen = self._history_ids.setdefault(chat.id, set())
+        if event.random_id not in seen and self._history_limit:
+            if len(history) == history.maxlen:
+                seen.discard(history[0].random_id)
+            history.append(event)
+            seen.add(event.random_id)
+        self._autosave.received(event)  # before handlers, and before a peer can delete it
+        self._emit(event)
+
+    @staticmethod
+    def _message_event(chat_id, wrapper):
+        inner = wrapper.message
         attached = getattr(wrapper, "_tsc_file", None)
         if attached:
             with BinaryReader(bytes.fromhex(attached)) as reader:
                 attached = reader.tgread_object()
         event = MessageReceived(
-            chat_id=chat.id,
+            chat_id=chat_id,
             random_id=getattr(inner, "random_id", 0),
             seq_no=wrapper.out_seq_no,
             text=getattr(inner, "message", "") or "",
@@ -180,15 +198,7 @@ class Receiving(ManagerHost):
             reply_to=getattr(inner, "reply_to_random_id", None),
         )
         event.media_reference = MediaReference.from_message(event)
-        history = self._history.setdefault(chat.id, collections.deque(maxlen=self._history_limit))
-        seen = self._history_ids.setdefault(chat.id, set())
-        if event.random_id not in seen and self._history_limit:
-            if len(history) == history.maxlen:
-                seen.discard(history[0].random_id)
-            history.append(event)
-            seen.add(event.random_id)
-        self._autosave.received(event)  # before handlers, and before a peer can delete it
-        self._emit(event)
+        return event
 
     def _remove_history(self, chat_id, random_ids):
         kept = [
