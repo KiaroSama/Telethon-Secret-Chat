@@ -9,6 +9,10 @@ package by commit and reads this file before moving its pin. The format follows
 
 ### Added
 
+- Opt-in `BoundedSecretChatManager` and `CustodyLimits`: isolated pre-effect admission/pause,
+  finite durable protocol custody, explicit safe resume, stable consumer relay obligations
+  with acknowledgment, and byte-capped RAM media receipt. Refused ingress is not promised
+  recoverable; default/transient modes are unchanged. See [contract](docs/bounded-mode.md).
 - File-backed `SecretChatManager` automatically enables saved copies beside the state file
   when no preference exists; `auto_save_folder=` supplies a custom initial destination.
   Durable chat/queue recovery continues healthy chats after restart. Explicit OFF and

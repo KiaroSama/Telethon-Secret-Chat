@@ -144,6 +144,23 @@ A conversation whose protected state is still held but whose protocol participat
 refused; it is neither deleted nor remotely discarded and is not promised resumable.
 _Avoid_: closed chat, recovered chat
 
+## Bounded durable custody
+
+**Paused conversation**:
+A conversation retaining its necessary records while refusing future effects until an
+explicit safety check permits continuation; missing required ingress prevents that claim.
+_Avoid_: deleted chat, transparent recovery
+
+**Relay obligation**:
+An accepted message still owed to the application, held under a stable conversation/sequence
+identity until the application explicitly confirms its own durable processing.
+_Avoid_: callback completion, user read receipt
+
+**Custody budget**:
+Finite limits on the temporary material necessary to process, retransmit and deliver messages;
+exceeding them stops participation rather than silently deleting existing material.
+_Avoid_: permanent archive, payload-free state
+
 ## Verification
 
 **Interop tier**:
