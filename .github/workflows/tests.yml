@@ -77,8 +77,17 @@ jobs:
           cache-dependency-glob: uv.lock
       - name: Verify the selected interpreter
         run: uv run --locked python -c "import sys; assert '.'.join(map(str, sys.version_info[:2])) == '${{ matrix.python }}'"
+      - name: Build and install pinned Telethon prerequisite
+        run: |
+          uv sync --locked --extra strong ${{ matrix.backend == 'cryptg' && '--extra fast' || '' }} ${{ runner.os == 'Windows' && '--extra thumbs' || '' }}
+          uv run --no-sync python tools/build_telethon.py --output .ci-prerequisites
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $wheel = @(Get-ChildItem .ci-prerequisites -Filter '*.whl')
+          if ($wheel.Count -ne 1) { throw 'Expected exactly one patched prerequisite wheel' }
+          uv pip install --no-deps $wheel[0].FullName
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Execute tests, not only collection
-        run: uv run --locked ${{ matrix.backend == 'cryptg' && '--extra fast' || '' }} ${{ runner.os == 'Windows' && '--extra thumbs' || '' }} python -m pytest -q --cov --cov-fail-under=90 --cov-report=term-missing --cov-report=xml --junitxml=junit.xml
+        run: uv run --no-sync python -m pytest -q --cov --cov-fail-under=90 --cov-report=term-missing --cov-report=xml --junitxml=junit.xml
       - name: Upload exact case evidence
         if: always()
         uses: actions/upload-artifact@v7

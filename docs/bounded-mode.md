@@ -5,6 +5,11 @@ It uses the caller's existing connected Telethon client and backend, never a sec
 session export or consumer activation. Default `SecretChatManager` and the RAM-only
 `TransientSecretChatManager` remain unchanged.
 
+The separate [strong-ingress development](strong-ingress.md) targets the earlier
+Telethon queue-acknowledgment gap. It is not released or activated by this mode;
+its public prerequisite configuration validates protected attachment before connection. The guarantees
+and limitations below remain the bounded manager's supported contract.
+
 ## Construction and archive policy
 
 ```python

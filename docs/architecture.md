@@ -5,6 +5,13 @@ handler has to keep. The protocol itself is in [protocol-reference.md](protocol-
 (cited here as §N); the settled design decisions are the ADRs in [adr/](adr/). Citations
 name a file and a symbol rather than a line, because lines move.
 
+The unreleased strong-ingress layer adds a checksum-pinned patched Telethon
+prerequisite, encrypted transactional ingress custody and protocol-applied cursors.
+It is not enabled by the ordinary manager or by installing the optional `strong`
+dependency. Public preparation verifies exact prerequisite provenance and protected
+checkpoint binding; final lifecycle/fault and installed-wheel release verification remain pending. Existing bounded-mode post-Raw guarantees are
+not silently upgraded. See [strong-ingress development status](strong-ingress.md).
+
 ## 1. Module map
 
 Dependencies point inward: the protocol modules at the top know nothing of the manager, the

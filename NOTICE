@@ -43,6 +43,16 @@ and cannot change that.
     SOFTWARE.
 
 
+PATCHED TELETHON PREREQUISITE
+
+The optional project-owned prerequisite patches Telethon 1.45.0, authored by
+Lonami, at https://codeberg.org/Lonami/Telethon (MIT). The build downloads a
+checksum-pinned official wheel, retains its complete original MIT notice, and
+records upstream and modified-module provenance in the resulting wheel.
+No upstream author identity or license is changed. This attribution is separate
+from painor's telethon-secret-chat above and TDLib's reference role below.
+
+
 REFERENCE IMPLEMENTATION
 
 TDLib (https://github.com/tdlib/td), Copyright Aliaksei Levin, Arseny Smirnov

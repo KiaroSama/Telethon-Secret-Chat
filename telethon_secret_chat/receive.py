@@ -70,6 +70,7 @@ class Receiving(ManagerHost):
             wrapper = framing.unwrap(body, chat_id=chat.id)
             with self._atomic(chat):
                 if not sequence.preflight(chat, wrapper, self._storage):
+                    self._ingress_applied(chat)
                     return
                 inner = wrapper.message
                 action = getattr(inner, "action", None)
@@ -112,6 +113,7 @@ class Receiving(ManagerHost):
                 for record in answer:
                     self._storage.queue_out(chat.id, dict(record, pending=True))
                 chat.pending_deliveries.extend(sequence.pack(item) for item in accepted.ready)
+                self._ingress_applied(chat)
         except SecretChatError as failure:
             await self._receive_refused(chat, failure)
             if failure.fatal:
@@ -130,6 +132,12 @@ class Receiving(ManagerHost):
         await self._request_due_resend(chat)
         if switched:
             await self._send_action(chat, tl.DecryptedMessageActionNoop())
+
+    def _ingress_applied(self, chat):
+        """Optional receipt checkpoint inside the protocol receive transaction."""
+
+    def _ingress_committed(self, chat):
+        """Publish an optional receipt checkpoint after its outer transaction commits."""
 
     async def _receive_refused(self, chat, failure):
         pass

@@ -232,8 +232,12 @@ class RetainedOutbox(ManagerHost):
             self._storage.queue_out(chat.id, item)
             if after_prepare is not None:
                 after_prepare()
+            self._service_effect_prepared(chat, message)
         self._autosave.sent(chat.id, message)  # committed: saved even if transmission waits
         await self._transmit_or_pending(chat, item)
+
+    def _service_effect_prepared(self, chat, message):
+        """Optional mailbox settlement in the transaction retaining the original RPC."""
 
     @serialized
     async def retry_pending(self, chat_id):
