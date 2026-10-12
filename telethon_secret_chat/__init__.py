@@ -54,6 +54,10 @@ from .transient_work import TransientLimits, TransientRefused, TransientCleanupI
 from .transient import TransientSecretChatManager
 from .bounded import BoundedSecretChatManager
 from .bounded_types import CustodyLimits, ChatPaused, PauseStatus, RelayDelivery
+from .ingress_store import EncryptedIngressStorage, IngressRefused
+from .ingress import DurableIngress
+from .ingress_types import IngressLimits, IngressBatch
+from .strong_manager import StrongSecretChatManager
 
 try:
     # One source of truth: the installed distribution's metadata (pyproject.toml).
@@ -65,6 +69,12 @@ __all__ = [
     # what an application constructs and holds
     "SecretChatManager",
     "BoundedSecretChatManager",
+    "EncryptedIngressStorage",
+    "IngressRefused",
+    "DurableIngress",
+    "StrongSecretChatManager",
+    "IngressLimits",
+    "IngressBatch",
     "CustodyLimits",
     "ChatPaused",
     "PauseStatus",

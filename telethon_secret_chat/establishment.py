@@ -149,6 +149,9 @@ class Establishment(ManagerHost):
         chat: Optional[SecretChat]
         if isinstance(encrypted, types.EncryptedChatRequested):
             if encrypted.id in self._chats:
+                chat = self._chats[encrypted.id]
+                with self._atomic(chat):
+                    self._ingress_applied(chat)
                 return  # Duplicate requests cannot replace a keyed chat or a tombstone.
             g, p = await self._dh_config()
             g_a = dh.value_from_bytes(encrypted.g_a)
@@ -169,7 +172,10 @@ class Establishment(ManagerHost):
             )
             chat.dh_prime, chat.dh_g = p, g
             chat.handshake = {"g_a": g_a, "p": p, "g": g}
-            self._save(chat)
+            with self._storage.transaction():
+                self._save(chat)
+                self._ingress_applied(chat)
+            self._ingress_committed(chat)
             self._chats[chat.id] = chat
             self._emit(ChatRequested(chat.id, encrypted.admin_id))
         elif isinstance(encrypted, types.EncryptedChat):
@@ -181,6 +187,8 @@ class Establishment(ManagerHost):
                     await self._discard_lost_request(encrypted.id)
                 return
             if chat.state is ChatState.CLOSED or chat.key is not None:
+                with self._atomic(chat):
+                    self._ingress_applied(chat)
                 return
             pending = chat.handshake
             if chat.state is ChatState.PENDING and "secret" not in pending:
@@ -207,10 +215,15 @@ class Establishment(ManagerHost):
             with self._atomic(chat):
                 chat.adopt_key(key)
                 chat.handshake = {}
+                self._ingress_applied(chat)
             self._emit_ready(chat)
             await self._notify_layer(chat)
         elif isinstance(encrypted, types.EncryptedChatWaiting):
-            if encrypted.id not in self._chats and not self._creating:
+            chat = self._chats.get(encrypted.id)
+            if chat is not None:
+                with self._atomic(chat):
+                    self._ingress_applied(chat)
+            elif not self._creating:
                 await self._discard_lost_request(encrypted.id)
         elif isinstance(encrypted, types.EncryptedChatDiscarded):
             chat = self._chats.get(encrypted.id)

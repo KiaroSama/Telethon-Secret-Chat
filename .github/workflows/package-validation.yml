@@ -44,12 +44,15 @@ jobs:
           set -euo pipefail
           uv build --wheel
           python -m venv "$RUNNER_TEMP/wheel-smoke"
-          "$RUNNER_TEMP/wheel-smoke/bin/python" -m pip install dist/*.whl
+          python tools/build_telethon.py --output dist/prerequisites
+          "$RUNNER_TEMP/wheel-smoke/bin/python" -m pip install dist/*.whl 'cryptography==50.0.2' dist/prerequisites/*.whl
+          cp tests/wheel_ingress_smoke.py "$RUNNER_TEMP/wheel-ingress-smoke.py"
           cp tests/wheel_export_smoke.py "$RUNNER_TEMP/wheel-export-smoke.py"
           cp tests/fixtures/tdexport-source.json "$RUNNER_TEMP/tdexport-source.json"
           cd "$RUNNER_TEMP"
           "$RUNNER_TEMP/wheel-smoke/bin/python" -c "from telethon_secret_chat import SecretChatManager, FileStorage, TransientSecretChatManager, ProtectedFileStorage, TransientLimits, BoundedSecretChatManager, CustodyLimits, ChatPaused, PauseStatus, RelayDelivery; from telethon_secret_chat.schema import secret_tl; assert TransientLimits().tasks == 8; assert callable(BoundedSecretChatManager.receive_file); assert callable(BoundedSecretChatManager.acknowledge_delivery); print('installed-wheel imports succeeded')"
           "$RUNNER_TEMP/wheel-smoke/bin/python" "$RUNNER_TEMP/wheel-export-smoke.py" "$RUNNER_TEMP/tdexport-source.json"
+          "$RUNNER_TEMP/wheel-smoke/bin/python" "$RUNNER_TEMP/wheel-ingress-smoke.py"
       - name: Require the licence files in the wheel
         shell: bash
         run: |

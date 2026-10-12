@@ -1,0 +1,112 @@
+{
+  "upstream_sha256": "339e24c83aedc9f12cbe389264627edc49779e4289c535aa90aafc4ce62f7972",
+  "files": [
+    {
+      "path": "telethon/client/telegrambaseclient.py",
+      "before_sha256": "a25de6b17facbdf6888f4c12aae8d0d9a5aaaa45d7219ebf7399f4523fb9814e",
+      "after_sha256": "5038c4ab18db8b71b49d6b5c3f3285c49791ed3779c5ddba1b4ab241b7b3dea6",
+      "hunks": [
+        {
+          "before": "from .._updates import MessageBox, EntityCache as MbEntityCache, SessionState, ChannelState, Entity, EntityType",
+          "after": "from .._updates import MessageBox, EntityCache as MbEntityCache, SessionState, ChannelState, Entity, EntityType\nfrom .._updates.durable_ingress import invoke as _ingress_invoke, configure as _ingress_configure"
+        },
+        {
+          "before": "        self._message_box = MessageBox(self._log['messagebox'])",
+          "after": "        self._message_box = MessageBox(self._log['messagebox'])\n        self._durable_ingress = None"
+        },
+        {
+          "before": "    async def connect(self: 'TelegramClient') -> None:",
+          "after": "    def configure_durable_ingress(self, contract):\n        \"\"\"Configure a versioned durable custody contract before connection.\"\"\"\n        return _ingress_configure(self, contract)\n\n    async def connect(self: 'TelegramClient') -> None:"
+        },
+        {
+          "before": "        if not await self._sender.connect(self._connection(",
+          "after": "        await _ingress_invoke(self, \"bind\", self)\n        await _ingress_invoke(self, \"restore\", self._message_box)\n        if not await self._sender.connect(self._connection("
+        },
+        {
+          "before": "        if self._catch_up:",
+          "after": "        if self._catch_up and self._durable_ingress is None:"
+        },
+        {
+          "before": "        if self._message_box.is_empty():",
+          "after": "        restored = await _ingress_invoke(self, \"restore\", self._message_box)\n        if self._message_box.is_empty() and not restored:"
+        },
+        {
+          "before": "        ss, cs = self._message_box.session_state()",
+          "after": "        ss, cs = self._message_box.session_state()\n        committed = await _ingress_invoke(self, \"session_state\", ss, cs)\n        if committed is not None:\n            ss, cs = committed"
+        },
+        {
+          "before": "        await self._save_states_and_entities()\n\n        await utils.maybe_async(self.session.close())",
+          "after": "        await _ingress_invoke(self, \"stop\")\n        await self._save_states_and_entities()\n\n        await utils.maybe_async(self.session.close())"
+        }
+      ]
+    },
+    {
+      "path": "telethon/client/updates.py",
+      "before_sha256": "d1e4eafcc42ff838f55a08570f97e500f89639751a9f7d5fd143ad7623bb9110",
+      "after_sha256": "50679ecbbc81e67d2175bc96b8d61fda3941fbcd82ae5fca281f92ba8b339a7d",
+      "hunks": [
+        {
+          "before": "from .._updates import GapError, PrematureEndReason",
+          "after": "from .._updates import GapError, PrematureEndReason\nfrom .._updates.durable_ingress import invoke as _ingress_invoke"
+        },
+        {
+          "before": "                    updates, users, chats = self._message_box.apply_difference(diff, self._mb_entity_cache)",
+          "after": "                    await _ingress_invoke(self, \"capture_difference\", get_diff, diff, self._message_box)\n                    updates, users, chats = self._message_box.apply_difference(diff, self._mb_entity_cache)"
+        },
+        {
+          "before": "                processed = []\n                try:\n                    users, chats = self._message_box.process_updates(updates, self._mb_entity_cache, processed)",
+          "after": "                await _ingress_invoke(self, \"capture_live\", updates, self._message_box)\n                processed = []\n                try:\n                    users, chats = self._message_box.process_updates(updates, self._mb_entity_cache, processed)"
+        }
+      ]
+    },
+    {
+      "path": "telethon/client/users.py",
+      "before_sha256": "4182bd73d1a919f1f90f72c20c5931eab29372560467aa9d7b4dc84fd7cc8ba7",
+      "after_sha256": "fdb2d69f5b1716e80b898a95e5f30053872c352a3bba6211674df1d51b7bdeeb",
+      "hunks": [
+        {
+          "before": "from .. import errors, helpers, utils, hints",
+          "after": "from .. import errors, helpers, utils, hints\nfrom .._updates.durable_ingress import invoke as _ingress_invoke"
+        },
+        {
+          "before": "                future = sender.send(request, ordered=ordered)",
+          "after": "                await _ingress_invoke(self, \"guard_requests\", requests)\n                future = sender.send(request, ordered=ordered)"
+        },
+        {
+          "before": "                    for f in future:",
+          "after": "                    for ingress_index, f in enumerate(future):"
+        },
+        {
+          "before": "                        await utils.maybe_async(self.session.process_entities(result))",
+          "after": "                        await _ingress_invoke(self, \"guard_result\", requests[ingress_index], result, self._message_box)\n                        await utils.maybe_async(self.session.process_entities(result))"
+        },
+        {
+          "before": "                    result = await future\n                    await utils.maybe_async(self.session.process_entities(result))",
+          "after": "                    result = await future\n                    await _ingress_invoke(self, \"guard_result\", requests[0], result, self._message_box)\n                    await utils.maybe_async(self.session.process_entities(result))"
+        }
+      ]
+    },
+    {
+      "path": "telethon/client/auth.py",
+      "before_sha256": "955c6da74f697a9d923fb7f7eb5a9217b715a6a4839c6d0d3d10701b4f354592",
+      "after_sha256": "355a8578ff23f81138da77c7564a0338e9edd0dca5452a1b1b6010f436772707",
+      "hunks": [
+        {
+          "before": "from .. import utils, helpers, errors, password as pwd_mod",
+          "after": "from .. import utils, helpers, errors, password as pwd_mod\nfrom .._updates.durable_ingress import invoke as _ingress_invoke"
+        },
+        {
+          "before": "        self._authorized = True\n\n        state = await self(functions.updates.GetStateRequest())",
+          "after": "        self._authorized = True\n        if getattr(self, \"_durable_ingress\", None) is not None:\n            await _ingress_invoke(self, \"bind\", self)\n            await _ingress_invoke(self, \"restore\", self._message_box)\n            return user\n\n        state = await self(functions.updates.GetStateRequest())"
+        }
+      ]
+    }
+  ],
+  "additions": [
+    {
+      "path": "telethon/_updates/durable_ingress.py",
+      "source": "extension/durable_ingress.py",
+      "sha256": "5d7feb1491f88cb55faa7c6ebdbd2f69e488078d1105a4d886a70929ea99a8a9"
+    }
+  ]
+}

@@ -48,6 +48,8 @@ class ManagerHost:
     _check_current: Callable[[SecretChat], None]
     _atomic: Callable[[SecretChat], ContextManager[None]]
     _save: Callable[[SecretChat], None]
+    _ingress_applied: Callable[[SecretChat], None]
+    _ingress_committed: Callable[[SecretChat], None]
     _emit: Callable[[Any], None]
     _require: Callable[[int], SecretChat]
     _sendable: Callable[[int], SecretChat]

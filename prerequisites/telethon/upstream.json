@@ -1,0 +1,12 @@
+{
+  "version": "1.45.0",
+  "patched_version": "1.45.0+kiaro.ingress1",
+  "repository": "https://codeberg.org/Lonami/Telethon",
+  "commit": "bad095bd5b3dc9f852cfbeeba300a421169c9b1e",
+  "license": "MIT",
+  "url": "https://files.pythonhosted.org/packages/92/ac/241c09e6905215f225d8088438ceb1f32cc4b4865f3f49068cb402debfd7/telethon-1.45.0-py3-none-any.whl",
+  "sha256": "339e24c83aedc9f12cbe389264627edc49779e4289c535aa90aafc4ce62f7972",
+  "max_download_bytes": 1048576,
+  "max_unpacked_bytes": 16777216,
+  "extension_api": 1
+}

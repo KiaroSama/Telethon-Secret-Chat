@@ -46,6 +46,9 @@ dependencies = [
 fast = ["cryptg>=0.6.0"]
 # Windows mozjpeg reproduces Desktop JPEGs; other platforms use Pillow's fallback.
 thumbs = ["imagecodecs>=2026.3.6; sys_platform == 'win32'"]
+strong = [
+    "cryptography==50.0.2",
+]
 
 [project.urls]
 Homepage = "https://github.com/KiaroSama/Telethon-Secret-Chat"
