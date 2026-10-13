@@ -109,7 +109,9 @@ class EncryptedIngressStorage(MemoryStorage):
         if not stat.S_ISREG(os.fstat(descriptor).st_mode):
             raise IngressRefused()
         if os.name == "nt":
-            import msvcrt
+            import importlib
+
+            msvcrt = importlib.import_module("msvcrt")
 
             if os.fstat(descriptor).st_size == 0:
                 self._owner.write(b"\x00")
