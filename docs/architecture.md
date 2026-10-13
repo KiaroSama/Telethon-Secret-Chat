@@ -9,7 +9,8 @@ The unreleased strong-ingress layer adds a checksum-pinned patched Telethon
 prerequisite, encrypted transactional ingress custody and protocol-applied cursors.
 It is not enabled by the ordinary manager or by installing the optional `strong`
 dependency. Public preparation verifies exact prerequisite provenance and protected
-checkpoint binding; final lifecycle/fault and installed-wheel release verification remain pending. Existing bounded-mode post-Raw guarantees are
+checkpoint binding. Lifecycle/fault and installed-wheel CI passed on
+`2f967ea9da98a3fe0e94db476c654511e0d861aa`; independent review and merge remain pending. Existing bounded-mode post-Raw guarantees are
 not silently upgraded. See [strong-ingress development status](strong-ingress.md).
 
 ## 1. Module map

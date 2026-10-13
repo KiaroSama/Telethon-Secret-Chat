@@ -12,7 +12,8 @@ package by commit and reads this file before moving its pin. The format follows
 - Development-only strong-ingress contracts: `EncryptedIngressStorage`, `DurableIngress`,
   `IngressLimits`, `IngressBatch` and `StrongSecretChatManager`, plus a checksum-pinned
   Telethon prerequisite builder. Public preparation validates a protected baseline
-  before connection; final lifecycle/fault matrix and installed-wheel CI remain pending. The
+  before connection. The lifecycle/fault matrix and installed-wheel CI passed on
+  `2f967ea9da98a3fe0e94db476c654511e0d861aa`; independent review and merge remain pending. The
   optional `strong` extra supplies cryptography 50.0.2. See [status](docs/strong-ingress.md).
 - Opt-in `BoundedSecretChatManager` and `CustodyLimits`: isolated pre-effect admission/pause,
   finite durable protocol custody, explicit safe resume, stable consumer relay obligations
