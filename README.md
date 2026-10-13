@@ -62,15 +62,15 @@ The alternatives were measured rather than assumed, and both were rejected:
 Owning the secret-chat layer in Python is the remaining route, and it is a bounded one: the
 protocol has been frozen since Layer 73.
 
-## Strong-ingress development status
+## Strong-ingress prerequisite
 
-The in-development strong-ingress APIs require a project-owned patched Telethon
+The opt-in strong-ingress APIs require a project-owned patched Telethon
 prerequisite; ordinary installation below still selects official Telethon and does
 not activate strong mode. The prerequisite is built from a checksum-pinned release
 plus patches, not a vendored upstream tree or an installed-file replacement hook.
 Public strong activation validates the exact prerequisite, caller identity and an
 explicit durable baseline. Linux/Windows and installed-wheel CI passed on
-`2f967ea9da98a3fe0e94db476c654511e0d861aa`; independent review and merge remain pending. See [development status](docs/strong-ingress.md) and
+`f52dd57fa06445875164d45475f29b881a70bdee`; independent source review completed and [PR26](https://github.com/KiaroSama/Telethon-Secret-Chat/pull/26) merged. See [contract](docs/strong-ingress.md) and
 [prerequisite build instructions](prerequisites/telethon/README.md).
 
 ## Install

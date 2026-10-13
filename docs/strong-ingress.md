@@ -1,6 +1,6 @@
-# Strong ingress: development status and prerequisite contract
+# Strong ingress: protected custody and prerequisite contract
 
-**Independent review and merge are pending; exact implementation CI is green.**
+**Independent source review completed and PR26 merged; exact implementation CI is green.**
 Public `DurableIngress.prepare()` now
 validates the exact patched prerequisite, protected store and explicit baseline
 before attaching to an unconnected caller-owned client. Incompatible, live or
@@ -34,7 +34,7 @@ Packet MTProto ACK, queue qts acknowledgment, peer sequence acknowledgment and a
 user read receipt are different operations. Nothing here enables automatic read,
 acceptance, device settings, session migration, forum/UI relay or account activation.
 
-## Development APIs
+## Public APIs
 
 - `EncryptedIngressStorage(path, *, key, binding, max_bytes)` supplies AEAD-encrypted
   transactional custody and exclusive file ownership. The caller supplies a
@@ -86,7 +86,7 @@ authorization queue on deauthorization. No local change removes those limits.
 
 ## Evidence and unfinished gates
 
-Observed development checks include the original real-release gap reproduction,
+Observed checks include the original real-release gap reproduction,
 pinned build hash refusal, AEAD checkpoint reconstruction/exclusive ownership,
 whole qts-less difference custody, and an original PFS response retained despite
 uncertain transmission. The PFS seam also checks an ordinary relay item preceding
@@ -94,11 +94,11 @@ that service action. These are non-sensitive deterministic fixtures, not owner
 accounts or live Telegram interoperability.
 
 The complete Linux/Windows fault, mixed-stream, backpressure and installed-wheel
-CI passed on implementation commit `2f967ea9da98a3fe0e94db476c654511e0d861aa`.
+CI passed on implementation commit `f52dd57fa06445875164d45475f29b881a70bdee`.
 All 13 checks succeeded. Six matrix legs agreed on 1851 case identities; each
 platform exercised 49 ingress cases with zero ingress skips or failures. Installed
 wheel public preparation passed on Python 3.11 and 3.13 outside the checkout.
-Independent final review and merge remain pending. Documentation-only successors
+Independent final source review completed and PR26 merged on 2026-10-13. Documentation-only successors
 do not imply another test run; these results belong to the implementation SHA. CI builds and installs the prerequisite after
 normal lockfile synchronization and then uses `--no-sync` to avoid silently restoring
 official Telethon. Ordinary/default/transient regressions remain required.

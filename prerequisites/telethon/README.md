@@ -33,13 +33,13 @@ Telethon upgrades: an unknown archive, changed module or ambiguous patch refuses
 
 ## Current availability
 
-**Implementation CI passed; independent review and merge remain pending.**
+**Implementation CI and independent source review passed; PR26 is merged.**
 The public extension validates attachment
 to the exact prepared coordinator before connection. Unknown versions, incompatible
 contracts, wrong identities and missing checkpoints refuse. Lifecycle, fault,
 mixed-stream, backpressure and installed-wheel acceptance passed on library commit
-`2f967ea9da98a3fe0e94db476c654511e0d861aa`; no new suite is implied by a
-documentation-only successor. Source tests can exercise the in-development contract
+`f52dd57fa06445875164d45475f29b881a70bdee`; no new suite is implied by a
+documentation-only successor. Source tests exercise the supported contract
 with non-sensitive fixtures; that is not account activation or live interoperability.
 
 The caller owns the original client and authorization. Initial setup is before
