@@ -263,6 +263,12 @@ def test_the_package_exports_exactly_the_contract():
 
     assert set(pkg.__all__) == {
         "SecretChatManager",
+        "StrongSecretChatManager",
+        "DurableIngress",
+        "EncryptedIngressStorage",
+        "IngressRefused",
+        "IngressLimits",
+        "IngressBatch",
         "BoundedSecretChatManager",
         "CustodyLimits",
         "ChatPaused",

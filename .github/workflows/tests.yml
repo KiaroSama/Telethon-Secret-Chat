@@ -84,7 +84,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $wheel = @(Get-ChildItem .ci-prerequisites -Filter '*.whl')
           if ($wheel.Count -ne 1) { throw 'Expected exactly one patched prerequisite wheel' }
-          uv pip install --no-deps $wheel[0].FullName
+          $venvPython = if ($IsWindows) { Join-Path $PWD '.venv/Scripts/python.exe' } else { Join-Path $PWD '.venv/bin/python' }
+          uv pip install --python $venvPython --no-deps $wheel[0].FullName
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Execute tests, not only collection
         run: uv run --no-sync python -m pytest -q --cov --cov-fail-under=90 --cov-report=term-missing --cov-report=xml --junitxml=junit.xml
