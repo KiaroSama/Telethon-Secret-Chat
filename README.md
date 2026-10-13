@@ -69,7 +69,8 @@ prerequisite; ordinary installation below still selects official Telethon and do
 not activate strong mode. The prerequisite is built from a checksum-pinned release
 plus patches, not a vendored upstream tree or an installed-file replacement hook.
 Public strong activation validates the exact prerequisite, caller identity and an
-explicit durable baseline; final release CI and independent review are still pending. See [development status](docs/strong-ingress.md) and
+explicit durable baseline. Linux/Windows and installed-wheel CI passed on
+`2f967ea9da98a3fe0e94db476c654511e0d861aa`; independent review and merge remain pending. See [development status](docs/strong-ingress.md) and
 [prerequisite build instructions](prerequisites/telethon/README.md).
 
 ## Install

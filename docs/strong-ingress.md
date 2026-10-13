@@ -1,6 +1,7 @@
 # Strong ingress: development status and prerequisite contract
 
-**Final release validation is pending.** Public `DurableIngress.prepare()` now
+**Independent review and merge are pending; exact implementation CI is green.**
+Public `DurableIngress.prepare()` now
 validates the exact patched prerequisite, protected store and explicit baseline
 before attaching to an unconnected caller-owned client. Incompatible, live or
 unbound configurations refuse. Do not infer live interoperability or consumer
@@ -92,9 +93,13 @@ uncertain transmission. The PFS seam also checks an ordinary relay item precedin
 that service action. These are non-sensitive deterministic fixtures, not owner
 accounts or live Telegram interoperability.
 
-Remaining release gates are independent final review and the complete Linux/Windows
-fault, mixed-stream, backpressure and installed prerequisite/library wheel matrix
-on the exact approved commit pair. CI builds and installs the prerequisite after
+The complete Linux/Windows fault, mixed-stream, backpressure and installed-wheel
+CI passed on implementation commit `2f967ea9da98a3fe0e94db476c654511e0d861aa`.
+All 13 checks succeeded. Six matrix legs agreed on 1851 case identities; each
+platform exercised 49 ingress cases with zero ingress skips or failures. Installed
+wheel public preparation passed on Python 3.11 and 3.13 outside the checkout.
+Independent final review and merge remain pending. Documentation-only successors
+do not imply another test run; these results belong to the implementation SHA. CI builds and installs the prerequisite after
 normal lockfile synchronization and then uses `--no-sync` to avoid silently restoring
 official Telethon. Ordinary/default/transient regressions remain required.
 

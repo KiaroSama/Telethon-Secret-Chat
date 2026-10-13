@@ -33,10 +33,13 @@ Telethon upgrades: an unknown archive, changed module or ambiguous patch refuses
 
 ## Current availability
 
-**Release validation is pending.** The public extension now validates attachment
+**Implementation CI passed; independent review and merge remain pending.**
+The public extension validates attachment
 to the exact prepared coordinator before connection. Unknown versions, incompatible
-contracts, wrong identities and missing checkpoints refuse. Final lifecycle, fault,
-mixed-stream, backpressure and installed-wheel acceptance must still pass. Source tests can exercise the in-development contract
+contracts, wrong identities and missing checkpoints refuse. Lifecycle, fault,
+mixed-stream, backpressure and installed-wheel acceptance passed on library commit
+`2f967ea9da98a3fe0e94db476c654511e0d861aa`; no new suite is implied by a
+documentation-only successor. Source tests can exercise the in-development contract
 with non-sensitive fixtures; that is not account activation or live interoperability.
 
 The caller owns the original client and authorization. Initial setup is before
