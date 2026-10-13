@@ -87,6 +87,8 @@ jobs:
           $venvPython = if ($IsWindows) { Join-Path $PWD '.venv/Scripts/python.exe' } else { Join-Path $PWD '.venv/bin/python' }
           uv pip install --python $venvPython --no-deps $wheel[0].FullName
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $venvPython -c "from telethon_secret_chat.ingress_provenance import verify_prerequisite; verify_prerequisite()"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Execute tests, not only collection
         run: uv run --no-sync python -m pytest -q --cov --cov-fail-under=90 --cov-report=term-missing --cov-report=xml --junitxml=junit.xml
       - name: Upload exact case evidence
