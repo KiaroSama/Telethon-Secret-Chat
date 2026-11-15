@@ -1,0 +1,132 @@
+name: Rust Build and Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Rust (${{ matrix.os }}, ${{ matrix.toolchain }}, ${{ matrix.profile }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            toolchain: '1.95.0'
+            profile: debug
+          - os: ubuntu-latest
+            toolchain: '1.100.0'
+            profile: debug
+          - os: ubuntu-latest
+            toolchain: '1.100.0'
+            profile: release
+          - os: ubuntu-latest
+            toolchain: '1.100.0'
+            profile: portable-aes
+          - os: windows-latest
+            toolchain: '1.100.0'
+            profile: release
+          - os: macos-latest
+            toolchain: '1.100.0'
+            profile: release
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_TERM_COLOR: always
+      RUSTFLAGS: ${{ matrix.profile == 'portable-aes' && '--cfg aes_backend="soft"' || '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca
+        with:
+          toolchain: ${{ matrix.toolchain }}
+          components: rustfmt, clippy
+      - name: Build library and executables on every run
+        env:
+          BUILD_PROFILE: ${{ matrix.profile }}
+        run: |
+          if [ "$BUILD_PROFILE" = release ]; then
+            cargo build --locked --all-targets --release
+          else
+            cargo build --locked --all-targets
+          fi
+      - name: Execute Rust tests
+        env:
+          BUILD_PROFILE: ${{ matrix.profile }}
+        run: |
+          set -o pipefail
+          if [ "$BUILD_PROFILE" = release ]; then
+            cargo test --locked --all-targets --release -- --test-threads=2 2>&1 | tee rust-tests.txt
+          else
+            cargo test --locked --all-targets -- --test-threads=2 2>&1 | tee rust-tests.txt
+          fi
+      - name: Check formatting and warnings
+        if: matrix.os == 'ubuntu-latest' && matrix.toolchain == '1.100.0' && matrix.profile == 'debug'
+        run: |
+          cargo fmt --all --check
+          cargo clippy --locked --all-targets -- -D warnings
+      - name: Compile from a path containing spaces
+        if: runner.os == 'Windows'
+        run: |
+          target_dir="$RUNNER_TEMP/Secret Chat Space Path"
+          mkdir -p "$target_dir"
+          git archive HEAD | tar -xf - -C "$target_dir"
+          cargo check --locked --manifest-path "$target_dir/Cargo.toml"
+      - name: Report legacy-case parity separately
+        run: cargo run --locked --bin migration-audit
+      - name: Save test execution evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: rust-${{ matrix.os }}-${{ matrix.toolchain }}-${{ matrix.profile }}
+          path: rust-tests.txt
+          if-no-files-found: error
+          retention-days: 7
+
+  evidence:
+    name: Complete Rust Matrix Evidence
+    needs: build
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca
+        with:
+          toolchain: '1.100.0'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: rust-*
+          path: records
+      - name: Require every build, test and space-path step
+        env:
+          MATRIX_RESULT: ${{ needs.build.result }}
+        run: test "$MATRIX_RESULT" = success
+      - run: cargo run --locked --bin matrix-evidence -- records
+
+  parity:
+    name: Rust migration completeness (1851 legacy cases)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca
+        with:
+          toolchain: '1.100.0'
+      - run: cargo run --locked --bin migration-audit -- --require-complete

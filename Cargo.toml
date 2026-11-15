@@ -1,0 +1,53 @@
+[package]
+name = "kiaro-secret-chat"
+version = "0.3.0-alpha.1"
+edition = "2024"
+rust-version = "1.95"
+license = "GPL-3.0-or-later"
+description = "Telegram MTProto 2.0 secret chats for a caller-owned grammers client"
+repository = "https://github.com/KiaroSama/Telethon-Secret-Chat"
+readme = "README.md"
+keywords = ["telegram", "grammers", "mtproto", "secret-chat", "encryption"]
+categories = ["cryptography", "network-programming"]
+include = ["src/**", "schema/**", "build.rs", "Cargo.toml", "Cargo.lock", "README.md", "LICENSE", "NOTICE", "docs/rust-migration.md", "migration/*.json"]
+
+[dependencies]
+grammers-client = { version = "=0.12.0", git = "https://codeberg.org/Lonami/grammers.git", rev = "e61cf8585e1e9969ab81eda9fb4725a1500e2d86", features = ["markdown", "html"] }
+grammers-crypto = { version = "=0.12.0", git = "https://codeberg.org/Lonami/grammers.git", rev = "e61cf8585e1e9969ab81eda9fb4725a1500e2d86" }
+grammers-tl-types = { version = "=0.12.0", git = "https://codeberg.org/Lonami/grammers.git", rev = "e61cf8585e1e9969ab81eda9fb4725a1500e2d86" }
+getrandom = "0.4.3"
+sha1 = "0.11.0"
+sha2 = "0.11.1"
+md-5 = "0.11.0"
+subtle = "2.6"
+zeroize = { version = "1.9", features = ["derive"] }
+num-bigint = "0.5"
+num-traits = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+hex = "0.4"
+thiserror = "2"
+tempfile = "3"
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync", "time", "io-util"] }
+tracing = "0.1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+proptest = "1"
+
+[build-dependencies]
+grammers-tl-gen = { version = "=0.12.0", git = "https://codeberg.org/Lonami/grammers.git", rev = "e61cf8585e1e9969ab81eda9fb4725a1500e2d86" }
+grammers-tl-parser = { version = "=2.0.0", git = "https://codeberg.org/Lonami/grammers.git", rev = "e61cf8585e1e9969ab81eda9fb4725a1500e2d86" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
