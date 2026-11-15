@@ -79,11 +79,17 @@ jobs:
           cargo clippy --locked --all-targets -- -D warnings
       - name: Compile from a path containing spaces
         if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          target_dir="$RUNNER_TEMP/Secret Chat Space Path"
-          mkdir -p "$target_dir"
-          git archive HEAD | tar -xf - -C "$target_dir"
-          cargo check --locked --manifest-path "$target_dir/Cargo.toml"
+          $targetDir = Join-Path $env:RUNNER_TEMP 'Secret Chat Space Path'
+          $archivePath = Join-Path $env:RUNNER_TEMP 'rust-space-input.tar'
+          New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+          git archive --format=tar "--output=$archivePath" HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Could not archive the tracked Rust input' }
+          tar.exe -xf $archivePath -C $targetDir
+          if ($LASTEXITCODE -ne 0) { throw 'Could not extract the tracked Rust input' }
+          cargo check --locked --manifest-path (Join-Path $targetDir 'Cargo.toml')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Report legacy-case parity separately
         run: cargo run --locked --bin migration-audit
       - name: Save test execution evidence
