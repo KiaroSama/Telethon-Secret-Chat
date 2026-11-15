@@ -1,0 +1,547 @@
+{
+  "source_commit": "d53c7c21574ac404e01b8c3535b0d0fcfa25a193",
+  "source": "telethon_secret_chat/schema/secret_tl.py",
+  "provenance": "Synthetic values serialized by the unchanged legacy Python encoder; no account or live key material.",
+  "records": [
+    {
+      "id": 528568095,
+      "constructor": "decryptedMessage",
+      "family": "DecryptedMessage",
+      "hex": "1f4f811f8720f279b78fffff20000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f0000001d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e00004a5c9f08"
+    },
+    {
+      "id": 2856858237,
+      "constructor": "decryptedMessageService",
+      "family": "DecryptedMessage",
+      "hex": "7d3248aa8720f279b78fffff20000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f0000005ce41967"
+    },
+    {
+      "id": 144661578,
+      "constructor": "decryptedMessageMediaEmpty",
+      "family": "DecryptedMessageMedia",
+      "hex": "4a5c9f08"
+    },
+    {
+      "id": 846826124,
+      "constructor": "decryptedMessageMediaPhoto",
+      "family": "DecryptedMessageMedia",
+      "hex": "8c8a793220000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000000070000000700000007000000070000000700000020000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f00000020000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000000"
+    },
+    {
+      "id": 1290694387,
+      "constructor": "decryptedMessageMediaVideo",
+      "family": "DecryptedMessageMedia",
+      "hex": "f36eee4c20000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f00000007000000070000000700000007000000070000000700000020000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f00000020000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000000"
+    },
+    {
+      "id": 893913689,
+      "constructor": "decryptedMessageMediaGeoPoint",
+      "family": "DecryptedMessageMedia",
+      "hex": "590a4835000000000000f43f000000000000f43f"
+    },
+    {
+      "id": 1485441687,
+      "constructor": "decryptedMessageMediaContact",
+      "family": "DecryptedMessageMedia",
+      "hex": "970a8a581d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e00001d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e00001d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e000007000000"
+    },
+    {
+      "id": 2708683500,
+      "constructor": "decryptedMessageActionSetMessageTTL",
+      "family": "DecryptedMessageAction",
+      "hex": "ec3a73a107000000"
+    },
+    {
+      "id": 2962572107,
+      "constructor": "decryptedMessageMediaDocument",
+      "family": "DecryptedMessageMedia",
+      "hex": "4b4395b020000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f00000007000000070000001d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e00001d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e00000700000020000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f00000020000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000000"
+    },
+    {
+      "id": 1619031439,
+      "constructor": "decryptedMessageMediaAudio",
+      "family": "DecryptedMessageMedia",
+      "hex": "8f758060070000000700000020000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f00000020000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000000"
+    },
+    {
+      "id": 206520510,
+      "constructor": "decryptedMessageActionReadMessages",
+      "family": "DecryptedMessageAction",
+      "hex": "be404f0c15c4b51c010000008720f279b78fffff"
+    },
+    {
+      "id": 1700872964,
+      "constructor": "decryptedMessageActionDeleteMessages",
+      "family": "DecryptedMessageAction",
+      "hex": "0443616515c4b51c010000008720f279b78fffff"
+    },
+    {
+      "id": 2327966837,
+      "constructor": "decryptedMessageActionScreenshotMessages",
+      "family": "DecryptedMessageAction",
+      "hex": "75f4c18a15c4b51c010000008720f279b78fffff"
+    },
+    {
+      "id": 1729750108,
+      "constructor": "decryptedMessageActionFlushHistory",
+      "family": "DecryptedMessageAction",
+      "hex": "5ce41967"
+    },
+    {
+      "id": 541931640,
+      "constructor": "decryptedMessage",
+      "family": "DecryptedMessage",
+      "hex": "78384d208720f279b78fffff070000001d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e00004a5c9f08"
+    },
+    {
+      "id": 1930838368,
+      "constructor": "decryptedMessageService",
+      "family": "DecryptedMessage",
+      "hex": "604116738720f279b78fffff5ce41967"
+    },
+    {
+      "id": 1380598109,
+      "constructor": "decryptedMessageMediaVideo",
+      "family": "DecryptedMessageMedia",
+      "hex": "5d414a5220000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f0000000700000007000000070000001d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e000007000000070000000700000020000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f00000020000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000000"
+    },
+    {
+      "id": 1474341323,
+      "constructor": "decryptedMessageMediaAudio",
+      "family": "DecryptedMessageMedia",
+      "hex": "cba9e057070000001d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e00000700000020000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f00000020000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000000"
+    },
+    {
+      "id": 467867529,
+      "constructor": "decryptedMessageLayer",
+      "family": "DecryptedMessageLayer",
+      "hex": "8917e31b20000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000000070000000700000007000000604116738720f279b78fffff5ce41967"
+    },
+    {
+      "id": 381645902,
+      "constructor": "sendMessageTypingAction",
+      "family": "SendMessageAction",
+      "hex": "4e74bf16"
+    },
+    {
+      "id": 4250847477,
+      "constructor": "sendMessageCancelAction",
+      "family": "SendMessageAction",
+      "hex": "f5c85efd"
+    },
+    {
+      "id": 2710034031,
+      "constructor": "sendMessageRecordVideoAction",
+      "family": "SendMessageAction",
+      "hex": "6fd687a1"
+    },
+    {
+      "id": 2449747959,
+      "constructor": "sendMessageUploadVideoAction",
+      "family": "SendMessageAction",
+      "hex": "f72f0492"
+    },
+    {
+      "id": 3576656887,
+      "constructor": "sendMessageRecordAudioAction",
+      "family": "SendMessageAction",
+      "hex": "f7732fd5"
+    },
+    {
+      "id": 3870067311,
+      "constructor": "sendMessageUploadAudioAction",
+      "family": "SendMessageAction",
+      "hex": "6f8aace6"
+    },
+    {
+      "id": 2567584794,
+      "constructor": "sendMessageUploadPhotoAction",
+      "family": "SendMessageAction",
+      "hex": "1a3c0a99"
+    },
+    {
+      "id": 2410604942,
+      "constructor": "sendMessageUploadDocumentAction",
+      "family": "SendMessageAction",
+      "hex": "8ee9ae8f"
+    },
+    {
+      "id": 393186209,
+      "constructor": "sendMessageGeoLocationAction",
+      "family": "SendMessageAction",
+      "hex": "a18b6f17"
+    },
+    {
+      "id": 1653390447,
+      "constructor": "sendMessageChooseContactAction",
+      "family": "SendMessageAction",
+      "hex": "6fbc8c62"
+    },
+    {
+      "id": 1360072880,
+      "constructor": "decryptedMessageActionResend",
+      "family": "DecryptedMessageAction",
+      "hex": "b01011510700000007000000"
+    },
+    {
+      "id": 4077160579,
+      "constructor": "decryptedMessageActionNotifyLayer",
+      "family": "DecryptedMessageAction",
+      "hex": "838804f307000000"
+    },
+    {
+      "id": 3434247745,
+      "constructor": "decryptedMessageActionTyping",
+      "family": "DecryptedMessageAction",
+      "hex": "4176b2cc4e74bf16"
+    },
+    {
+      "id": 4090061083,
+      "constructor": "decryptedMessageActionRequestKey",
+      "family": "DecryptedMessageAction",
+      "hex": "1b61c9f38720f279b78fffff20000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000000"
+    },
+    {
+      "id": 1877046107,
+      "constructor": "decryptedMessageActionAcceptKey",
+      "family": "DecryptedMessageAction",
+      "hex": "5b73e16f8720f279b78fffff20000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f0000008720f279b78fffff"
+    },
+    {
+      "id": 3708152939,
+      "constructor": "decryptedMessageActionAbortKey",
+      "family": "DecryptedMessageAction",
+      "hex": "6bec05dd8720f279b78fffff"
+    },
+    {
+      "id": 3962440603,
+      "constructor": "decryptedMessageActionCommitKey",
+      "family": "DecryptedMessageAction",
+      "hex": "9b0b2eec8720f279b78fffff8720f279b78fffff"
+    },
+    {
+      "id": 2821709155,
+      "constructor": "decryptedMessageActionNoop",
+      "family": "DecryptedMessageAction",
+      "hex": "63dd2fa8"
+    },
+    {
+      "id": 1815593308,
+      "constructor": "documentAttributeImageSize",
+      "family": "DocumentAttribute",
+      "hex": "5cc1376c0700000007000000"
+    },
+    {
+      "id": 297109817,
+      "constructor": "documentAttributeAnimated",
+      "family": "DocumentAttribute",
+      "hex": "3989b511"
+    },
+    {
+      "id": 4211758887,
+      "constructor": "documentAttributeSticker",
+      "family": "DocumentAttribute",
+      "hex": "27570afb"
+    },
+    {
+      "id": 1494273227,
+      "constructor": "documentAttributeVideo",
+      "family": "DocumentAttribute",
+      "hex": "cbcc1059070000000700000007000000"
+    },
+    {
+      "id": 85215461,
+      "constructor": "documentAttributeAudio",
+      "family": "DocumentAttribute",
+      "hex": "e548140507000000"
+    },
+    {
+      "id": 358154344,
+      "constructor": "documentAttributeFilename",
+      "family": "DocumentAttribute",
+      "hex": "680059151d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e0000"
+    },
+    {
+      "id": 236446268,
+      "constructor": "photoSizeEmpty",
+      "family": "PhotoSize",
+      "hex": "3ce2170e1d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e0000"
+    },
+    {
+      "id": 2009052699,
+      "constructor": "photoSize",
+      "family": "PhotoSize",
+      "hex": "1bb6bf771d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e0000466b597c8720f279b78fffff070000008720f279b78fffff070000000700000007000000"
+    },
+    {
+      "id": 3920049402,
+      "constructor": "photoCachedSize",
+      "family": "PhotoSize",
+      "hex": "fa34a7e91d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e0000466b597c8720f279b78fffff070000008720f279b78fffff070000000700000020000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000000"
+    },
+    {
+      "id": 2086234950,
+      "constructor": "fileLocationUnavailable",
+      "family": "FileLocation",
+      "hex": "466b597c8720f279b78fffff070000008720f279b78fffff"
+    },
+    {
+      "id": 1406570614,
+      "constructor": "fileLocation",
+      "family": "FileLocation",
+      "hex": "7690d653070000008720f279b78fffff070000008720f279b78fffff"
+    },
+    {
+      "id": 4204114141,
+      "constructor": "decryptedMessageMediaExternalDocument",
+      "family": "DecryptedMessageMedia",
+      "hex": "ddb095fa8720f279b78fffff8720f279b78fffff070000001d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e0000070000003ce2170e1d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e00000700000015c4b51c010000003989b511"
+    },
+    {
+      "id": 917541342,
+      "constructor": "decryptedMessage",
+      "family": "DecryptedMessage",
+      "hex": "de91b036880a00008720f279b78fffff070000001d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e00004a5c9f0815c4b51c0100000095ba92bb07000000070000001d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e00008720f279b78fffff"
+    },
+    {
+      "id": 4059729272,
+      "constructor": "decryptedMessageMediaPhoto",
+      "family": "DecryptedMessageMedia",
+      "hex": "788dfaf120000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000000070000000700000007000000070000000700000020000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f00000020000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f0000001d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e0000"
+    },
+    {
+      "id": 2534181902,
+      "constructor": "decryptedMessageMediaVideo",
+      "family": "DecryptedMessageMedia",
+      "hex": "0e8c0c9720000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f0000000700000007000000070000001d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e000007000000070000000700000020000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f00000020000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f0000001d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e0000"
+    },
+    {
+      "id": 2063502050,
+      "constructor": "decryptedMessageMediaDocument",
+      "family": "DecryptedMessageMedia",
+      "hex": "e28afe7a20000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f00000007000000070000001d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e00000700000020000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f00000020000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f00000015c4b51c010000003989b5111d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e0000"
+    },
+    {
+      "id": 978674434,
+      "constructor": "documentAttributeSticker",
+      "family": "DocumentAttribute",
+      "hex": "0263553a1d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e0000952bb6ff"
+    },
+    {
+      "id": 3738310880,
+      "constructor": "documentAttributeAudio",
+      "family": "DocumentAttribute",
+      "hex": "e018d2de070000001d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e00001d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e0000"
+    },
+    {
+      "id": 3146955413,
+      "constructor": "messageEntityUnknown",
+      "family": "MessageEntity",
+      "hex": "95ba92bb0700000007000000"
+    },
+    {
+      "id": 4194588573,
+      "constructor": "messageEntityMention",
+      "family": "MessageEntity",
+      "hex": "9d5704fa0700000007000000"
+    },
+    {
+      "id": 1868782349,
+      "constructor": "messageEntityHashtag",
+      "family": "MessageEntity",
+      "hex": "0d5b636f0700000007000000"
+    },
+    {
+      "id": 1827637959,
+      "constructor": "messageEntityBotCommand",
+      "family": "MessageEntity",
+      "hex": "c78aef6c0700000007000000"
+    },
+    {
+      "id": 1859134776,
+      "constructor": "messageEntityUrl",
+      "family": "MessageEntity",
+      "hex": "3825d06e0700000007000000"
+    },
+    {
+      "id": 1692693954,
+      "constructor": "messageEntityEmail",
+      "family": "MessageEntity",
+      "hex": "c275e4640700000007000000"
+    },
+    {
+      "id": 3177253833,
+      "constructor": "messageEntityBold",
+      "family": "MessageEntity",
+      "hex": "c90b61bd0700000007000000"
+    },
+    {
+      "id": 2188348256,
+      "constructor": "messageEntityItalic",
+      "family": "MessageEntity",
+      "hex": "608b6f820700000007000000"
+    },
+    {
+      "id": 681706865,
+      "constructor": "messageEntityCode",
+      "family": "MessageEntity",
+      "hex": "7105a2280700000007000000"
+    },
+    {
+      "id": 1938967520,
+      "constructor": "messageEntityPre",
+      "family": "MessageEntity",
+      "hex": "e04b927307000000070000001d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e0000"
+    },
+    {
+      "id": 1990644519,
+      "constructor": "messageEntityTextUrl",
+      "family": "MessageEntity",
+      "hex": "27d3a67607000000070000001d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e0000"
+    },
+    {
+      "id": 2250033312,
+      "constructor": "inputStickerSetShortName",
+      "family": "InputStickerSet",
+      "hex": "a0c81c861d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e0000"
+    },
+    {
+      "id": 4290128789,
+      "constructor": "inputStickerSetEmpty",
+      "family": "InputStickerSet",
+      "hex": "952bb6ff"
+    },
+    {
+      "id": 2316170607,
+      "constructor": "decryptedMessageMediaVenue",
+      "family": "DecryptedMessageMedia",
+      "hex": "6ff50d8a000000000000f43f000000000000f43f1d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e00001d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e00001d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e00001d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e0000"
+    },
+    {
+      "id": 3842314712,
+      "constructor": "decryptedMessageMediaWebPage",
+      "family": "DecryptedMessageMedia",
+      "hex": "d81105e51d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e0000"
+    },
+    {
+      "id": 2555574726,
+      "constructor": "documentAttributeAudio",
+      "family": "DocumentAttribute",
+      "hex": "c6f9529807040000070000001d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e00001d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e000020000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f000000"
+    },
+    {
+      "id": 250621158,
+      "constructor": "documentAttributeVideo",
+      "family": "DocumentAttribute",
+      "hex": "e62cf00e01000000070000000700000007000000"
+    },
+    {
+      "id": 2297593788,
+      "constructor": "sendMessageRecordRoundAction",
+      "family": "SendMessageAction",
+      "hex": "bc7ff288"
+    },
+    {
+      "id": 3144779300,
+      "constructor": "sendMessageUploadRoundAction",
+      "family": "SendMessageAction",
+      "hex": "248671bb"
+    },
+    {
+      "id": 2446083700,
+      "constructor": "decryptedMessage",
+      "family": "DecryptedMessage",
+      "hex": "7446cc91aa0a02008720f279b78fffff070000001d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e00004a5c9f0815c4b51c0100000095ba92bb07000000070000001d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e00008720f279b78fffff8720f279b78fffff"
+    },
+    {
+      "id": 2622389899,
+      "constructor": "messageEntityUnderline",
+      "family": "MessageEntity",
+      "hex": "8b7e4e9c0700000007000000"
+    },
+    {
+      "id": 3204879316,
+      "constructor": "messageEntityStrike",
+      "family": "MessageEntity",
+      "hex": "d49306bf0700000007000000"
+    },
+    {
+      "id": 34469328,
+      "constructor": "messageEntityBlockquote",
+      "family": "MessageEntity",
+      "hex": "d0f50d020700000007000000"
+    },
+    {
+      "id": 1790809986,
+      "constructor": "decryptedMessageMediaDocument",
+      "family": "DecryptedMessageMedia",
+      "hex": "8297bd6a20000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f00000007000000070000001d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e00008720f279b78fffff20000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f00000020000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f00000015c4b51c010000003989b5111d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e0000"
+    },
+    {
+      "id": 852137487,
+      "constructor": "messageEntitySpoiler",
+      "family": "MessageEntity",
+      "hex": "0f96ca320700000007000000"
+    },
+    {
+      "id": 3369010680,
+      "constructor": "messageEntityCustomEmoji",
+      "family": "MessageEntity",
+      "hex": "f805cfc807000000070000008720f279b78fffff"
+    },
+    {
+      "id": 3235781593,
+      "constructor": "jsonObjectValue",
+      "family": "JSONObjectValue",
+      "hex": "d91bdec01d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e0000687b6d3f"
+    },
+    {
+      "id": 1064139624,
+      "constructor": "jsonNull",
+      "family": "JSONValue",
+      "hex": "687b6d3f"
+    },
+    {
+      "id": 3342098026,
+      "constructor": "jsonBool",
+      "family": "JSONValue",
+      "hex": "6a5e34c7b5757299"
+    },
+    {
+      "id": 736157604,
+      "constructor": "jsonNumber",
+      "family": "JSONValue",
+      "hex": "a4dfe02b000000000000f43f"
+    },
+    {
+      "id": 3072226938,
+      "constructor": "jsonString",
+      "family": "JSONValue",
+      "hex": "7a761eb71d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e0000"
+    },
+    {
+      "id": 4148447075,
+      "constructor": "jsonArray",
+      "family": "JSONValue",
+      "hex": "634744f715c4b51c01000000687b6d3f"
+    },
+    {
+      "id": 2579616925,
+      "constructor": "jsonObject",
+      "family": "JSONValue",
+      "hex": "9dd4c19915c4b51c01000000d91bdec01d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e0000687b6d3f"
+    },
+    {
+      "id": 1964978502,
+      "constructor": "textWithEntities",
+      "family": "TextWithEntities",
+      "hex": "46311f751d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e000015c4b51c0100000095ba92bb0700000007000000"
+    },
+    {
+      "id": 2424105102,
+      "constructor": "groupCallMessage",
+      "family": "GroupCallMessage",
+      "hex": "8ee87c908720f279b78fffff46311f751d5275737420e29c9320d981d8a7d8b1d8b3db8c20e697a5e69cace8aa9e000015c4b51c0100000095ba92bb0700000007000000"
+    }
+  ]
+}

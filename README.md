@@ -1,5 +1,14 @@
 # Telethon Secret Chat
 
+> **Rust migration in progress:** the `rewrite/rust-grammers` branch adds the native
+> Rust protocol core and same-client [grammers](https://codeberg.org/Lonami/grammers)
+> adapter. It is not yet a complete replacement for this Python release.
+> [Rust API and remaining work](docs/rust-migration.md) ·
+> [1851-case parity ledger](migration/README.md).
+> The migration PR must remain unmerged until feature and case parity pass.
+
+[![Rust builds: Linux, macOS, Windows](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/rust.yml/badge.svg?branch=rewrite%2Frust-grammers)](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/rust.yml?query=branch%3Arewrite%2Frust-grammers)
+
 <div align="center">
 
 [![Tests & Coverage](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/tests.yml)

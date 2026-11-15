@@ -241,3 +241,7 @@ claude_desktop_config.json
 !/.env.sample
 !/.env.template
 !/.env.dist
+
+# Rust build/test products; Cargo.lock is intentionally tracked.
+/rust-tests.txt
+/proptest-regressions/
