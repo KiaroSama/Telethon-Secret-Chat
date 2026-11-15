@@ -47,6 +47,7 @@ fn check(root: &Path) -> Result<(), ()> {
     let mut baseline = None;
     for leg in LEGS {
         let text = fs::read_to_string(root.join(leg).join("rust-tests.txt")).map_err(|_| ())?;
+        let text = strip_ansi(&text);
         if text.contains("test result: FAILED") || text.contains("error: test failed") {
             return Err(());
         }
@@ -103,4 +104,25 @@ fn check(root: &Path) -> Result<(), ()> {
         }
     }
     Ok(())
+}
+
+// Cargo colors its `Running` marker when CARGO_TERM_COLOR=always, even when
+// libtest writes plain test rows into a pipe. Keep UTF-8 intact while removing
+// terminal CSI controls before matching suite labels.
+fn strip_ansi(text: &str) -> String {
+    let mut output = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\u{1b}' && chars.peek() == Some(&'[') {
+            chars.next();
+            for control in chars.by_ref() {
+                if ('@'..='~').contains(&control) {
+                    break;
+                }
+            }
+        } else {
+            output.push(ch);
+        }
+    }
+    output
 }
