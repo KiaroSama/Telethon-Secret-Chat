@@ -35,6 +35,14 @@ commands. The portable job sets `aes_backend="soft"` and checks the selected
 backend against an independent AES known answer. Every leg fetches the complete
 locked dependency graph before tests that deliberately run Cargo offline.
 
+The mandatory build also records Cargo's exact artifact graph. Compile-boundary
+tests can reuse its ordinary library after checking the checkout, compiler,
+target, profile, flags and input/artifact freshness. They still invoke real
+`rustc` for both valid controls and invalid inputs. Missing, stale or incompatible
+records fall back to an isolated library build; instrumented coverage uses that
+fallback. Reuse removes a second compilation without changing test scenarios,
+release settings or the 60-minute job budget.
+
 `matrix-evidence` reads each Cargo suite and its test-result summary, strips
 terminal color escapes and requires exactly the same manifest on all nine legs.
 Missing, additional, duplicate, failed, filtered, measured or unexpectedly
@@ -139,6 +147,7 @@ reports are never uploaded.
 ## Official references
 
 - [Cargo installation and Git/path sources](https://doc.rust-lang.org/cargo/commands/cargo-install.html)
+- [Cargo artifact graph and build completion messages](https://doc.rust-lang.org/cargo/reference/external-tools.html)
 - [Tokio Notify ordering](https://docs.rs/tokio/1.54.1/tokio/sync/struct.Notify.html)
 - [cargo-llvm-cov 0.9.1](https://github.com/taiki-e/cargo-llvm-cov/tree/v0.9.1)
 - [Gitleaks 8.30.1](https://github.com/gitleaks/gitleaks/releases/tag/v8.30.1)

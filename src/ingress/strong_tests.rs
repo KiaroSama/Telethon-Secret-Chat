@@ -570,6 +570,7 @@ async fn default_client_and_public_modes_remain_explicitly_distinct() {
 }
 #[test]
 fn plain_and_volatile_storage_are_rejected_at_rust_type_boundary() {
+    compile_boundary::prebuilt_receipt_contract();
     let compiled = compile_api(
         "use kiaro_secret_chat::{ingress::{DurableIngress,EncryptedIngressStorage},custody::IngressLimits};fn valid(store:EncryptedIngressStorage,limits:IngressLimits){let _=DurableIngress::new(store,limits);}",
     );

@@ -161,18 +161,59 @@ jobs:
         shell: bash
         env:
           BUILD_PROFILE: ${{ matrix.profile }}
+          BUILD_TARGET: ${{ matrix.target }}
         run: |
+          set -euo pipefail
+          graph="$RUNNER_TEMP/compile-artifacts.jsonl"
           if [ "$BUILD_PROFILE" = release ]; then
-            cargo build --locked --all-targets --release
+            profile=release
+            cargo build --locked --all-targets --release --message-format=json-render-diagnostics > "$graph"
           else
-            cargo build --locked --all-targets
+            profile=debug
+            cargo build --locked --all-targets --message-format=json-render-diagnostics > "$graph"
           fi
+          if command -v sha256sum >/dev/null; then
+            graph_sha256=$(sha256sum "$graph" | cut -d ' ' -f 1)
+          else
+            graph_sha256=$(shasum -a 256 "$graph" | cut -d ' ' -f 1)
+          fi
+          jq -n --arg checkout_sha "$(git rev-parse HEAD)" \
+            --arg manifest_path "$GITHUB_WORKSPACE/Cargo.toml" \
+            --arg target "$BUILD_TARGET" --arg profile "$profile" \
+            --arg target_dir "$CARGO_TARGET_DIR" --arg rustflags "${RUSTFLAGS-}" \
+            --arg compiler "$(rustc -vV)" --arg graph_sha256 "$graph_sha256" \
+            '{version: 1, checkout_sha: $checkout_sha, manifest_path: $manifest_path,
+              target: $target, profile: $profile, target_dir: $target_dir,
+              rustflags: $rustflags, encoded_rustflags: (env.CARGO_ENCODED_RUSTFLAGS // null),
+              compiler: $compiler, graph_sha256: $graph_sha256}' > "$graph.context.json"
+          printf 'KIARO_COMPILE_ARTIFACTS=%s\n' "$graph" >> "$GITHUB_ENV"
       - name: Build the native Windows library and executables
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
         run: |
-          cargo build --locked --all-targets --release
+          $graph = Join-Path $env:RUNNER_TEMP 'compile-artifacts.jsonl'
+          cargo build --locked --all-targets --release --message-format=json-render-diagnostics > $graph
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $checkoutSha = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $compilerLines = rustc -vV
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $context = @{
+            version = 1
+            checkout_sha = $checkoutSha
+            manifest_path = Join-Path $env:GITHUB_WORKSPACE 'Cargo.toml'
+            target = $env:BUILD_TARGET
+            profile = 'release'
+            target_dir = $env:CARGO_TARGET_DIR
+            rustflags = [string]$env:RUSTFLAGS
+            encoded_rustflags = $env:CARGO_ENCODED_RUSTFLAGS
+            compiler = $compilerLines -join "`n"
+            graph_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $graph).Hash.ToLowerInvariant()
+          }
+          $context | ConvertTo-Json | Set-Content -LiteralPath "$graph.context.json" -Encoding utf8
+          "KIARO_COMPILE_ARTIFACTS=$graph" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Execute Rust tests
         if: runner.os != 'Windows'
         shell: bash
