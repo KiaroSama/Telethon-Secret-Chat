@@ -100,6 +100,9 @@ impl Session for PausingSession {
 struct Model {
     calls: Vec<(i32, u32)>,
     history: usize,
+    reverse_history: bool,
+    fail_history: bool,
+    history_offsets: Vec<(i32, i32, i32)>,
     global: Vec<(i32, i32)>,
     missing_forward: bool,
     unsupported_send: u8,
@@ -205,6 +208,22 @@ impl Model {
             }
             id if id == tl::functions::messages::GetHistory::CONSTRUCTOR_ID => {
                 self.history += 1;
+                let request: tl::functions::messages::GetHistory = super::super::decode(&body[4..]);
+                if self.reverse_history {
+                    self.history_offsets.push((
+                        request.offset_id,
+                        request.add_offset,
+                        request.min_id,
+                    ));
+                    if std::mem::take(&mut self.fail_history) {
+                        return Err(InvocationError::Dropped("public fixture history failure"));
+                    }
+                    return Ok(messages(if request.offset_id == 1 && request.min_id == 0 {
+                        vec![super::service(1, 123)]
+                    } else {
+                        vec![]
+                    }));
+                }
                 messages(vec![super::service(1, 123)])
             }
             id if id == tl::functions::messages::SearchGlobal::CONSTRUCTOR_ID => {
@@ -511,6 +530,32 @@ async fn pagination_checks(
     assert!(iter.next().await.unwrap().is_none());
     assert_eq!(model.lock().unwrap().history, 2);
     for fail in [false, true] {
+        model.lock().unwrap().reverse_history = true;
+        model.lock().unwrap().history_offsets.clear();
+        let mut iter = client.iter_messages(peer).reverse(true);
+        if fail {
+            model.lock().unwrap().fail_history = true;
+            assert!(iter.next().await.is_err());
+        } else {
+            session.cache.store(true, Ordering::SeqCst);
+            tokio::select! {
+                result = iter.next() => panic!("reverse initial page did not suspend: {result:?}"),
+                _ = session.entered.notified() => {}
+            }
+        }
+        assert_eq!(
+            iter.next().await.unwrap().unwrap().id(),
+            1,
+            "initial reverse page lost message 1 on retry"
+        );
+        assert!(iter.next().await.unwrap().is_none());
+        assert_eq!(
+            model.lock().unwrap().history_offsets,
+            [(1, -99, 0), (1, -99, 0)]
+        );
+    }
+    model.lock().unwrap().reverse_history = false;
+    for fail in [false, true] {
         let mut iter = client.search_all_messages();
         if fail {
             session.fail_peer.store(true, Ordering::SeqCst);
@@ -546,6 +591,17 @@ async fn pagination_checks(
             .await
             .unwrap()[0]
             .is_none()
+    );
+    let repeated = client
+        .get_messages_by_id(peer, &[2, 1, 2, 999, 1, 999])
+        .await
+        .unwrap();
+    assert_eq!(
+        repeated
+            .iter()
+            .map(|message| message.as_ref().map(|message| message.id()))
+            .collect::<Vec<_>>(),
+        [Some(2), Some(1), Some(2), None, Some(1), None]
     );
     for id in [123, 456] {
         let peer = PeerRef {

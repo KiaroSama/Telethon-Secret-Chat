@@ -45,6 +45,8 @@ pub async fn download_file(
     path: &Path,
 ) -> Result<PathBuf> {
     let parts = reference.validate()?;
+    let expected =
+        usize::try_from(crate::files::encrypted_size(parts.size)?).map_err(|_| Error::Capacity)?;
     let absolute = std::path::absolute(path).map_err(|_| Error::Storage)?;
     let parent = absolute.parent().ok_or(Error::Storage)?.to_owned();
     let temporary = super::blocking::spawn(move |cancelled| {
@@ -57,8 +59,13 @@ pub async fn download_file(
     .await
     .map_err(|_| Error::Storage)??;
     let mut temporary = temporary;
+    let mut written = 0usize;
     let mut download = client.iter_download(reference);
     while let Some(bytes) = download.next().await.map_err(|_| Error::Transport)? {
+        written = written
+            .checked_add(bytes.len())
+            .filter(|total| *total <= expected)
+            .ok_or(Error::Media)?;
         temporary = super::blocking::spawn(move |cancelled| {
             if cancelled.load(std::sync::atomic::Ordering::Acquire) {
                 return Err(Error::ManagerStopping);
@@ -68,6 +75,9 @@ pub async fn download_file(
         })?
         .await
         .map_err(|_| Error::Storage)??;
+    }
+    if written != expected {
+        return Err(Error::Media);
     }
     let fingerprint = reference.key_fingerprint;
     super::blocking::spawn(move |cancelled| {

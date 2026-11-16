@@ -206,11 +206,10 @@ impl AutoSave {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
             Err(_) => return Err(Error::Storage),
         };
-        let text = std::str::from_utf8(&bytes).map_err(|_| Error::InvalidState)?;
         let mut records: Vec<Value> = Vec::new();
         let mut indexes = BTreeMap::new();
-        for line in text.lines() {
-            let Ok(record) = serde_json::from_str::<Value>(line) else {
+        for line in bytes.split(|byte| *byte == b'\n') {
+            let Ok(record) = serde_json::from_slice::<Value>(line) else {
                 continue;
             };
             let Some(id) = record.get("id") else { continue };
@@ -386,19 +385,11 @@ impl AutoSave {
         source: &mut SourceReader,
     ) -> Result<PathBuf> {
         let worker = self.worker(id)?;
-        let stage = worker.stage()?;
-        let path = stage.path().join("source.bin");
-        let mut temporary = crate::temporary::create(stage.path(), ".saved-copy-")?;
-        source.rewind()?;
-        let size = source.size;
-        let copied = std::io::copy(&mut source.reader().take(size), &mut temporary)
-            .map_err(|_| Error::Storage)?;
-        if copied != size {
-            return Err(Error::Media);
-        }
-        temporary.as_file().sync_all().map_err(|_| Error::Storage)?;
-        temporary.persist(&path)?;
-        worker.publish(random_id, &path, &source.name)
+        worker.copy_source(
+            random_id,
+            source,
+            &std::sync::atomic::AtomicBool::new(false),
+        )
     }
 }
 pub fn safe_file_name(value: &str) -> String {
@@ -485,6 +476,33 @@ pub(crate) struct ArchiveWorker {
     changed: Arc<tokio::sync::Notify>,
 }
 impl ArchiveWorker {
+    pub(crate) fn copy_source(
+        &self,
+        random_id: i64,
+        source: &mut SourceReader,
+        cancelled: &std::sync::atomic::AtomicBool,
+    ) -> Result<PathBuf> {
+        use std::sync::atomic::Ordering;
+        if cancelled.load(Ordering::Acquire) {
+            return Err(Error::Paused);
+        }
+        let stage = self.stage()?;
+        let path = stage.path().join("source.bin");
+        let mut temporary = crate::temporary::create(stage.path(), ".saved-copy-")?;
+        source.rewind()?;
+        let size = source.size;
+        let copied = std::io::copy(&mut source.reader().take(size), &mut temporary)
+            .map_err(|_| Error::Storage)?;
+        if copied != size {
+            return Err(Error::Media);
+        }
+        temporary.as_file().sync_all().map_err(|_| Error::Storage)?;
+        temporary.persist(&path)?;
+        if cancelled.load(Ordering::Acquire) {
+            return Err(Error::Paused);
+        }
+        self.publish(random_id, &path, &source.name)
+    }
     fn current(&self, chat: &ArchiveChat) -> Result<()> {
         if chat.generation == self.generation {
             Ok(())

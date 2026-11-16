@@ -40,6 +40,7 @@ fn body(raw: i32, ack: i32, text: &str) -> Vec<u8> {
 }
 #[tokio::test]
 async fn failed_receive_commit_advances_no_counter_and_emits_no_message() {
+    acknowledgement_failure_retries_without_duplicate_callback().await;
     let (a, store, _w, id) = ready(Options::default()).await;
     let before = serde_json::to_value(store.load().unwrap().unwrap().chats[&id].clone()).unwrap();
     let got = Arc::new(Mutex::new(Vec::new()));
@@ -65,6 +66,93 @@ async fn failed_receive_commit_advances_no_counter_and_emits_no_message() {
     );
     assert!(got.lock().unwrap().is_empty());
     a.stop().await.unwrap();
+}
+async fn acknowledgement_failure_retries_without_duplicate_callback() {
+    let (manager, store, _, id) = ready(Options::default()).await;
+    let observed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let seen = observed.clone();
+    let failed = store.failures.clone();
+    manager
+        .on("MessageReceived", "fail_ack", move |_| {
+            if seen.fetch_add(1, Ordering::AcqRel) == 0 {
+                failed.store(1, Ordering::Release);
+            }
+            Ok(())
+        })
+        .unwrap();
+    let frame = encrypt_frame(
+        &SharedKey::from_slice(&[7; 256]).unwrap(),
+        &body(0, 1, "observed once across acknowledgement retry"),
+        Direction::Responder,
+    )
+    .unwrap();
+    assert!(manager.receive(id, &frame, None, 1).await.is_err());
+    assert_eq!(observed.load(Ordering::Acquire), 1);
+    assert_eq!(
+        store.load().unwrap().unwrap().chats[&id].deliveries.len(),
+        1
+    );
+    manager.receive(id, &frame, None, 1).await.unwrap();
+    assert!(
+        store.load().unwrap().unwrap().chats[&id]
+            .deliveries
+            .is_empty(),
+        "retry must settle the retained acknowledgement"
+    );
+    assert_eq!(
+        observed.load(Ordering::Acquire),
+        1,
+        "ack retry must not replay the callback"
+    );
+    let services = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let seen = services.clone();
+    let failed = store.failures.clone();
+    manager
+        .on("ServiceActionReceived", "fail_service_ack", move |_| {
+            if seen.fetch_add(1, Ordering::AcqRel) == 0 {
+                failed.store(1, Ordering::Release);
+            }
+            Ok(())
+        })
+        .unwrap();
+    let service = kiaro_secret_chat::framing::wrap(
+        types::DecryptedMessageService {
+            random_id: 91,
+            action: types::DecryptedMessageActionSetMessageTtl { ttl_seconds: 42 }.into(),
+        }
+        .into(),
+        144,
+        1,
+        2,
+    )
+    .unwrap()
+    .to_bytes();
+    let frame = encrypt_frame(
+        &SharedKey::from_slice(&[7; 256]).unwrap(),
+        &service,
+        Direction::Responder,
+    )
+    .unwrap();
+    assert!(manager.receive(id, &frame, None, 1).await.is_err());
+    assert_eq!(services.load(Ordering::Acquire), 1);
+    assert_eq!(
+        store.load().unwrap().unwrap().chats[&id]
+            .service_deliveries
+            .len(),
+        1
+    );
+    manager.receive(id, &frame, None, 1).await.unwrap();
+    assert!(
+        store.load().unwrap().unwrap().chats[&id]
+            .service_deliveries
+            .is_empty()
+    );
+    assert_eq!(
+        services.load(Ordering::Acquire),
+        1,
+        "service acknowledgement retry must not re-emit its callback"
+    );
+    manager.stop().await.unwrap();
 }
 #[tokio::test]
 async fn peer_counter_advancement_acknowledges_each_random_id_once() {

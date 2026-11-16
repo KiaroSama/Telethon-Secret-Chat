@@ -10,6 +10,7 @@ mod lifecycle;
 mod media;
 mod receiving;
 mod runtime;
+mod saved_downloads;
 mod strong;
 pub mod transport;
 
@@ -103,8 +104,10 @@ struct Inner<S: Storage, T: Transport> {
     history: Mutex<BTreeMap<i32, VecDeque<MessageReceived>>>,
     delivering: Mutex<BTreeMap<i32, (Arc<()>, bool)>>,
     delivered: Mutex<HashSet<(i32, i32)>>,
+    pending_acknowledgements: Mutex<HashSet<(i32, i32, bool)>>,
     autosave: Mutex<AutoSave>,
-    downloads: Mutex<Vec<JoinHandle<()>>>,
+    downloads: saved_downloads::SavedDownloads,
+    archive_io: Arc<crate::media::blocking::IoTracker>,
     work: Arc<runtime::WorkBudget>,
     reservation: AtomicU64,
     cancellations: Mutex<BTreeMap<i32, Arc<runtime::Cancellation>>>,
@@ -177,8 +180,10 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
                 history: Mutex::new(BTreeMap::new()),
                 delivering: Mutex::default(),
                 delivered: Mutex::new(HashSet::new()),
+                pending_acknowledgements: Mutex::default(),
                 autosave: Mutex::new(AutoSave::default()),
-                downloads: Mutex::new(Vec::new()),
+                downloads: Default::default(),
+                archive_io: Arc::default(),
                 work,
                 reservation: AtomicU64::new(1),
                 cancellations: Mutex::new(BTreeMap::new()),

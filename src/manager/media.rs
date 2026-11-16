@@ -105,7 +105,8 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
             };
             let effect = self
                 .protocol(|p| p.prepare_message(id, message.into(), Some(uploaded.to_bytes())))?;
-            self.save_sent_file(id, random_id, &effect.outgoing.body, &mut source);
+            self.save_sent_file(id, random_id, &effect.outgoing.body, source)
+                .await;
             self.transmit(effect, witness.0).await?;
             drop(_order);
             Ok(random_id)
@@ -322,26 +323,42 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
     }
     /// Close admission, persist OFF, and settle already accepted downloads.
     pub async fn stop_auto_save_secret_chats(&self) -> Result<()> {
-        self.with_operation(None, runtime::WorkKind::Persistence, async {
+        // Cleanup admission is independent of the task slots occupied by the
+        // downloads it must join. It performs no new media operation.
+        if self.inner.work.policy.is_some() {
+            if self.protocol(|p| Ok(p.mode()))? == StoreMode::Protected {
+                return Err(Error::Paused);
+            }
+            self.generation()?;
+            if self
+                .inner
+                .options
+                .admission
+                .as_ref()
+                .is_some_and(|admit| !admit(None, Operation::File))
             {
-                let mut autosave = self.inner.autosave.lock().map_err(|_| Error::Storage)?;
-                let (next, setting) = autosave.disabled();
-                self.protocol(|p| p.set_setting("auto_save_secret_chats".into(), Some(setting)))?;
-                *autosave = next;
+                self.runtime_refuse(None, crate::storage::RuntimeRefusal::Capacity, false);
+                return Err(Error::Paused);
             }
-            loop {
-                let tasks =
-                    std::mem::take(&mut *self.inner.downloads.lock().map_err(|_| Error::Storage)?);
-                if tasks.is_empty() {
-                    break;
-                }
-                for task in tasks {
-                    let _ = task.await;
-                }
-            }
-            Ok(())
-        })
-        .await
+        }
+        {
+            let mut autosave = self.inner.autosave.lock().map_err(|_| Error::Storage)?;
+            let (next, setting) = autosave.disabled();
+            self.protocol(|p| p.set_setting("auto_save_secret_chats".into(), Some(setting)))?;
+            *autosave = next;
+        }
+        // The control waiter must not consume a task permit needed by queued
+        // downloads, and cancellation must leave their shared join owners intact.
+        if let Some(policy) = self.inner.work.policy {
+            tokio::time::timeout(
+                Duration::from_secs_f64(policy.operation_seconds),
+                self.settle_saved_downloads(false),
+            )
+            .await
+            .map_err(|_| Error::ManagerStopping)?
+        } else {
+            self.settle_saved_downloads(false).await
+        }
     }
     /// Return saved records independently of the volatile protocol history cache.
     pub fn read_saved_messages(&self, id: i32) -> Result<Vec<Value>> {
@@ -470,16 +487,30 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
             tracing::warn!(chat_id = id, "Auto-save could not append a service action");
         }
     }
-    fn save_sent_file(&self, id: i32, random_id: i64, body: &[u8], source: &mut SourceReader) {
-        if self
-            .save_outgoing_with(id, body, |autosave| {
-                if autosave.folder().is_some() {
-                    autosave.copy_source(id, random_id, source)?;
-                }
+    async fn save_sent_file(&self, id: i32, random_id: i64, body: &[u8], mut source: SourceReader) {
+        let result: Result<()> = async {
+            let mut archive = None;
+            self.save_outgoing_with(id, body, |autosave| {
+                archive = Some(autosave.clone());
                 Ok(())
-            })
-            .is_err()
-        {
+            })?;
+            let Some(archive) = archive.filter(|archive| archive.folder().is_some()) else {
+                return Ok(());
+            };
+            let worker = archive.worker(id)?;
+            self.inner
+                .archive_io
+                .scope(async {
+                    crate::media::blocking::spawn(move |cancelled| {
+                        worker.copy_source(random_id, &mut source, cancelled)
+                    })?
+                    .await??;
+                    Ok(())
+                })
+                .await
+        }
+        .await;
+        if result.is_err() {
             tracing::warn!(chat_id = id, "Auto-save could not copy a sent file");
         }
     }
@@ -526,32 +557,11 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
         reference: MediaReference,
         name: String,
     ) {
-        let worker = match autosave.worker(id) {
-            Ok(worker) => worker,
-            Err(_) => {
-                tracing::warn!(chat_id = id, "Auto-save download admission failed");
-                return;
-            }
-        };
-        let transport = self.inner.transport.clone();
-        let task = tokio::spawn(async move {
-            let result=async {
-                let stage=worker.stage()?;
-                let path=stage.path().join("attachment.bin");
-                let held:Arc<dyn Send+Sync>=stage.clone();
-                crate::media::blocking::resources(vec![held],async {
-                    tokio::select! {biased;_=worker.cancelled()=>return Err(Error::Paused),result=transport.download(&reference,&path)=>{result?;}}
-                    worker.publish(random_id,&path,&name)?;
-                    Ok(())
-                }).await
-            }.await;
-            if result.is_err() {
-                tracing::warn!(chat_id = id, "Auto-save file download remains pending");
-            }
-        });
-        if let Ok(mut tasks) = self.inner.downloads.lock() {
-            tasks.retain(|task| !task.is_finished());
-            tasks.push(task);
+        if self
+            .queue_saved_download(autosave, id, random_id, reference, name)
+            .is_err()
+        {
+            tracing::warn!(chat_id = id, "Auto-save download admission failed");
         }
     }
 }

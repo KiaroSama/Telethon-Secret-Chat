@@ -7,6 +7,13 @@ use kiaro_secret_chat::export::{
 use serde_json::json;
 pub fn thumbnail_dimensions() {
     use kiaro_secret_chat::export::model_document::{parse_document_thumb, parse_max_image};
+    let document = json!({"id":1,"dc_id":2,"thumbs":[
+        {"_":"PhotoSize","type":"m","w":90,"h":90,"size":10},
+        {"_":"PhotoSizeProgressive","type":"x","w":100,"h":100,"sizes":[]}
+    ]});
+    let thumb = parse_document_thumb(&document, "doc");
+    assert_eq!((thumb.width, thumb.height, thumb.file.size), (90, 90, 10));
+    assert_eq!(thumb.file.location.data["thumb_size"], "m");
     for (width, height) in [
         (1_i64 << 62, 4),
         (i64::MAX, i64::MAX),

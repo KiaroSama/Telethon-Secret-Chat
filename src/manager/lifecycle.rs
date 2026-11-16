@@ -72,6 +72,11 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
                 .map_err(|_| Error::Storage)?
                 .clear();
             self.inner
+                .pending_acknowledgements
+                .lock()
+                .map_err(|_| Error::Storage)?
+                .clear();
+            self.inner
                 .cancellations
                 .lock()
                 .map_err(|_| Error::Storage)?
@@ -86,6 +91,8 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
                 .creation_cancel
                 .lock()
                 .map_err(|_| Error::Storage)? = Arc::default();
+            self.inner.archive_io.resume()?;
+            self.resume_saved_download_admission()?;
             self.inner.dispatch.resume()?;
             self.inner.stopping.store(false, Ordering::Release);
             self.inner.running.store(true, Ordering::Release);
@@ -206,13 +213,8 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
     }
     async fn finish_stop(&self) -> Result<()> {
         let mut failure = self.stop_expiry_watch().await.err();
-        let downloads =
-            std::mem::take(&mut *self.inner.downloads.lock().map_err(|_| Error::Storage)?);
-        for task in &downloads {
-            task.abort();
-        }
-        for task in downloads {
-            let _ = task.await;
+        if let Err(error) = self.settle_saved_downloads(true).await {
+            failure.get_or_insert(error);
         }
         let cleanup = self
             .inner
@@ -220,7 +222,11 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
             .policy
             .map(|p| Duration::from_secs_f64(p.cleanup_seconds))
             .unwrap_or(self.inner.options.handler_cleanup_timeout);
-        let io_result = tokio::time::timeout(cleanup, self.inner.transport.drain_io()).await;
+        let io_result = tokio::time::timeout(cleanup, async {
+            self.inner.transport.drain_io().await?;
+            self.inner.archive_io.drain().await
+        })
+        .await;
         let io_finished = match io_result {
             Ok(Ok(())) => true,
             Ok(Err(error)) => {

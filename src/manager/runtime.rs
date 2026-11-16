@@ -45,6 +45,7 @@ pub(crate) fn note_pending(identity: usize, chat_id: i32, random_id: i64) {
 pub(crate) struct WorkBudget {
     pub policy: Option<RuntimePolicy>,
     active: AtomicUsize,
+    pub(crate) changed: Notify,
 }
 impl WorkBudget {
     pub fn new(policy: Option<RuntimePolicy>) -> Result<Arc<Self>> {
@@ -63,6 +64,7 @@ impl WorkBudget {
         Ok(Arc::new(Self {
             policy,
             active: AtomicUsize::new(0),
+            changed: Notify::new(),
         }))
     }
     pub fn acquire(self: &Arc<Self>, count: usize) -> Result<WorkPermit> {
@@ -108,6 +110,7 @@ impl WorkPermit {
 impl Drop for WorkPermit {
     fn drop(&mut self) {
         self.budget.active.fetch_sub(self.count, Ordering::AcqRel);
+        self.budget.changed.notify_waiters();
     }
 }
 struct PayloadRelease(Mutex<Option<Box<dyn FnOnce() + Send>>>);
@@ -567,7 +570,18 @@ struct OperationGuard<S: Storage + 'static, T: Transport> {
 }
 impl<S: Storage + 'static, T: Transport> Drop for OperationGuard<S, T> {
     fn drop(&mut self) {
-        if !self.armed || self.manager.inner.generation.load(Ordering::Acquire) != self.generation {
+        if !self.armed {
+            return;
+        }
+        // Fences and publication use the same lock. No fence path drops an
+        // operation guard: dispatch.fence_except only closes admissions.
+        let _publication = self
+            .manager
+            .inner
+            .runtime_state
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        if self.manager.inner.generation.load(Ordering::Acquire) != self.generation {
             return;
         }
         if self.mode == StoreMode::Protected {

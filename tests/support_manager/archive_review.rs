@@ -107,8 +107,13 @@ pub fn incomplete_tail_does_not_eat_next_record() {
         .append(true)
         .open(&path)
         .unwrap();
-    file.write_all(b"{\"id\":2").unwrap();
+    file.write_all(b"{\"id\":2,\"text\":\"\xf0\x9f").unwrap();
     drop(file);
+    assert_eq!(
+        archive.read(7).unwrap(),
+        vec![serde_json::json!({"id":1,"text":"kept"})],
+        "a torn UTF-8 suffix must not hide earlier complete records"
+    );
     archive
         .append(
             7,

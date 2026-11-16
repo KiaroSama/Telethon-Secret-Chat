@@ -75,8 +75,14 @@ fn validate(s: &Settings) -> Result<()> {
 pub fn resolve_path(path: &Path) -> Result<PathBuf> {
     let absolute = std::path::absolute(path).map_err(|_| ExportError::InvalidOptions)?;
     let mut resolved = PathBuf::new();
-    for component in absolute.components() {
+    let mut components = absolute.components().peekable();
+    while let Some(component) = components.next() {
         match component {
+            // A Windows prefix (for example \\?\C:) excludes RootDir. Do not
+            // query the filesystem until the following separator completes it.
+            Component::Prefix(prefix) if components.peek() == Some(&Component::RootDir) => {
+                resolved.push(prefix.as_os_str());
+            }
             Component::ParentDir => {
                 resolved.pop();
             }

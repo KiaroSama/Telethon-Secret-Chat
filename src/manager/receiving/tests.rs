@@ -8,6 +8,8 @@ use crate::{
     crypto::{Direction, SharedKey, encrypt_frame},
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
+#[path = "../../../tests/support_manager/mailbox_review_9c5.rs"]
+mod review_9c5;
 fn message(text: &str) -> crate::enums::DecryptedMessage {
     crate::types::DecryptedMessage {
         no_webpage: false,
@@ -281,6 +283,7 @@ async fn committed_mailbox(retry_down: bool) {
 }
 #[tokio::test]
 async fn committed_mailbox_restarts_after_dispatch_interruption() {
+    review_9c5::concurrent_snapshot_keeps_flush_after_ordinary().await;
     committed_mailbox(false).await;
 }
 #[tokio::test]

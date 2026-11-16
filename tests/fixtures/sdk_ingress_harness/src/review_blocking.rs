@@ -1,4 +1,6 @@
 //! A canceled native upload keeps its blocking source owned until manager stop joins it.
+#[path = "review_timeout_9c5.rs"]
+mod connection_timeout;
 use kiaro_secret_chat::{
     chat::{Chat, ChatState, DhRecord},
     crypto::SharedKey,
@@ -43,6 +45,7 @@ impl Seek for GatedSource {
     }
 }
 pub async fn run(client: &Client, model: &Arc<Mutex<super::Model>>) {
+    connection_timeout::run();
     let transport = GrammersTransport::new(client.clone());
     let binding = transport.verified_binding("session").await.unwrap();
     let mut state = State::empty(binding.digest()).unwrap();
