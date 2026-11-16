@@ -9,7 +9,7 @@ Telegram MTProto 2.0 secret chats for an application-owned
 [![CodeQL Rust](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/codeql.yml/badge.svg?branch=rewrite%2Frust-grammers)](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/codeql.yml?query=branch%3Arewrite%2Frust-grammers)
 [![Secret scan](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/gitleaks.yml/badge.svg?branch=rewrite%2Frust-grammers)](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/gitleaks.yml?query=branch%3Arewrite%2Frust-grammers)
 [![Rust 1.99.1](https://img.shields.io/badge/Rust-1.99.1-000000?logo=rust)](rust-toolchain.toml)
-[![Linux · macOS · Windows](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)](.github/workflows/rust.yml)
+[![Linux · Windows](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-lightgrey)](.github/workflows/rust.yml)
 [![x86_64 · ARM64](https://img.shields.io/badge/architecture-x86__64%20%7C%20ARM64-blue)](docs/rust-ci.md)
 [![GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
 
@@ -114,7 +114,7 @@ cargo clippy --locked --all-targets -- -D warnings
 cargo run --locked --bin migration-audit -- --require-complete
 ```
 
-CI always builds ARM64 and x86_64 natively on Linux/macOS/Windows. Nine legs
+CI always builds ARM64 and x86_64 natively on Linux and Windows. Seven legs
 use Rust 1.99.1, with a separate MSRV 1.95 compatibility check, debug/release
 and portable AES. The evidence verifier compares
 every identity, result and summary with the 1851-case inventory. Missing/extra
@@ -122,6 +122,7 @@ cases, filtered runs and undeclared ignores fail it. Property, stateful, oracle,
 lifecycle, installed-Git consumer and SDK boundary scenarios retain their roles.
 Ten live cases stay explicitly ignored; Windows additionally ignores three Unix
 filesystem cases. CI uses no real Telegram credentials.
+macOS is not supported by this PR.
 
 ## Compatibility and limits
 

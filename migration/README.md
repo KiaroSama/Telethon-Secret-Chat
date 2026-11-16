@@ -15,12 +15,12 @@ collected count. No placeholder success or newly ignored regression fills a gap.
 ```sh
 cargo test --locked --all-targets
 cargo run --locked --bin migration-audit -- --require-complete
-cargo run --locked --bin matrix-evidence -- /path/to/downloaded-nine-leg-records
+cargo run --locked --bin matrix-evidence -- /path/to/downloaded-seven-leg-records
 ```
 
 Completeness requires all mappings and exactly 1851 collected native identities.
 The matrix verifier additionally checks actual executed rows, per-suite summaries,
-status, duplicates and agreement across all nine fixed legs. A green component
+status, duplicates and agreement across all seven fixed legs. A green component
 subset or an ancestor commit does not qualify the current source.
 
 Ten real-peer cases in `rust_live_interop` are explicitly ignored by default.

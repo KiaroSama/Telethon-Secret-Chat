@@ -9,7 +9,7 @@ use std::{
 mod coverage;
 pub use coverage::check_coverage;
 pub const EXPECTED_CASES: usize = 1851;
-pub const LEGS: [&str; 9] = [
+pub const LEGS: [&str; 7] = [
     "rust-ubuntu-24.04-x86_64-1.95.0-debug",
     "rust-ubuntu-24.04-x86_64-1.99.1-debug",
     "rust-ubuntu-24.04-x86_64-1.99.1-release",
@@ -17,8 +17,6 @@ pub const LEGS: [&str; 9] = [
     "rust-ubuntu-24.04-arm-aarch64-1.99.1-release",
     "rust-windows-2025-x86_64-1.99.1-release",
     "rust-windows-11-arm-aarch64-1.99.1-release",
-    "rust-macos-15-intel-x86_64-1.99.1-release",
-    "rust-macos-15-aarch64-1.99.1-release",
 ];
 pub const LIVE_CASES: [&str; 10] = [
     "tests/rust_live_interop.rs::both_ends_agree_on_key_fingerprint",

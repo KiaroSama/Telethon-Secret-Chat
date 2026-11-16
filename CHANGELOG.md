@@ -16,8 +16,8 @@ package by commit and reads this file before moving its pin. The format follows
 - Ported managed lifecycle, durable handshakes/mailboxes, exact retries, PFS,
   eight media kinds, protected/transient/bounded modes, saving and HTML/JSON export.
 - Preserved the 1851-scenario inventory and types with distinct native mappings,
-  strict six-leg execution evidence and real installed-Git consumer checks.
-- Converted CI to always build Rust on Linux/macOS/Windows, plus current Rust
+  strict seven-leg execution evidence and real installed-Git consumer checks.
+- Converted CI to always build Rust on Linux and Windows, plus current Rust
   CodeQL, native secret-scan orchestration, formatting, Clippy and coverage.
 - Updated docs and provenance; retained licensed static viewer assets as data.
 
