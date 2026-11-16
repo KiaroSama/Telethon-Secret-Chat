@@ -37,7 +37,7 @@
     "grammers-client/src/message/reply_markup.rs": "76f0f623d082e1d2ef7269d1693ae3ffa70e9a278053dacfd14cf7dd4da11faf",
     "grammers-client/src/parsers/common.rs": "6d1b51ab220195692786ba1200de48be4769de5945981de525c72b51f0c6e845",
     "grammers-client/src/parsers/html.rs": "84871f07f1a95c21fcc235bfb2f3356a19d6ccb4208ad747dae2a807eb48f043",
-    "grammers-client/src/parsers/markdown.rs": "7a1a78326bb59c0ed5bdae24f9ab28248a73950658abff446f07988d794df275",
+    "grammers-client/src/parsers/markdown.rs": "794e22438e5e19318bdeea46748fac3e245ef12c4bde1a963afef3c559811a07",
     "grammers-client/src/parsers/mod.rs": "f794980295e28128da12909b0d7aa2c1395902af1e7a85c220e62015e7e07fe6",
     "grammers-client/src/peer/action.rs": "7d90ddfa9f0410016c6ba307735ee38a36e8573ded4e765211c812c6433c1dd4",
     "grammers-client/src/peer/channel.rs": "acc57a80c553a55079a91c5cb0f3b4698c603a7935f104470dc66f5e895796ef",

@@ -242,36 +242,45 @@ fn emphasis_delimiters(message: &str, start: i32, end: i32) -> (bool, bool) {
     (asterisk, underscore)
 }
 
-fn merge_adjacent_code(entities: &[tl::enums::MessageEntity]) -> Vec<tl::enums::MessageEntity> {
+fn merge_adjacent_inline(entities: &[tl::enums::MessageEntity]) -> Vec<tl::enums::MessageEntity> {
     use tl::enums::MessageEntity as ME;
     let mut normalized = entities.to_vec();
-    let mut indexes = normalized
-        .iter()
-        .enumerate()
-        .filter_map(|(index, entity)| match entity {
-            ME::Code(code) if code.offset >= 0 && code.length > 0 => Some((code.offset, index)),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    indexes.sort_unstable();
     let mut removed = vec![false; normalized.len()];
-    let mut previous = None;
-    for (_, index) in indexes {
-        let ME::Code(current) = &normalized[index] else {
-            unreachable!()
-        };
-        let (offset, length) = (current.offset, current.length);
-        if let Some(previous_index) = previous
-            && let ME::Code(previous_code) = &mut normalized[previous_index]
-            && previous_code.offset.checked_add(previous_code.length) == Some(offset)
-            && let Some(combined_length) = previous_code.length.checked_add(length)
-        {
-            previous_code.length = combined_length;
-            removed[index] = true;
-            continue;
-        }
-        previous = Some(index);
+    macro_rules! merge {
+        ($variant:ident) => {{
+            let mut indexes = normalized
+                .iter()
+                .enumerate()
+                .filter_map(|(index, entity)| match entity {
+                    ME::$variant(span) if span.offset >= 0 && span.length > 0 => {
+                        Some((span.offset, index))
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            indexes.sort_unstable();
+            let mut previous = None;
+            for (_, index) in indexes {
+                let ME::$variant(current) = &normalized[index] else {
+                    unreachable!()
+                };
+                let (offset, length) = (current.offset, current.length);
+                if let Some(previous_index) = previous
+                    && let ME::$variant(prior) = &mut normalized[previous_index]
+                    && prior.offset.checked_add(prior.length) == Some(offset)
+                    && let Some(combined_length) = prior.length.checked_add(length)
+                {
+                    prior.length = combined_length;
+                    removed[index] = true;
+                    continue;
+                }
+                previous = Some(index);
+            }
+        }};
     }
+    merge!(Code);
+    merge!(Bold);
+    merge!(Italic);
     normalized
         .into_iter()
         .enumerate()
@@ -319,12 +328,12 @@ fn pre_boundaries(
 }
 
 /// Combine plain text and the list of formatting entities understood by Telegram into CommonMark-compliant markdown.
-/// Adjacent inline-code ranges are merged. Boundary whitespace stays outside
+/// Adjacent compatible code and emphasis ranges are merged. Boundary whitespace stays outside
 /// emphasis; emphasis with invalid CommonMark punctuation flanking is omitted.
 /// Plain text line endings are encoded, while fenced blocks retain CommonMark's
 /// paragraph separators.
 pub fn generate_markdown_message(message: &str, entities: &[tl::enums::MessageEntity]) -> String {
-    let entities = merge_adjacent_code(entities);
+    let entities = merge_adjacent_inline(entities);
     // Getting this wrong isn't the end of the world so the wildcard pattern is used
     // (but it would still be a shame for it to be wrong).
     let mut insertions = Vec::with_capacity(
@@ -436,7 +445,7 @@ pub fn generate_markdown_message(message: &str, entities: &[tl::enums::MessageEn
                 insertions.push((after(i, 0, e.offset + e.length), Segment::Fixed("](")));
                 let mut destination = String::new();
                 for c in e.url.chars() {
-                    if matches!(c, '\\' | '(' | ')' | '<' | '>') {
+                    if matches!(c, '\\' | '(' | ')' | '<' | '>' | '&') {
                         destination.push('\\');
                     }
                     destination.push(c);

@@ -78,7 +78,7 @@ an `InputUser` with the existing client, then call `create(peer).await`. The pee
 must accept before messaging. The manager creates no second session/sign-in flow.
 
 `send_message(id, text, None, None).await` parses Markdown; use
-`Some(Vec::new())` for literal text. `Error::SendPending` identifies an uncertain
+`Some(Vec::new())` for literal text. `Error::SendPending` identifies a committed pending
 send; `retry_pending(id).await` reuses the persisted ciphertext and random ID.
 `stop().await` settles owned tasks and releases storage. The caller controls its
 own pool. Ordinary file-backed mode defaults auto-save on unless a saved setting

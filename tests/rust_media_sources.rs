@@ -1,8 +1,12 @@
 #![allow(clippy::unwrap_used)]
 #[path = "support_manager/async_reader_review.rs"]
 mod async_reader_review;
+#[path = "support_media/preflight_review_3b6.rs"]
+mod preflight_review;
 #[path = "support_manager/mod.rs"]
 mod support;
+#[path = "support_manager/transient.rs"]
+mod transient;
 use kiaro_secret_chat::{
     Serializable, enums,
     files::{FileKey, decrypt_file},
@@ -29,6 +33,7 @@ fn collected(manager: &Manager) -> Arc<Mutex<Vec<MessageReceived>>> {
 }
 #[tokio::test]
 async fn path_bytes_and_stream_have_identical_shape_and_plaintext() {
+    preflight_review::opening_seek_is_owned().await;
     let (a, b, world, id) = established().await;
     let got = collected(&b);
     let directory = tempfile::tempdir().unwrap();
@@ -78,6 +83,7 @@ async fn path_bytes_and_stream_have_identical_shape_and_plaintext() {
 }
 #[tokio::test]
 async fn stream_starts_at_current_position() {
+    preflight_review::inferred_ogg_probe_is_owned().await;
     // Rust Read may legally return fewer bytes than requested. Previewing must
     // still inspect the complete bounded header and restore the caller cursor.
     struct PartialRead(Cursor<Vec<u8>>);
@@ -188,9 +194,25 @@ async fn stream_starts_at_current_position() {
 }
 #[tokio::test]
 async fn bytes_source_needs_filename() {
-    let (_, _, world, _) = established().await;
+    preflight_review::protected_name_checks_keep_error_wrapper().await;
+    let (manager, peer, world, id) = established().await;
     assert!(FileSource::bytes(b"abc".to_vec(), "").is_err());
+    assert!(matches!(
+        manager
+            .send_file(
+                id,
+                FileSource::Bytes {
+                    data: b"abc".to_vec(),
+                    name: String::new()
+                },
+                SendFileOptions::default()
+            )
+            .await,
+        Err(kiaro_secret_chat::error::Error::Media)
+    ));
     assert_eq!(world.lock().unwrap().uploads, 0);
+    manager.stop().await.unwrap();
+    peer.stop().await.unwrap();
 }
 #[tokio::test]
 async fn stream_source_needs_filename() {
