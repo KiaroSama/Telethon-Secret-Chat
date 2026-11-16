@@ -489,15 +489,16 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
     }
     async fn save_sent_file(&self, id: i32, random_id: i64, body: &[u8], mut source: SourceReader) {
         let result: Result<()> = async {
-            let mut archive = None;
+            let mut worker = None;
             self.save_outgoing_with(id, body, |autosave| {
-                archive = Some(autosave.clone());
+                if autosave.folder().is_some() {
+                    worker = Some(autosave.worker(id)?);
+                }
                 Ok(())
             })?;
-            let Some(archive) = archive.filter(|archive| archive.folder().is_some()) else {
+            let Some(worker) = worker else {
                 return Ok(());
             };
-            let worker = archive.worker(id)?;
             self.inner
                 .archive_io
                 .scope(async {

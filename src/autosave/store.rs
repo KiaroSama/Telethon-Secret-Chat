@@ -207,7 +207,7 @@ impl AutoSave {
             Err(_) => return Err(Error::Storage),
         };
         let mut records: Vec<Value> = Vec::new();
-        let mut indexes = BTreeMap::new();
+        let mut indexes: BTreeMap<String, usize> = BTreeMap::new();
         for line in bytes.split(|byte| *byte == b'\n') {
             let Ok(record) = serde_json::from_slice::<Value>(line) else {
                 continue;
@@ -225,7 +225,11 @@ impl AutoSave {
                     }
                 }
             } else if let Some(index) = indexes.get(&identity).copied() {
+                let file = records[index].get("file").cloned();
                 records[index] = record;
+                if let (Some(file), Some(object)) = (file, records[index].as_object_mut()) {
+                    object.insert("file".into(), file);
+                }
             } else {
                 indexes.insert(identity, records.len());
                 records.push(record);

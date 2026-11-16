@@ -147,6 +147,24 @@ pub fn incomplete_tail_does_not_eat_next_record() {
         vec![1, 3, 4, 5],
         "a valid complete final JSON value must survive newline recovery"
     );
+    let file = dir.path().join("retained.bin");
+    std::fs::write(&file, b"retained completed attachment").unwrap();
+    archive.completed_file(7, 1, &file).unwrap();
+    archive
+        .append(
+            7,
+            &serde_json::json!({"id":1,"text":"replayed message","ttl":42}),
+        )
+        .unwrap();
+    let rows = archive.read(7).unwrap();
+    assert_eq!(rows.len(), 4);
+    assert_eq!(rows[0]["text"], "replayed message");
+    assert_eq!(rows[0]["ttl"], 42);
+    assert_eq!(
+        rows[0]["file"],
+        serde_json::json!(file.to_str().unwrap()),
+        "replaying a message must retain its completed attachment overlay"
+    );
 }
 
 pub fn missing_alias_root_keeps_worker_generation() {

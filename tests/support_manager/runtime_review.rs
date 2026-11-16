@@ -1,4 +1,9 @@
 use super::*;
+#[path = "settlement_review_0537.rs"]
+mod settlement_review_0537;
+pub(super) async fn queued_settlement_refuses_stopped_runner() {
+    settlement_review_0537::queued_settlement_refuses_stopped_runner().await;
+}
 pub(super) fn acknowledged_ids_are_budgeted() {
     let event = Event::MessageAcknowledged {
         chat_id: 7,

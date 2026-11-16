@@ -23,14 +23,14 @@ impl Drop for Registry {
 }
 pub(super) struct Joined {
     pub result: std::result::Result<Result<()>, tokio::task::JoinError>,
-    pub permit: WorkPermit,
+    pub permit: Arc<WorkPermit>,
     pub payload: PayloadReservation,
     pub registry: Arc<Registry>,
 }
 struct Bundle {
     child: JoinHandle<Result<()>>,
     sender: oneshot::Sender<Joined>,
-    permit: WorkPermit,
+    permit: Arc<WorkPermit>,
     payload: PayloadReservation,
     registry: Arc<Registry>,
     done: Arc<AtomicBool>,
@@ -100,7 +100,7 @@ impl Waiter {
     pub fn handoff(
         self,
         child: JoinHandle<Result<()>>,
-        permit: WorkPermit,
+        permit: Arc<WorkPermit>,
         payload: PayloadReservation,
         registry: Arc<Registry>,
         done: Arc<AtomicBool>,

@@ -45,7 +45,7 @@ pub fn run() {
                 server.abort();
                 tokio::time::resume();
                 assert!(bounded, "stalled actual TCP initialization did not return a timeout error");
-                assert!(stopped.is_ok(), "the actual runner did not process queued Quit after timeout");
+                assert!(matches!(stopped, Ok(Ok(()))), "the actual runner did not process queued Quit after timeout");
             });
     }).join().unwrap();
 }

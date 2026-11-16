@@ -7,8 +7,8 @@ use std::{
     sync::OnceLock,
 };
 struct Harness {
-    _directory: tempfile::TempDir,
     binary: PathBuf,
+    staging: PathBuf,
 }
 static HARNESS: OnceLock<Harness> = OnceLock::new();
 fn copy_tree(source: &Path, destination: &Path) {
@@ -157,10 +157,13 @@ fn build() -> Harness {
     let binary = compiler_executable(&output.stdout)
         .expect("Cargo must report the just-built native SDK fixture executable");
     assert!(binary.is_file());
-    Harness {
-        _directory: directory,
-        binary,
-    }
+    let staging = directory.path().to_owned();
+    assert!(
+        !binary.starts_with(&staging),
+        "SDK executable must outlive build-only staging"
+    );
+    directory.close().unwrap();
+    Harness { staging, binary }
 }
 pub(crate) fn compiler_executable(output: &[u8]) -> Option<PathBuf> {
     std::str::from_utf8(output).ok()?.lines().find_map(|line| {
@@ -179,6 +182,11 @@ pub(crate) fn compiler_executable(output: &[u8]) -> Option<PathBuf> {
 }
 pub fn run(scenario: &str) {
     let harness = HARNESS.get_or_init(build);
+    assert!(
+        !harness.staging.exists(),
+        "SDK build staging must be removed before scenario execution: {}",
+        harness.staging.display()
+    );
     let output = Command::new(&harness.binary)
         .arg(scenario)
         .output()

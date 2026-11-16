@@ -154,6 +154,93 @@ pub fn run() {
                 );
             }
         }),
+        ("markdown_punctuation_flanking", || {
+            for italic in [false, true] {
+                let entity = |offset, length| -> E {
+                    if italic {
+                        t::MessageEntityItalic { offset, length }.into()
+                    } else {
+                        t::MessageEntityBold { offset, length }.into()
+                    }
+                };
+                for symbol in ["!", "!?", "،", "€", "😀"] {
+                    let text = format!("a{symbol}b");
+                    let generated = generate_markdown_message(
+                        &text,
+                        &[entity(1, symbol.encode_utf16().count() as i32)],
+                    );
+                    assert_eq!(
+                        parse_markdown_message(&generated),
+                        (text, vec![]),
+                        "{generated:?}"
+                    );
+                    let text = format!("({symbol})");
+                    let expected = entity(1, symbol.encode_utf16().count() as i32);
+                    let generated =
+                        generate_markdown_message(&text, std::slice::from_ref(&expected));
+                    assert_eq!(
+                        parse_markdown_message(&generated),
+                        (text, vec![expected]),
+                        "{generated:?}"
+                    );
+                }
+                // A combining mark is neither punctuation nor whitespace;
+                // CommonMark can represent its intraword emphasis with '*'.
+                let expected = entity(1, 1);
+                assert_eq!(
+                    parse_markdown_message(&generate_markdown_message(
+                        "a\u{301}b",
+                        std::slice::from_ref(&expected)
+                    )),
+                    ("a\u{301}b".into(), vec![expected])
+                );
+            }
+        }),
+        ("markdown_plain_line_endings", || {
+            for text in [
+                "\nhello\n",
+                "\rhello\r",
+                "\r\nhello\r\n",
+                "one\n\n\nthree",
+                "\n\n",
+                "\r\n",
+                "\na\n\nb\n",
+                "\n hello \n",
+            ] {
+                assert_eq!(
+                    parse_markdown_message(&generate_markdown_message(text, &[])),
+                    (text.into(), vec![])
+                );
+            }
+            let text = "first\n\nlast\n";
+            let expected: E = t::MessageEntityPre {
+                offset: 0,
+                length: text.len() as i32,
+                language: "rust".into(),
+            }
+            .into();
+            assert_eq!(
+                parse_markdown_message(&generate_markdown_message(
+                    text,
+                    std::slice::from_ref(&expected)
+                )),
+                (text.into(), vec![expected])
+            );
+            let text = "first\n\npre\nlast\n\n";
+            let expected: E = t::MessageEntityPre {
+                offset: 7,
+                length: 4,
+                language: "rust".into(),
+            }
+            .into();
+            assert_eq!(
+                parse_markdown_message(&generate_markdown_message(
+                    text,
+                    std::slice::from_ref(&expected)
+                )),
+                (text.into(), vec![expected])
+            );
+        }),
         ("markdown_leading_whitespace", || {
             for text in [
                 "    hello",

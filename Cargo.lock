@@ -488,6 +488,7 @@ dependencies = [
  "sha2",
  "tokio",
  "tracing",
+ "unicode-general-category",
 ]
 
 [[package]]
