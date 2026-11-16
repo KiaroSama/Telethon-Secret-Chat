@@ -2,6 +2,8 @@
 #![forbid(unsafe_code)]
 #[path = "archive.rs"]
 mod archive;
+#[path = "config.rs"]
+pub mod config;
 #[path = "process.rs"]
 mod process;
 #[path = "report.rs"]
@@ -165,7 +167,7 @@ fn scan() -> Result<i32> {
         "Verified the scanner version and download checksum.",
     );
     let config = temporary.join("scanner.toml");
-    fs::write(&config, "[extend]\nuseDefault = true\n")
+    fs::write(&config, config::configuration())
         .map_err(|_| "The pinned scanner configuration could not be written.")?;
     let mut log_options =
         "--full-history --diff-filter=uxdb --no-ext-diff --no-textconv --ignore-submodules=all -m"

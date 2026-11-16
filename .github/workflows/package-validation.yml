@@ -39,13 +39,13 @@ jobs:
           cargo metadata --locked --format-version 1 --no-deps > "$RUNNER_TEMP/native-package-metadata.json"
           cargo package --list --allow-dirty > "$RUNNER_TEMP/native-package-files.txt"
           for path in LICENSE NOTICE Cargo.lock; do
-            rg --fixed-strings --line-regexp "$path" "$RUNNER_TEMP/native-package-files.txt"
+            grep -Fx -- "$path" "$RUNNER_TEMP/native-package-files.txt"
           done
           git ls-files > "$RUNNER_TEMP/native-source-files.txt"
           for path in vendor/grammers/grammers-client/Cargo.toml vendor/grammers/grammers-mtsender/Cargo.toml vendor/grammers/grammers-session/Cargo.toml tools/secret-scan/Cargo.lock; do
             git ls-files --error-unmatch "$path"
           done
-          if rg '(^|/)\.ai/|\.(py|pyc|ps1|session|db)$' "$RUNNER_TEMP/native-source-files.txt"; then
+          if grep -E '(^|/)\.ai/|\.(py|pyc|ps1|session|db)$' "$RUNNER_TEMP/native-source-files.txt"; then
             exit 1
           fi
       - name: Archive the committed source with its checksum
