@@ -30,6 +30,7 @@ pub(super) fn prepare(
         service,
         file,
         pending: true,
+        obligation_generation: 1,
     };
     chat.out_seq_no = chat
         .out_seq_no

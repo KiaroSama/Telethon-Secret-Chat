@@ -115,6 +115,7 @@ pub(super) fn outgoing(raw: i32) -> Outgoing {
         service: false,
         file: None,
         pending: true,
+        obligation_generation: 1,
     }
 }
 pub(super) fn queued() -> State {

@@ -207,6 +207,17 @@ pub fn run(case: &str) {
             rekey::observe_key(&mut c, key(11, 0).fingerprint(), NOW).unwrap();
             rekey::retire_if_settled(&mut c);
             assert!(c.previous_key.is_none());
+            rekey::adopt_new_key(&mut c, key(12, 0), NOW).unwrap();
+            c.gap_end = Some(1);
+            rekey::observe_key(&mut c, key(12, 0).fingerprint(), NOW).unwrap();
+            rekey::retire_if_settled(&mut c);
+            assert!(
+                c.previous_key.is_some(),
+                "a confirmed key still needs the old key while its gap is open"
+            );
+            c.gap_end = None;
+            rekey::retire_if_settled(&mut c);
+            assert!(c.previous_key.is_none());
         }
         "test_actions_for_a_foreign_exchange_are_ignored_and_not_applied" => {
             let a: enums::DecryptedMessageAction = match param {

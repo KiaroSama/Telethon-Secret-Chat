@@ -283,3 +283,6 @@ mod control;
 mod planes;
 mod scans;
 pub(crate) use planes::choose_color_convert_func;
+
+#[cfg(test)]
+pub(crate) mod audit_tests;

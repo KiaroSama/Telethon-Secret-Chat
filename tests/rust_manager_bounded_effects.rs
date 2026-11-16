@@ -177,8 +177,16 @@ async fn send_result_commit_failure_keeps_original_wire_for_restart() {
         Options::default(),
     )
     .unwrap();
+    let sent_before_restart = w.lock().unwrap().sent.len();
     resumed.start().await.unwrap();
-    let again = w.lock().unwrap().sent.last().unwrap().outgoing.clone();
+    let again = {
+        let sent = w.lock().unwrap();
+        assert!(
+            sent.sent.len() > sent_before_restart,
+            "restart must issue a new retry"
+        );
+        sent.sent[sent_before_restart].outgoing.clone()
+    };
     assert_eq!(again.random_id, random_id);
     assert_eq!(again.frame, first.frame);
     resumed.stop().await.unwrap();

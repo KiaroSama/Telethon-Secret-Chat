@@ -8,6 +8,10 @@ use std::{
 };
 
 fn main() -> io::Result<()> {
+    println!(
+        "cargo:rustc-env=KIARO_COMPILE_TARGET={}",
+        env::var("TARGET").map_err(io::Error::other)?
+    );
     println!("cargo:rerun-if-changed=schema/end-to-end.tl");
     let source = fs::read_to_string("schema/end-to-end.tl")?;
     // Historical constructors share names. Retain their IDs and result families,
@@ -82,7 +86,7 @@ fn bundle_sdk(output: &Path) -> io::Result<()> {
     for name in ["grammers-session", "grammers-mtsender", "grammers-client"] {
         sdk_files(&root.join(name), &mut files)?;
     }
-    for name in ["README.md", "upstream-hashes.json"] {
+    for name in ["README.md", "upstream-hashes.json", "local-patches.json"] {
         files.push(root.join(name));
     }
     files.sort();

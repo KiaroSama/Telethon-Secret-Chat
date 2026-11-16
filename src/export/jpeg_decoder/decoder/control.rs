@@ -110,6 +110,19 @@ impl<R: Read> Decoder<R> {
                     if frame.coding_process == CodingProcess::DctProgressive
                         && self.coefficients.is_empty()
                     {
+                        let bytes = frame.components.iter().try_fold(0_usize, |total, c| {
+                            usize::from(c.block_size.width)
+                                .checked_mul(usize::from(c.block_size.height))
+                                .and_then(|n| n.checked_mul(64 * mem::size_of::<i16>()))
+                                .and_then(|n| total.checked_add(n))
+                        });
+                        if bytes.is_none_or(|n| n > self.decoding_buffer_size_limit) {
+                            return Err(Error::Format(
+                                "size of progressive coefficients exceeds maximum allowed size"
+                                    .into(),
+                            ));
+                        }
+
                         self.coefficients = frame
                             .components
                             .iter()
@@ -122,6 +135,18 @@ impl<R: Read> Decoder<R> {
                     }
 
                     if frame.coding_process == CodingProcess::Lossless {
+                        // Retained u16 planes and temporary i32 differences coexist.
+                        let bytes = usize::from(frame.image_size.width)
+                            .checked_mul(usize::from(frame.image_size.height))
+                            .and_then(|n| n.checked_mul(frame.components.len()))
+                            .and_then(|n| {
+                                n.checked_mul(mem::size_of::<u16>() + mem::size_of::<i32>())
+                            });
+                        if bytes.is_none_or(|n| n > self.decoding_buffer_size_limit) {
+                            return Err(Error::Format(
+                                "size of lossless planes exceeds maximum allowed size".into(),
+                            ));
+                        }
                         let (marker, data) = self.decode_scan_lossless(&frame, &scan)?;
 
                         for (i, plane) in data
@@ -129,7 +154,7 @@ impl<R: Read> Decoder<R> {
                             .enumerate()
                             .filter(|(_, plane)| !plane.is_empty())
                         {
-                            planes_u16[i] = plane;
+                            planes_u16[scan.component_indices[i]] = plane;
                         }
                         pending_marker = marker;
                     } else {

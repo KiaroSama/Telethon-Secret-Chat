@@ -1,4 +1,6 @@
 #![allow(clippy::unwrap_used)]
+#[path = "support_manager/async_reader_review.rs"]
+mod async_reader_review;
 #[path = "support_manager/mod.rs"]
 mod support;
 use kiaro_secret_chat::{
@@ -226,6 +228,7 @@ async fn unseekable_source_is_refused() {
 }
 #[test]
 fn encrypting_reader_needs_no_temporary_file() {
+    async_reader_review::asynchronous_source_does_not_block_executor();
     let key = FileKey::generate().unwrap();
     let mut reader =
         media::EncryptingReader::new(Cursor::new(vec![42; 65537]), 65537, key.clone()).unwrap();

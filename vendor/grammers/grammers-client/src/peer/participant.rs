@@ -62,11 +62,11 @@ pub enum Role {
     Left(Left),
 }
 
-/// User and their role within the group or channel.
+/// Peer and its role within the group or channel, including banned channel identities.
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct Participant {
-    pub user: User,
+    pub peer: Peer,
     pub role: Role,
 }
 
@@ -145,36 +145,44 @@ impl Banned {
 }
 
 impl Participant {
+    /// Return the participant when this identity is a user.
+    pub fn user(&self) -> Option<&User> {
+        match &self.peer {
+            Peer::User(user) => Some(user),
+            _ => None,
+        }
+    }
+
     pub(crate) fn from_raw_channel(
         peers: &mut PeerMap,
         participant: tl::enums::ChannelParticipant,
-    ) -> Self {
+    ) -> Option<Self> {
         use tl::enums::ChannelParticipant as P;
 
-        match participant {
+        Some(match participant {
             P::Participant(p) => Self {
-                user: peers.take_user(p.user_id).unwrap(),
+                peer: Peer::User(peers.take_user(p.user_id)?),
                 role: Role::User(Normal {
                     date: p.date,
                     inviter_id: None,
                 }),
             },
             P::ParticipantSelf(p) => Self {
-                user: peers.take_user(p.user_id).unwrap(),
+                peer: Peer::User(peers.take_user(p.user_id)?),
                 role: Role::User(Normal {
                     date: p.date,
                     inviter_id: Some(p.inviter_id),
                 }),
             },
             P::Creator(p) => Self {
-                user: peers.take_user(p.user_id).unwrap(),
+                peer: Peer::User(peers.take_user(p.user_id)?),
                 role: Role::Creator(Creator {
                     permissions: Permissions::from_raw(p.admin_rights.into()),
                     rank: p.rank,
                 }),
             },
             P::Admin(p) => Self {
-                user: peers.take_user(p.user_id).unwrap(),
+                peer: Peer::User(peers.take_user(p.user_id)?),
                 role: Role::Admin(Admin {
                     can_edit: p.can_edit,
                     inviter_id: p.inviter_id,
@@ -185,10 +193,7 @@ impl Participant {
                 }),
             },
             P::Banned(p) => Self {
-                user: match peers.take(PeerId::from(p.peer.clone())).unwrap() {
-                    Peer::User(user) => user,
-                    _ => todo!("figure out how to deal with non-user being banned"),
-                },
+                peer: peers.take(PeerId::from(p.peer.clone()))?,
                 role: Role::Banned(Banned {
                     left: p.left,
                     kicked_by: p.kicked_by,
@@ -197,38 +202,35 @@ impl Participant {
                 }),
             },
             P::Left(p) => Self {
-                user: match peers.take(PeerId::from(p.peer.clone())).unwrap() {
-                    Peer::User(user) => user,
-                    _ => todo!("figure out how to deal with non-user leaving"),
-                },
+                peer: peers.take(PeerId::from(p.peer.clone()))?,
                 role: Role::Left(Left {}),
             },
-        }
+        })
     }
 
     pub(crate) fn from_raw_chat(
         peers: &mut PeerMap,
         participant: tl::enums::ChatParticipant,
-    ) -> Self {
+    ) -> Option<Self> {
         use tl::enums::ChatParticipant as P;
 
-        match participant {
+        Some(match participant {
             P::Participant(p) => Self {
-                user: peers.take_user(p.user_id).unwrap(),
+                peer: Peer::User(peers.take_user(p.user_id)?),
                 role: Role::User(Normal {
                     date: p.date,
                     inviter_id: Some(p.inviter_id),
                 }),
             },
             P::Creator(p) => Self {
-                user: peers.take_user(p.user_id).unwrap(),
+                peer: Peer::User(peers.take_user(p.user_id)?),
                 role: Role::Creator(Creator {
                     permissions: Permissions::new_full(),
                     rank: None,
                 }),
             },
             P::Admin(p) => Self {
-                user: peers.take_user(p.user_id).unwrap(),
+                peer: Peer::User(peers.take_user(p.user_id)?),
                 role: Role::Admin(Admin {
                     can_edit: true,
                     inviter_id: Some(p.inviter_id),
@@ -238,6 +240,6 @@ impl Participant {
                     rank: None,
                 }),
             },
-        }
+        })
     }
 }

@@ -242,7 +242,9 @@ impl User {
 
     /// If the current user is a bot, can it be added to groups?
     pub fn bot_supports_chats(self) -> bool {
-        self.user().map(|u| u.bot_nochats).unwrap_or(false)
+        self.user()
+            .map(|u| u.bot && !u.bot_nochats)
+            .unwrap_or(false)
     }
 
     /// Has the account of this user been verified?

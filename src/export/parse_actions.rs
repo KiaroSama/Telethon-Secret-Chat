@@ -203,7 +203,7 @@ pub fn parse_service_action(
         }),
         "TopicEdit" => Action::TopicEdit(ActionTopicEdit {
             title: string(data, "title").into(),
-            icon_emoji_id: Some(integer(data, "icon_emoji_id")),
+            icon_emoji_id: data["icon_emoji_id"].as_i64(),
         }),
         "SuggestProfilePhoto" => Action::SuggestProfilePhoto(ActionSuggestProfilePhoto {
             photo: photo(context, data, folder, date, dates)?,

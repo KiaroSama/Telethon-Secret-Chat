@@ -84,7 +84,7 @@ enum PeerSubtype {
 
 impl Database {
     async fn init(&self) -> libsql::Result<()> {
-        let mut user_version: i64 = self
+        let user_version: i64 = self
             .fetch_one("PRAGMA user_version", params![], |row| row.get(0))
             .await?
             .unwrap_or(0);
@@ -94,13 +94,6 @@ impl Database {
 
         if user_version == 0 {
             self.migrate_v0_to_v1().await?;
-            user_version += 1;
-        }
-        if user_version == VERSION {
-            // Can't bind PRAGMA parameters, but `VERSION` is not user-controlled input.
-            self.0
-                .execute(&format!("PRAGMA user_version = {VERSION}"), params![])
-                .await?;
         }
         Ok(())
     }
@@ -156,6 +149,10 @@ impl Database {
             )
             .await?;
 
+        // Schema and version become visible in the same durable transaction.
+        transaction
+            .execute(&format!("PRAGMA user_version = {VERSION}"), params![])
+            .await?;
         transaction.commit().await?;
         Ok(())
     }
@@ -345,7 +342,11 @@ impl Session for SqliteSession {
                         id: peer.bare_id_unchecked(),
                         auth: row.get::<Option<i64>>(1)?.map(PeerAuth::from_hash),
                         kind: subtype.and_then(|s| {
-                            if (s & PeerSubtype::Gigagroup as u8) == PeerSubtype::Gigagroup as u8 {
+                            if s & PeerSubtype::Community as u8 != 0 {
+                                Some(ChannelKind::Community)
+                            } else if (s & PeerSubtype::Gigagroup as u8)
+                                == PeerSubtype::Gigagroup as u8
+                            {
                                 Some(ChannelKind::Gigagroup)
                             } else if s & PeerSubtype::Broadcast as u8 != 0 {
                                 Some(ChannelKind::Broadcast)
@@ -424,28 +425,22 @@ impl Session for SqliteSession {
 
     fn cache_peers(&self, peers: Vec<PeerInfo>) -> BoxFuture<'_, Result<(), SqliteSessionError>> {
         Box::pin(async move {
-            let mut result = Ok(());
             let mut extended_peers = Vec::with_capacity(peers.len());
             for peer in peers {
-                extended_peers.push(match self.peer(peer.id()).await {
-                    Ok(Some(mut existing_peer)) => {
+                extended_peers.push(match self.peer(peer.id()).await? {
+                    Some(mut existing_peer) => {
                         existing_peer.extend_info(&peer);
                         existing_peer
                     }
-                    Ok(None) => peer,
-                    Err(e) => {
-                        result = Err(e);
-                        peer
-                    }
+                    None => peer,
                 });
             }
 
             let db = self.database.lock().await;
-            let tx = db.0.transaction().await.unwrap();
+            let tx = db.0.transaction().await?;
             let stmt = tx
                 .prepare("INSERT OR REPLACE INTO peer_info VALUES (:peer_id, :hash, :subtype)")
-                .await
-                .unwrap();
+                .await?;
             for peer in extended_peers {
                 let subtype = match peer {
                     PeerInfo::User { bot, is_self, .. } => {
@@ -469,13 +464,11 @@ impl Session for SqliteSession {
                 params.push((":peer_id".to_owned(), Some(peer_id)));
                 params.push((":hash".to_owned(), peer.auth().map(|a| a.hash())));
                 params.push((":subtype".to_owned(), subtype.map(|s| s as i64)));
-                if let Err(err) = stmt.execute(params).await {
-                    result = Err(err.into());
-                }
+                stmt.execute(params).await?;
                 stmt.reset();
             }
             tx.commit().await?;
-            result
+            Ok(())
         })
     }
 

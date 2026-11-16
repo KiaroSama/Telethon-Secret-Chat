@@ -120,8 +120,7 @@ impl CallbackQuery {
                 ));
             }
         };
-        Ok(self
-            .client
+        self.client
             .get_messages_by_id(
                 self.peer_ref()
                     .await?
@@ -130,8 +129,8 @@ impl CallbackQuery {
             )
             .await?
             .pop()
-            .unwrap()
-            .unwrap())
+            .flatten()
+            .ok_or(InvocationError::Dropped("callback message is unavailable"))
     }
 
     /// Answer the callback query.
@@ -193,13 +192,13 @@ impl<'a> Answer<'a> {
     /// [`Self::send`] the answer, and also edit the message that contained the button.
     pub async fn edit<M: Into<InputMessage>>(self, new_message: M) -> Result<(), InvocationError> {
         self.query.client.invoke(&self.request).await?;
-        let peer = self
-            .query
-            .peer_ref()
-            .await?
-            .ok_or(InvocationError::Dropped(NO_PEER_REF_REASON))?;
         match &self.query.raw {
             tl::enums::Update::BotCallbackQuery(update) => {
+                let peer = self
+                    .query
+                    .peer_ref()
+                    .await?
+                    .ok_or(InvocationError::Dropped(NO_PEER_REF_REASON))?;
                 self.query
                     .client
                     .edit_message(peer, update.msg_id, new_message)
@@ -220,6 +219,11 @@ impl<'a> Answer<'a> {
         self,
         message: M,
     ) -> Result<Message, InvocationError> {
+        if self.query.is_from_inline() {
+            return Err(InvocationError::Dropped(
+                "cannot respond to inline callback query without an explicit destination",
+            ));
+        }
         self.query.client.invoke(&self.request).await?;
         let peer = self
             .query

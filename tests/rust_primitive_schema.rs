@@ -73,10 +73,14 @@ fn schema_337a158e457814ff() {
 }
 #[test]
 fn schema_81055643db9d14db() {
-    compile_boundary::refuses_program(
-        "pub fn check(value: kiaro_secret_chat::enums::DecryptedMessage) { let _ = format!(\"{value:?} {value}\"); }",
-        "E0277",
-    );
+    for format in ["{value:?}", "{value}"] {
+        compile_boundary::refuses_program(
+            &format!(
+                "pub fn check(value: kiaro_secret_chat::enums::DecryptedMessage) {{ let _ = format!({format:?}); }}"
+            ),
+            "E0277",
+        );
+    }
 }
 #[test]
 fn schema_1259208695dbe0ff() {

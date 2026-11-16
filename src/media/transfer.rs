@@ -1,12 +1,12 @@
 use super::{EncryptingReader, MediaReference, SourceReader};
 use crate::{
     error::{Error, Result},
-    files::{FileKey, save_file},
+    files::FileKey,
 };
 use grammers_client::Client;
 use grammers_tl_types as tl;
 use std::{
-    io::{Seek, SeekFrom, Write},
+    io::{Cursor, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
 };
 pub async fn upload_file(
@@ -16,12 +16,14 @@ pub async fn upload_file(
 ) -> Result<tl::enums::InputEncryptedFile> {
     let size = source.size;
     let name = source.name.clone();
-    let mut reader = EncryptingReader::new(&mut *source.reader, size, key.clone())?;
+    let owned = std::mem::replace(&mut source.reader, Box::new(Cursor::new(Vec::<u8>::new())));
+    let mut reader = EncryptingReader::new(owned, size, key.clone())?;
     let encrypted_size = usize::try_from(reader.size).map_err(|_| Error::Media)?;
     let uploaded = client
         .upload_stream(&mut reader, encrypted_size, name)
-        .await
-        .map_err(|_| Error::Transport)?;
+        .await;
+    source.reader = reader.into_source().await.map_err(|_| Error::Storage)?;
+    let uploaded = uploaded.map_err(|_| Error::Transport)?;
     let fingerprint = key.fingerprint();
     Ok(match uploaded.raw {
         tl::enums::InputFile::File(file) => tl::types::InputEncryptedFileUploaded {
@@ -47,25 +49,53 @@ pub async fn download_file(
 ) -> Result<PathBuf> {
     let parts = reference.validate()?;
     let absolute = std::path::absolute(path).map_err(|_| Error::Storage)?;
-    let parent = absolute.parent().ok_or(Error::Storage)?;
-    std::fs::create_dir_all(parent).map_err(|_| Error::Storage)?;
-    let mut temporary = tempfile::tempfile_in(parent).map_err(|_| Error::Storage)?;
+    let parent = absolute.parent().ok_or(Error::Storage)?.to_owned();
+    let temporary = super::blocking::spawn(move |cancelled| {
+        if cancelled.load(std::sync::atomic::Ordering::Acquire) {
+            return Err(Error::ManagerStopping);
+        }
+        std::fs::create_dir_all(&parent).map_err(|_| Error::Storage)?;
+        tempfile::tempfile_in(parent).map_err(|_| Error::Storage)
+    })?
+    .await
+    .map_err(|_| Error::Storage)??;
+    let mut temporary = temporary;
     let mut download = client.iter_download(reference);
     while let Some(bytes) = download.next().await.map_err(|_| Error::Transport)? {
-        temporary.write_all(&bytes).map_err(|_| Error::Storage)?;
+        temporary = super::blocking::spawn(move |cancelled| {
+            if cancelled.load(std::sync::atomic::Ordering::Acquire) {
+                return Err(Error::ManagerStopping);
+            }
+            temporary.write_all(&bytes).map_err(|_| Error::Storage)?;
+            Ok(temporary)
+        })?
+        .await
+        .map_err(|_| Error::Storage)??;
     }
-    temporary.flush().map_err(|_| Error::Storage)?;
-    temporary
-        .seek(SeekFrom::Start(0))
-        .map_err(|_| Error::Storage)?;
-    save_file(
-        &mut temporary,
-        &absolute,
-        parts.size,
-        &parts.key,
-        reference.key_fingerprint,
-    )?;
-    Ok(absolute)
+    let fingerprint = reference.key_fingerprint;
+    super::blocking::spawn(move |cancelled| {
+        temporary.flush().map_err(|_| Error::Storage)?;
+        temporary
+            .seek(SeekFrom::Start(0))
+            .map_err(|_| Error::Storage)?;
+        crate::files::save_file_if(
+            &mut temporary,
+            &absolute,
+            parts.size,
+            &parts.key,
+            fingerprint,
+            || {
+                if cancelled.load(std::sync::atomic::Ordering::Acquire) {
+                    Err(Error::ManagerStopping)
+                } else {
+                    Ok(())
+                }
+            },
+        )?;
+        Ok(absolute)
+    })?
+    .await
+    .map_err(|_| Error::Storage)?
 }
 /// Receive in bounded RAM; this path never creates a file or temporary directory.
 pub async fn download_bytes(

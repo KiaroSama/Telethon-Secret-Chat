@@ -196,7 +196,21 @@
         },
         "",
         1705053605
-      ]
+      ],
+      "current_result": {
+        "content": {
+          "TopicEdit": {
+            "title": "t",
+            "icon_emoji_id": null
+          }
+        }
+      },
+      "current_reference": {
+        "kind": "verified project runtime correction; original baseline preserved",
+        "review_ids": [
+          82
+        ]
+      }
     },
     {
       "function": "model_actions.parse_service_action",

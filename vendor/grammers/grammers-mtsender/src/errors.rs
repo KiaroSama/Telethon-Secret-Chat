@@ -115,22 +115,27 @@ impl fmt::Display for RpcError {
 impl From<tl::types::RpcError> for RpcError {
     fn from(error: tl::types::RpcError) -> Self {
         // Extract the numeric value in the error, if any
-        if let Some((value, parsed_value)) = error
-            .error_message
-            .split(|c: char| !c.is_ascii_digit())
-            .flat_map(|value| {
-                value
-                    .parse::<u32>()
-                    .map(|parsed_value| (value, parsed_value))
-            })
-            .next()
+        if let Some((index, parsed_value)) =
+            error
+                .error_message
+                .split('_')
+                .enumerate()
+                .find_map(|(index, value)| {
+                    value
+                        .parse::<u32>()
+                        .ok()
+                        .map(|parsed_value| (index, parsed_value))
+                })
         {
-            let mut to_remove = String::with_capacity(1 + value.len());
-            to_remove.push('_');
-            to_remove.push_str(value);
             Self {
                 code: error.error_code,
-                name: error.error_message.replace(&to_remove, ""),
+                name: error
+                    .error_message
+                    .split('_')
+                    .enumerate()
+                    .filter_map(|(position, part)| (position != index).then_some(part))
+                    .collect::<Vec<_>>()
+                    .join("_"),
                 value: Some(parsed_value),
                 caused_by: None,
             }
@@ -233,12 +238,24 @@ pub enum InvocationError {
     Authentication(authentication::Error),
 }
 
-impl std::error::Error for InvocationError {}
+impl std::error::Error for InvocationError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Session(error) => Some(error.as_ref()),
+            Self::Rpc(error) => Some(error),
+            Self::Io(error) => Some(error),
+            Self::Deserialize(error) => Some(error),
+            Self::Transport(error) => Some(error),
+            Self::Authentication(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 impl fmt::Display for InvocationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Session(_) => write!(f, "session error"),
+            Self::Session(error) => write!(f, "session error: {error}"),
             Self::Rpc(err) => write!(f, "request error: {err}"),
             Self::Io(err) => write!(f, "request error: {err}"),
             Self::Deserialize(err) => write!(f, "request error: {err}"),

@@ -39,9 +39,6 @@ impl<R: Read> Decoder<R> {
         let reader = &mut self.reader;
         let mut mcus_left_until_restart = self.restart_interval;
         let mut expected_rst_num = 0;
-        let mut ra = [0u16; MAX_COMPONENTS];
-        let mut rb = [0u16; MAX_COMPONENTS];
-        let mut rc = [0u16; MAX_COMPONENTS];
 
         let width = frame.image_size.width as usize;
         let height = frame.image_size.height as usize;
@@ -105,74 +102,46 @@ impl<R: Read> Decoder<R> {
             }
         }
 
-        if scan.predictor_selection == Predictor::Ra {
-            for (i, _component) in components.iter().enumerate() {
-                // calculate the top left pixel
-                let diff = differences[i][0];
-                let prediction = 1 << (frame.precision - scan.point_transform - 1) as i32;
-                let result = ((prediction + diff) & 0xFFFF) as u16; // modulo 2^16
-                let result = result << scan.point_transform;
-                results[i][0] = result;
-
-                // calculate leftmost column, using top pixel as predictor
-                let mut previous = result;
-                for mcu_y in 1..height {
-                    let diff = differences[i][mcu_y * width];
-                    let prediction = previous as i32;
-                    let result = ((prediction + diff) & 0xFFFF) as u16; // modulo 2^16
-                    let result = result << scan.point_transform;
-                    results[i][mcu_y * width] = result;
-                    previous = result;
-                }
-
-                // calculate rows, using left pixel as predictor
-                for mcu_y in 0..height {
-                    for mcu_x in 1..width {
-                        let diff = differences[i][mcu_y * width + mcu_x];
-                        let prediction = results[i][mcu_y * width + mcu_x - 1] as i32;
-                        let result = ((prediction + diff) & 0xFFFF) as u16; // modulo 2^16
-                        let result = result << scan.point_transform;
-                        results[i][mcu_y * width + mcu_x] = result;
-                    }
+        // Predict in the reduced precision domain; apply the point transform once.
+        for y in 0..height {
+            for x in 0..width {
+                let at = y * width + x;
+                let restart = self.restart_interval > 0
+                    && at.is_multiple_of(usize::from(self.restart_interval));
+                for i in 0..ncomp {
+                    let ra = if x > 0 {
+                        i32::from(results[i][at - 1])
+                    } else {
+                        0
+                    };
+                    let rb = if y > 0 {
+                        i32::from(results[i][at - width])
+                    } else {
+                        0
+                    };
+                    let rc = if x > 0 && y > 0 {
+                        i32::from(results[i][at - width - 1])
+                    } else {
+                        0
+                    };
+                    let prediction = predict(
+                        ra,
+                        rb,
+                        rc,
+                        scan.predictor_selection,
+                        scan.point_transform,
+                        frame.precision,
+                        x,
+                        y,
+                        restart,
+                    );
+                    results[i][at] = ((prediction + differences[i][at]) & 0xffff) as u16;
                 }
             }
-        } else {
-            for mcu_y in 0..height {
-                for mcu_x in 0..width {
-                    for (i, _component) in components.iter().enumerate() {
-                        let diff = differences[i][mcu_y * width + mcu_x];
-
-                        // The following lines could be further optimized, e.g. moving the checks
-                        // and updates of the previous values into the prediction function or
-                        // iterating such that diagonals with mcu_x + mcu_y = const are computed at
-                        // the same time to exploit independent predictions in this case
-                        if mcu_x > 0 {
-                            ra[i] = results[i][mcu_y * frame.image_size.width as usize + mcu_x - 1];
-                        }
-                        if mcu_y > 0 {
-                            rb[i] =
-                                results[i][(mcu_y - 1) * frame.image_size.width as usize + mcu_x];
-                            if mcu_x > 0 {
-                                rc[i] = results[i]
-                                    [(mcu_y - 1) * frame.image_size.width as usize + (mcu_x - 1)];
-                            }
-                        }
-                        let prediction = predict(
-                            ra[i] as i32,
-                            rb[i] as i32,
-                            rc[i] as i32,
-                            scan.predictor_selection,
-                            scan.point_transform,
-                            frame.precision,
-                            mcu_x,
-                            mcu_y,
-                            self.restart_interval > 0
-                                && mcus_left_until_restart == self.restart_interval - 1,
-                        );
-                        let result = ((prediction + diff) & 0xFFFF) as u16; // modulo 2^16
-                        results[i][mcu_y * width + mcu_x] = result << scan.point_transform;
-                    }
-                }
+        }
+        for plane in &mut results {
+            for sample in plane {
+                *sample <<= scan.point_transform;
             }
         }
 
@@ -250,7 +219,7 @@ pub fn compute_image_lossless(frame: &FrameInfo, mut data: Vec<Vec<u16>>) -> Res
 }
 
 fn convert_to_u8(frame: &FrameInfo, data: Vec<u16>) -> Vec<u8> {
-    if frame.precision == 8 {
+    if frame.precision <= 8 {
         data.iter().map(|x| *x as u8).collect()
     } else {
         // we output native endian, which is the standard for image-rs

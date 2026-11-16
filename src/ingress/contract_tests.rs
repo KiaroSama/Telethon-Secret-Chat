@@ -1,7 +1,10 @@
 //! Ports of receipt reconstruction and public attachment refusal scenarios.
 #![allow(clippy::unwrap_used)]
 use super::{DurableIngress, EncryptedIngressStorage, test_fixture::*};
-use crate::{custody::IngressLimits, storage::CommitFault};
+use crate::{
+    custody::IngressLimits,
+    storage::{CommitFault, Storage},
+};
 use grammers_mtsender::DurableIngressHook;
 use grammers_session::updates::{MessageBoxes, UpdatesLike};
 use grammers_tl_types::{self as tl, Serializable};
@@ -123,6 +126,7 @@ async fn difference_slices_advance_only_their_committed_state() {
 }
 #[tokio::test]
 async fn impossible_live_gap_is_held_without_inventing_qts() {
+    super::strong_tests::review::materialized_output_gets_a_fresh_receipt();
     let (_dir, ingress, pool) = fixture(32).await;
     let (tx, mut receiver) = receiver(&ingress, &pool).await;
     tx.send(live(42, 2, b"public gap fixture".to_vec()))
@@ -208,6 +212,7 @@ async fn uncertain_commit(fault: CommitFault, expected: i32) {
     let (dir, ingress, pool) = fixture(32).await;
     let binding = ingress.binding().unwrap();
     let (_tx, mut receiver) = receiver(&ingress, &pool).await;
+    let mut storage = ingress.protocol_storage().unwrap();
     ingress.core.lock().unwrap().backend.fail_next_commit(fault);
     assert!(
         ingress
@@ -215,9 +220,13 @@ async fn uncertain_commit(fault: CommitFault, expected: i32) {
             .is_err()
     );
     assert!(receiver.next().await.is_err());
+    assert!(storage.load().is_err());
+    assert!(storage.resume_storage().is_err());
+    assert!(storage.committed_view().is_none());
     assert_eq!(qts(&ingress), 40);
     assert!(ingress.guard_request(2, &request(41).to_bytes()).is_err());
     let owner = Arc::downgrade(&ingress);
+    drop(storage);
     drop(receiver);
     drop(pool);
     drop(ingress);

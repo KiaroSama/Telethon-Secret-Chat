@@ -291,10 +291,11 @@ impl RichHtmlRenderer<'_> {
             result += &self
                 .context
                 .push_tag("div", &attrs([("class", "rich_slideshow_dots")]));
-            for _ in 0..count {
+            for index in 0..count {
                 result += &self.context.push_tag(
                     "button",
                     &attrs([
+                        ("aria-label", &format!("Show slide {}", index + 1)),
                         ("class", "rich_slideshow_dot"),
                         ("type", "button"),
                         ("inline", ""),

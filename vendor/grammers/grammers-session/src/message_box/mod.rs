@@ -293,6 +293,8 @@ impl MessageBoxes {
                 .entries
                 .iter()
                 .fold(deadline, |d, entry| d.min(entry.effective_deadline()));
+        } else {
+            self.next_deadline = self.next_deadline.min(deadline);
         }
     }
 
@@ -300,7 +302,8 @@ impl MessageBoxes {
         self.reset_deadline(
             key,
             timeout
-                .map(|t| Instant::now() + Duration::from_secs(t as _))
+                .and_then(|t| u64::try_from(t).ok())
+                .and_then(|t| Instant::now().checked_add(Duration::from_secs(t)))
                 .unwrap_or_else(next_updates_deadline),
         );
     }
@@ -397,6 +400,14 @@ impl MessageBoxes {
     ///
     /// [updates' documentation]: https://core.telegram.org/api/updates
     pub fn process_updates(&mut self, updates: UpdatesLike) -> Result<UpdateAndPeers, Gap> {
+        self.process_updates_inner(updates, false)
+    }
+
+    fn process_updates_inner(
+        &mut self,
+        updates: UpdatesLike,
+        authoritative: bool,
+    ) -> Result<UpdateAndPeers, Gap> {
         trace!("processing updates");
 
         let deadline = next_updates_deadline();
@@ -473,7 +484,7 @@ impl MessageBoxes {
             if let tl::enums::Update::ChannelTooLong(u) = update {
                 // Can skip this one early since no processing can be done for the entry.
                 let key = Key::Channel(u.channel_id);
-                if let Some(pts) = u.pts {
+                if let Some(pts) = u.pts.filter(|_| self.entry(key).is_none()) {
                     self.set_entry(LiveEntry {
                         key,
                         pts,
@@ -499,11 +510,15 @@ impl MessageBoxes {
                     key = ?info.key,
                     count = ?info.count,
                     remote = ?info.pts,
-                    "forcing update to apply (getting difference)",
+                    "deferring update to the authoritative difference",
                 );
-                // Order does not need to be checked. These always must be applied.
-                self.reset_deadline(info.key, next_updates_deadline());
-                result.push((update, mk_state(Some(info.into()))));
+                // Socket data waits for the authoritative difference. Its own
+                // other_updates still need delivery even though the response's
+                // final counter was already installed above.
+                if authoritative {
+                    self.reset_deadline(info.key, next_updates_deadline());
+                    result.push((update, mk_state(Some(info.into()))));
+                }
                 continue;
             }
 
@@ -740,7 +755,7 @@ impl MessageBoxes {
         // It is possible that the result from `GetDifference` includes users with `min = true`.
         // TODO in that case, we will have to resort to getUsers.
         let (mut result_updates, users, chats) = self
-            .process_updates(us)
+            .process_updates_inner(us, true)
             .expect("gap is detected while applying difference");
 
         result_updates.extend(
@@ -851,7 +866,7 @@ impl MessageBoxes {
             seq: NO_SEQ,
         }));
         let (mut result_updates, users, chats) = self
-            .process_updates(us)
+            .process_updates_inner(us, true)
             .expect("gap is detected while applying channel difference");
 
         result_updates.extend(new_messages.into_iter().map(|message| {

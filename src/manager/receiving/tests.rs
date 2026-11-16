@@ -328,6 +328,7 @@ async fn accepted_rekey_cannot_be_overwritten_by_another_request() {
 }
 #[tokio::test]
 async fn retry_without_original_wire_metadata_fails_closed_before_rpc() {
+    queued_send_must_report_local_closure().await;
     closed_chat_does_not_launch_remaining_resend_effects().await;
     retained_wire_effects_are_serialized().await;
     let (a, store, world, id) = seeded::ready(Options::default()).await;
@@ -347,6 +348,37 @@ async fn retry_without_original_wire_metadata_fails_closed_before_rpc() {
             .is_empty()
     );
     a.stop().await.unwrap();
+}
+
+async fn queued_send_must_report_local_closure() {
+    let (manager, store, world, id) = seeded::ready(Options::default()).await;
+    let wire = Arc::clone(manager.inner.wire.lock().unwrap().entry(id).or_default());
+    let held = wire.lock().await;
+    let sender = manager.clone();
+    let pending = tokio::spawn(async move {
+        sender
+            .send_message(id, "queued before close", None, None)
+            .await
+    });
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while store.state.lock().unwrap().as_ref().unwrap().chats[&id]
+            .outbox
+            .is_empty()
+        {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    manager.close(id).await.unwrap();
+    drop(held);
+    let result = tokio::time::timeout(Duration::from_secs(3), pending)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(result,Err(Error::ChatClosed{chat_id}) if chat_id==id));
+    assert!(world.lock().unwrap().sent.is_empty());
+    manager.stop().await.unwrap();
 }
 
 async fn retained_wire_effects_are_serialized() {
@@ -457,10 +489,18 @@ async fn closed_chat_does_not_launch_remaining_resend_effects() {
     a.close(id).await.unwrap();
     gate.release.notify_one();
     let completed = tokio::time::timeout(std::time::Duration::from_secs(3), &mut resending).await;
-    if completed.is_err() {
-        resending.abort();
-        let _ = resending.await;
-    }
+    let received = match completed {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => panic!("the receive task must not panic"),
+        Err(_) => {
+            resending.abort();
+            let _ = resending.await;
+            panic!("the receive task must finish after local closure");
+        }
+    };
+    assert!(
+        matches!(received, Err(Error::SendPending { chat_id, cause: crate::error::PendingCause::Cancelled, .. }) if chat_id == id)
+    );
     let sends = world.lock().unwrap().sent.len();
     assert_eq!(
         sends, 3,

@@ -34,6 +34,7 @@ fn retained(count: i32) -> Chat {
                 service: false,
                 file: None,
                 pending: false,
+                obligation_generation: 1,
             },
         );
     }
@@ -69,6 +70,22 @@ fn repeat_resend_does_not_consume_retention() {
     let first = bodies(&c, 1, 5);
     assert_eq!(first, bodies(&c, 1, 5));
     assert_eq!(c.outbox.len(), 3);
+    let mut p = protocol();
+    let original = p.send_message(7, "in flight".into(), None, None).unwrap();
+    let replacement = p
+        .receive(7, &resend(0, 1, 1), None, 1)
+        .unwrap()
+        .sends
+        .remove(0);
+    assert_eq!(replacement.outgoing.frame, original.outgoing.frame);
+    p.confirm_sent(&original).unwrap();
+    assert!(
+        p.chat_record(7).unwrap().outbox[&1].pending,
+        "a late original send cannot clear the newly committed retransmission"
+    );
+    assert_eq!(p.retry_pending(7).unwrap().len(), 1);
+    p.confirm_sent(&replacement).unwrap();
+    assert!(p.retry_pending(7).unwrap().is_empty());
 }
 fn refused(c: &Chat, start: i32, end: i32) {
     let error = sequence::answer_resend(c, start, end).err().unwrap();
@@ -87,7 +104,7 @@ fn span_beyond_sent_refuses() {
 #[test]
 fn span_wider_than_reference_cap_refuses() {
     assert_eq!(sequence::MAX_RESEND_COUNT, 1000);
-    refused(&retained(0), 1, 2003);
+    refused(&retained(1001), 1, 2001);
 }
 #[test]
 fn exact_reference_cap_is_satisfied() {

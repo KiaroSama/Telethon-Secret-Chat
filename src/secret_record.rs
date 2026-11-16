@@ -20,11 +20,9 @@ impl Serialize for SecretRecord {
 impl<'de> Deserialize<'de> for SecretRecord {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let hex = Zeroizing::new(String::deserialize(deserializer)?);
-        if hex.len() > 8 * 1024 * 1024 {
-            return Err(serde::de::Error::custom(
-                "Protected record exceeds its size limit",
-            ));
-        }
+        // The enclosing file, encrypted store or custody ledger enforces its
+        // input budget. A lower record-only limit must not make a successfully
+        // committed container unreadable on its next open.
         let bytes =
             hex::decode(&*hex).map_err(|_| serde::de::Error::custom("Invalid protected record"))?;
         Ok(Self(bytes))

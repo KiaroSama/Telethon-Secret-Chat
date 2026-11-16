@@ -12,6 +12,7 @@ use std::{
 const MAX_BYTES: usize = 4 * 1024 * 1024;
 const MAX_ITEMS: usize = 4096;
 const MAGIC: &[u8] = b"KGMBOX01";
+const MAX_DEADLINE_MILLIS: i64 = i32::MAX as i64 * 1000 + 1000;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CustodyCodecError;
 impl std::fmt::Display for CustodyCodecError {
@@ -151,19 +152,23 @@ fn wall_ms() -> Result<i64> {
         .ok_or(CustodyCodecError)
 }
 fn save_deadline(deadline: Instant, now: Instant, wall: i64) -> Result<i64> {
-    wall.checked_add(
-        i64::try_from(deadline.saturating_duration_since(now).as_millis())
-            .map_err(|_| CustodyCodecError)?,
-    )
-    .ok_or(CustodyCodecError)
+    let millis = i64::try_from(deadline.saturating_duration_since(now).as_millis())
+        .map_err(|_| CustodyCodecError)?;
+    if millis > MAX_DEADLINE_MILLIS {
+        return Err(CustodyCodecError);
+    }
+    wall.checked_add(millis).ok_or(CustodyCodecError)
 }
 fn load_deadline(deadline: i64, now: Instant, wall: i64) -> Result<Instant> {
     let millis = deadline.saturating_sub(wall).max(0);
-    // A backwards wall clock must not grant an unbounded fresh deadline.
-    if millis > 15 * 60 * 1000 + 1000 {
+    if millis > MAX_DEADLINE_MILLIS {
         return Err(CustodyCodecError);
     }
-    Ok(now + Duration::from_millis(millis as u64))
+    // Channel timeouts are signed 32-bit seconds, and may exceed the default
+    // polling interval. Preserve every deadline the writer can represent; an
+    // unrepresentable Instant is rejected instead of panicking.
+    now.checked_add(Duration::from_millis(millis as u64))
+        .ok_or(CustodyCodecError)
 }
 impl MessageBoxes {
     /// Prepare a caller-issued difference against existing durable counters.

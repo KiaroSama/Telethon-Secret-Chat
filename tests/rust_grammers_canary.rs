@@ -3,6 +3,12 @@
 mod compat;
 #[path = "support_compat/export_example.rs"]
 mod export_example;
+#[path = "support_compat/media_regressions.rs"]
+mod media_regressions;
+#[path = "support_compat/parser_regressions.rs"]
+mod parser_regressions;
+#[path = "support_compat/provenance.rs"]
+mod provenance;
 #[path = "support_sources/mod.rs"]
 mod source_files;
 #[path = "support_manager/mod.rs"]
@@ -15,6 +21,7 @@ use kiaro_secret_chat::manager::{
 use tl::{Deserializable, Identifiable};
 #[test]
 fn public_default_text_parser_exists() {
+    parser_regressions::run();
     let parser: fn(&str) -> (String, Vec<tl::enums::MessageEntity>) =
         grammers_client::parsers::parse_markdown_message;
     let (text, entities) = parser("**bold** text");
@@ -57,6 +64,7 @@ fn binary_cursor_and_primitive_decoder_remain_public() {
 }
 #[test]
 fn all_referenced_tl_requests_and_types_compile_on_one_graph() {
+    media_regressions::run();
     let _ = export_example::example;
     let snippet =
         include_str!("support_compat/export_example.rs").replace("pub fn example", "fn example");
@@ -154,6 +162,7 @@ fn independent_kdf_oracle_still_exists() {
 }
 #[test]
 fn supported_grammers_version_and_revision_are_stated() {
+    provenance::verify();
     let root = compat::package("kiaro-secret-chat");
     assert_eq!(root["version"], kiaro_secret_chat::VERSION);
     for name in [

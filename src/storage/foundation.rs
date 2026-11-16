@@ -50,7 +50,19 @@ pub(super) fn second_writer_is_refused() {
 pub(super) fn missing_parent_is_created_for_persistent_state() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("missing/nested/state.json");
+    #[cfg(unix)]
+    super::directory::SYNCED_PARENTS.with(|paths| paths.borrow_mut().clear());
     let mut store = FileStorage::open(&path).unwrap();
+    #[cfg(unix)]
+    super::directory::SYNCED_PARENTS.with(|paths| {
+        assert_eq!(
+            *paths.borrow(),
+            [
+                directory.path().to_path_buf(),
+                directory.path().join("missing")
+            ]
+        );
+    });
     store.commit(&state()).unwrap();
     drop(store);
     assert_eq!(

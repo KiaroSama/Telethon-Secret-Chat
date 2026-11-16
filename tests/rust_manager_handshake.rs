@@ -28,6 +28,7 @@ async fn early_discard_before_request_returns_is_terminal() {
                 )
                 .await
                 .unwrap();
+            manager.handle_encryption(chat).await.unwrap();
         })
     }));
     let snapshot = a.create(peer(2000)).await.unwrap();
@@ -64,6 +65,7 @@ async fn early_ready_before_request_returns_is_established() {
                 )
                 .await
                 .unwrap();
+            manager.handle_encryption(chat).await.unwrap();
         })
     }));
     let chat = a.create(peer(2000)).await.unwrap();
@@ -83,6 +85,55 @@ async fn already_accepted_server_reply_converges_locally() {
 }
 #[tokio::test]
 async fn declined_server_reply_closes_pending_record() {
+    for returned in ["discarded", "waiting", "mismatched-id", "bad-fingerprint"] {
+        let (a, b, world) = managers();
+        let id = a.create(peer(2000)).await.unwrap().id;
+        pump(&a, &b, &world).await;
+        let ready = Arc::new(Mutex::new(0));
+        let counted = Arc::clone(&ready);
+        b.on("ChatReady", "invalid_accept", move |_| {
+            *counted.lock().unwrap() += 1;
+            Ok(())
+        })
+        .unwrap();
+        let public = world.lock().unwrap().requests[&id].2.clone();
+        world.lock().unwrap().accept_response = Some(match returned {
+            "discarded" => tl::types::EncryptedChatDiscarded {
+                history_deleted: false,
+                id,
+            }
+            .into(),
+            "waiting" => tl::types::EncryptedChatWaiting {
+                id,
+                access_hash: 88,
+                date: 1,
+                admin_id: 1000,
+                participant_id: 2000,
+            }
+            .into(),
+            _ => tl::types::EncryptedChat {
+                id: if returned == "mismatched-id" {
+                    id + 1
+                } else {
+                    id
+                },
+                access_hash: 88,
+                date: 1,
+                admin_id: 1000,
+                participant_id: 2000,
+                g_a_or_b: public,
+                key_fingerprint: 0,
+            }
+            .into(),
+        });
+        assert!(
+            b.accept(id).await.is_err(),
+            "invalid accept variant {returned} must not establish"
+        );
+        assert_ne!(b.status(id).unwrap().state, ChatState::Ready);
+        assert!(b.status(id).unwrap().key_fingerprint.is_none());
+        assert_eq!(*ready.lock().unwrap(), 0);
+    }
     let (a, b, world) = managers();
     let id = a.create(peer(2000)).await.unwrap().id;
     pump(&a, &b, &world).await;

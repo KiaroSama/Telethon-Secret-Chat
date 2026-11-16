@@ -320,6 +320,7 @@ fn reaction(
     reaction: &Reaction,
     dates: &DateContext,
 ) -> Result<Vec<u8>> {
+    let depth = v.context.nesting.len();
     v.context.nesting.push(K_OBJECT);
     let result = (|| {
         let mut pairs = vec![
@@ -353,7 +354,7 @@ fn reaction(
         }
         Ok(serialize_object(v.context, &pairs))
     })();
-    v.context.nesting.pop();
+    v.context.nesting.truncate(depth);
     result
 }
 pub fn serialize_message(
@@ -391,9 +392,10 @@ pub fn serialize_message(
         ("date".into(), date),
         ("date_unixtime".into(), serialize_date_raw(message.date)),
     ];
+    let depth = v.context.nesting.len();
     v.context.nesting.push(K_OBJECT);
     let result = fill_message(&mut v, message, domain, dates);
-    v.context.nesting.pop();
+    v.context.nesting.truncate(depth);
     result?;
     Ok(serialize_object(v.context, &v.values))
 }

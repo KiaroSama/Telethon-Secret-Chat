@@ -23,6 +23,7 @@ impl<R: Read> Decoder<R> {
             .len()
             .checked_mul(frame.output_size.width.into())
             .and_then(|m| m.checked_mul(frame.output_size.height.into()))
+            .and_then(|m| m.checked_mul(if frame.precision > 8 { 2 } else { 1 }))
             .is_none_or(|m| self.decoding_buffer_size_limit < m)
         {
             return Err(Error::Format(
@@ -333,15 +334,9 @@ fn color_convert_line_cmyk(data: &[Vec<u8>], output: &mut [u8]) {
 }
 
 fn color_no_convert(data: &[Vec<u8>], output: &mut [u8]) {
-    let mut output_iter = output.iter_mut();
-
-    for pixel in data {
-        for d in pixel {
-            if let Some(output) = output_iter.next() {
-                *output = *d;
-            } else {
-                return;
-            }
+    for (pixel, chunk) in output.chunks_mut(data.len()).enumerate() {
+        for (sample, channel) in chunk.iter_mut().zip(data) {
+            *sample = channel[pixel];
         }
     }
 }
@@ -357,4 +352,10 @@ fn ycbcr_to_rgb(y: u8, cb: u8, cr: u8) -> (u8, u8, u8) {
         clamp(y + ((-22554 * cb - 46802 * cr + 32768) >> 16)),
         clamp(y + ((116130 * cb + 32768) >> 16)),
     )
+}
+#[cfg(test)]
+pub(super) fn audit_no_transform() {
+    let mut output = [0; 6];
+    color_no_convert(&[vec![1, 2], vec![3, 4], vec![5, 6]], &mut output);
+    assert_eq!(output, [1, 3, 5, 2, 4, 6]);
 }

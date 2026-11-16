@@ -270,6 +270,52 @@ fn rich_9cee40ac24bceb8e() {
 }
 #[test]
 fn rich_1380afeae4b05dca() {
+    use kiaro_secret_chat::export::{model::Image, model_rich::*};
+    let mut message = RichMessage::default();
+    let items = (1..=13)
+        .map(|id| {
+            message.photos.insert(
+                id,
+                Photo {
+                    id,
+                    image: Image {
+                        width: 16,
+                        height: 9,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            );
+            RichBlock {
+                kind: RichBlockKind::Photo,
+                photo_id: id,
+                ..Default::default()
+            }
+        })
+        .collect();
+    message.blocks.push(RichBlock {
+        kind: RichBlockKind::Collage,
+        blocks: items,
+        ..Default::default()
+    });
+    let output = render_rich_message(
+        &mut HtmlContext::default(),
+        &message,
+        1,
+        "https://t.me/",
+        "",
+        &mut Stubs,
+        &DateContext::utc(),
+    )
+    .unwrap();
+    assert_eq!(output.matches("[photo ").count(), 13);
+    assert!(output.contains("rich_media_group_items"));
+
+    assert!(
+        html_layout::layout_media_group_geometry(&[(16, 9); 13], 430, 100, 4)
+            .unwrap()
+            .is_empty()
+    );
     run("1380afeae4b05dca.json");
 }
 #[test]

@@ -8,6 +8,8 @@ mod migration;
 #[allow(dead_code)]
 #[path = "../tools/secret-scan/src/main.rs"]
 mod scanner;
+#[path = "support_ci/scanner_limits.rs"]
+mod scanner_limits;
 #[path = "support_ci/mod.rs"]
 mod support;
 #[allow(dead_code)]
@@ -88,6 +90,7 @@ fn rejects_skipped() {
 }
 #[test]
 fn rejects_failed() {
+    scanner_limits::completed_child_remains_bounded();
     support::coverage::invalid();
     support::false_green("failed");
     assert!(scanner::report::validate_report(b"[]", 2).is_err());

@@ -12,6 +12,33 @@ use kiaro_secret_chat::export::{
 };
 #[test]
 fn file_path_placeholders_and_unexpected_skip_reason() {
+    let mut context = JsonContext {
+        nesting: vec![true, false],
+        ..Default::default()
+    };
+    let message = Message {
+        date: 1700000000,
+        reactions: vec![kiaro_secret_chat::export::model_message::Reaction {
+            recent: vec![kiaro_secret_chat::export::model_message::RecentReaction {
+                date: i64::MAX,
+                ..Default::default()
+            }],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    assert!(
+        serialize_message(
+            &mut context,
+            &message,
+            &Peers::new(),
+            "",
+            &DateContext::utc()
+        )
+        .is_err()
+    );
+    assert_eq!(context.nesting, [true, false]);
+
     for (reason, text) in [
         (
             SkipReason::FileSize,

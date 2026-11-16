@@ -1,5 +1,7 @@
 //! Real original SDK Client with private network I/O replaced in a test copy.
 mod adapter;
+mod review_export;
+mod review_manager;
 use kiaro_secret_chat::{
     binding::AuthorizationBinding,
     custody::IngressLimits,
@@ -134,9 +136,13 @@ impl Server {
 async fn main() {
     let mode = std::env::args().nth(1).unwrap();
     if mode == "adapter" {
-        tokio::time::timeout(std::time::Duration::from_secs(90), adapter::run())
-            .await
-            .unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(90), async {
+            adapter::run().await;
+            review_export::run().await;
+            review_manager::run().await;
+        })
+        .await
+        .unwrap();
         return;
     }
     assert!(matches!(

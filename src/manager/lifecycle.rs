@@ -11,68 +11,78 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
         if self.inner.stopping.load(Ordering::Acquire) {
             self.stop().await?;
         }
-        if self.inner.running.load(Ordering::Acquire) {
+        let running = self.inner.running.load(Ordering::Acquire);
+        if running && self.inner.startup_complete.load(Ordering::Acquire) {
             return Ok(());
         }
-        self.protocol(|protocol| {
-            if !protocol.is_running() {
-                let _ = protocol.start()?;
-            }
-            Ok(())
-        })?;
-        let generation = self.inner.generation.load(Ordering::Acquire);
-        self.ensure_binding().await?;
-        if self.inner.generation.load(Ordering::Acquire) != generation {
-            return Err(Error::ManagerStopping);
-        }
-        let mode = self.protocol(|protocol| Ok(protocol.mode()))?;
-        let saved = self.protocol(|protocol| Ok(protocol.setting("auto_save_secret_chats")))?;
-        let default = self
-            .inner
-            .options
-            .auto_save_folder
-            .clone()
-            .or(self.protocol(|protocol| Ok(protocol.default_auto_save_folder()))?);
-        let (autosave, initial) = if matches!(mode, StoreMode::Protected | StoreMode::Ingress) {
-            (AutoSave::default(), None)
-        } else {
-            AutoSave::load(saved, default.as_deref())?
-        };
-        if let Some(setting) = initial {
+        if !running {
+            self.inner.transport.resume_io()?;
             self.protocol(|protocol| {
-                protocol.set_setting("auto_save_secret_chats".into(), Some(setting))
+                if !protocol.is_running() {
+                    let _ = protocol.start()?;
+                }
+                Ok(())
             })?;
+            let generation = self.inner.generation.load(Ordering::Acquire);
+            self.ensure_binding().await?;
+            if self.inner.generation.load(Ordering::Acquire) != generation {
+                return Err(Error::ManagerStopping);
+            }
+            let mode = self.protocol(|protocol| Ok(protocol.mode()))?;
+            let saved = self.protocol(|protocol| Ok(protocol.setting("auto_save_secret_chats")))?;
+            let default = self
+                .inner
+                .options
+                .auto_save_folder
+                .clone()
+                .or(self.protocol(|protocol| Ok(protocol.default_auto_save_folder()))?);
+            let (autosave, initial) = if matches!(mode, StoreMode::Protected | StoreMode::Ingress) {
+                (AutoSave::default(), None)
+            } else {
+                AutoSave::load(saved, default.as_deref())?
+            };
+            if let Some(setting) = initial {
+                self.protocol(|protocol| {
+                    protocol.set_setting("auto_save_secret_chats".into(), Some(setting))
+                })?;
+            }
+            *self.inner.autosave.lock().map_err(|_| Error::Storage)? = autosave;
+            self.inner
+                .outbound
+                .lock()
+                .map_err(|_| Error::Storage)?
+                .clear();
+            self.inner.wire.lock().map_err(|_| Error::Storage)?.clear();
+            self.inner
+                .delivering
+                .lock()
+                .map_err(|_| Error::Storage)?
+                .clear();
+            self.inner
+                .delivered
+                .lock()
+                .map_err(|_| Error::Storage)?
+                .clear();
+            self.inner
+                .cancellations
+                .lock()
+                .map_err(|_| Error::Storage)?
+                .clear();
+            self.inner
+                .diagnosed
+                .lock()
+                .map_err(|_| Error::Storage)?
+                .clear();
+            *self
+                .inner
+                .creation_cancel
+                .lock()
+                .map_err(|_| Error::Storage)? = Arc::default();
+            self.inner.stopping.store(false, Ordering::Release);
+            self.inner.running.store(true, Ordering::Release);
+            self.start_expiry_watch()?;
         }
-        *self.inner.autosave.lock().map_err(|_| Error::Storage)? = autosave;
-        self.inner
-            .outbound
-            .lock()
-            .map_err(|_| Error::Storage)?
-            .clear();
-        self.inner.wire.lock().map_err(|_| Error::Storage)?.clear();
-        self.inner
-            .delivered
-            .lock()
-            .map_err(|_| Error::Storage)?
-            .clear();
-        self.inner
-            .cancellations
-            .lock()
-            .map_err(|_| Error::Storage)?
-            .clear();
-        self.inner
-            .diagnosed
-            .lock()
-            .map_err(|_| Error::Storage)?
-            .clear();
-        *self
-            .inner
-            .creation_cancel
-            .lock()
-            .map_err(|_| Error::Storage)? = Arc::default();
-        self.inner.stopping.store(false, Ordering::Release);
-        self.inner.running.store(true, Ordering::Release);
-        self.start_expiry_watch()?;
+        let startup_generation = self.generation()?;
         let chats = self.protocol(|protocol| Ok(protocol.chat_records()))?;
         for chat in chats {
             if chat.paused || chat.state == ChatState::Suspended {
@@ -102,6 +112,8 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
         }
         self.recover_creations().await?;
         self.resume_saved_downloads()?;
+        self.check_generation(startup_generation)?;
+        self.inner.startup_complete.store(true, Ordering::Release);
         Ok(())
     }
     /// Coordinate one cancellation-isolated shutdown; a later start retries a failed save.
@@ -173,7 +185,7 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
         result
     }
     async fn finish_stop(&self) -> Result<()> {
-        self.stop_expiry_watch().await?;
+        let mut failure = self.stop_expiry_watch().await.err();
         let downloads =
             std::mem::take(&mut *self.inner.downloads.lock().map_err(|_| Error::Storage)?);
         for task in &downloads {
@@ -182,7 +194,29 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
         for task in downloads {
             let _ = task.await;
         }
-        self.protocol(Protocol::stop)?;
+        let cleanup = self
+            .inner
+            .work
+            .policy
+            .map(|p| Duration::from_secs_f64(p.cleanup_seconds))
+            .unwrap_or(self.inner.options.handler_cleanup_timeout);
+        let io_result = tokio::time::timeout(cleanup, self.inner.transport.drain_io()).await;
+        let io_finished = match io_result {
+            Ok(Ok(())) => true,
+            Ok(Err(error)) => {
+                failure.get_or_insert(error);
+                false
+            }
+            Err(_) => {
+                failure.get_or_insert(Error::ManagerStopping);
+                false
+            }
+        };
+        // Keep the protocol writer owned when an uncooperative blocking reader
+        // outlives bounded cleanup. A subsequent stop can complete the join.
+        if io_finished && let Err(error) = self.protocol(Protocol::stop) {
+            failure.get_or_insert(error);
+        }
         let exempt = self
             .inner
             .stop_callers
@@ -206,7 +240,7 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
         self.inner
             .binding_generation
             .store(u64::MAX, Ordering::Release);
-        Ok(())
+        failure.map_or(Ok(()), Err)
     }
 }
 

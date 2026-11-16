@@ -3,15 +3,16 @@ use crate::{
     files::{FileKey, encrypted_size},
 };
 use std::{
+    future::Future,
     io::{self, Read},
     pin::Pin,
     task::{Context, Poll},
 };
 use tokio::io::{AsyncRead, ReadBuf};
 use zeroize::{Zeroize, Zeroizing};
-/// Bounded streaming AES-IGE reader; padding and IV state are shared across all
-/// upload parts. Dropping a cancelled upload releases its source and key copies.
-pub struct EncryptingReader<R> {
+// Padding and IV state are shared across upload parts. A running blocking
+// refill owns its source and zeroizing key copies until the worker is joined.
+struct CipherReader<R> {
     source: R,
     key: FileKey,
     iv: Zeroizing<[u8; 32]>,
@@ -22,7 +23,7 @@ pub struct EncryptingReader<R> {
     offset: usize,
     pub size: u64,
 }
-impl<R: Read> EncryptingReader<R> {
+impl<R: Read> CipherReader<R> {
     pub fn new(source: R, size: u64, key: FileKey) -> Result<Self> {
         let encrypted = encrypted_size(size)?;
         let mut padding = vec![0; (encrypted - size) as usize];
@@ -93,7 +94,7 @@ impl<R: Read> EncryptingReader<R> {
         Ok(())
     }
 }
-impl<R: Read> Read for EncryptingReader<R> {
+impl<R: Read> Read for CipherReader<R> {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         if buffer.is_empty() {
             return Ok(0);
@@ -105,22 +106,104 @@ impl<R: Read> Read for EncryptingReader<R> {
         Ok(n)
     }
 }
-impl<R: Read + Unpin> AsyncRead for EncryptingReader<R> {
+/// Bounded AES-IGE streaming reader. Async reads execute synchronous sources on
+/// the blocking pool; an already running caller Read must cooperate to finish.
+pub struct EncryptingReader<R> {
+    state: Option<CipherReader<R>>,
+    pending: Option<super::blocking::Blocking<(CipherReader<R>, io::Result<()>)>>,
+    pub size: u64,
+}
+impl<R: Read> EncryptingReader<R> {
+    pub fn new(source: R, size: u64, key: FileKey) -> Result<Self> {
+        let state = CipherReader::new(source, size, key)?;
+        Ok(Self {
+            size: state.size,
+            state: Some(state),
+            pending: None,
+        })
+    }
+    /// Use exactly the final block's padding for reproducible wire vectors.
+    pub fn new_with_padding(source: R, size: u64, key: FileKey, padding: Vec<u8>) -> Result<Self> {
+        let state = CipherReader::new_with_padding(source, size, key, padding)?;
+        Ok(Self {
+            size: state.size,
+            state: Some(state),
+            pending: None,
+        })
+    }
+    pub(crate) async fn into_source(mut self) -> io::Result<R> {
+        if let Some(pending) = self.pending.take() {
+            let (state, _) = pending.await.map_err(io::Error::other)?;
+            self.state = Some(state);
+        }
+        self.state
+            .take()
+            .map(|state| state.source)
+            .ok_or_else(|| io::Error::other("encrypted source is unavailable"))
+    }
+}
+impl<R: Read> Read for EncryptingReader<R> {
+    fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+        self.state
+            .as_mut()
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::WouldBlock,
+                    "an asynchronous source read is pending",
+                )
+            })?
+            .read(buffer)
+    }
+}
+impl<R: Read + Send + Unpin + 'static> AsyncRead for EncryptingReader<R> {
     fn poll_read(
         self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
+        cx: &mut Context<'_>,
         buffer: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
         let this = self.get_mut();
         if buffer.remaining() == 0 {
             return Poll::Ready(Ok(()));
         }
-        if let Err(e) = this.refill() {
-            return Poll::Ready(Err(e));
+        loop {
+            if let Some(pending) = this.pending.as_mut() {
+                let (state, result) = match Pin::new(pending).poll(cx) {
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(Err(error)) => return Poll::Ready(Err(io::Error::other(error))),
+                    Poll::Ready(Ok(value)) => value,
+                };
+                this.pending = None;
+                this.state = Some(state);
+                if let Err(error) = result {
+                    return Poll::Ready(Err(error));
+                }
+            }
+            let Some(state) = this.state.as_mut() else {
+                return Poll::Ready(Err(io::Error::other("encrypted source is unavailable")));
+            };
+            if state.offset < state.ready.len() || (state.left == 0 && state.padding.is_none()) {
+                let count = buffer.remaining().min(state.ready.len() - state.offset);
+                buffer.put_slice(&state.ready[state.offset..state.offset + count]);
+                state.offset += count;
+                return Poll::Ready(Ok(()));
+            }
+            let Some(mut state) = this.state.take() else {
+                return Poll::Ready(Err(io::Error::other("encrypted source is unavailable")));
+            };
+            match super::blocking::spawn(move |cancelled| {
+                let result = if cancelled.load(std::sync::atomic::Ordering::Acquire) {
+                    Err(io::Error::new(
+                        io::ErrorKind::Interrupted,
+                        "source read was cancelled",
+                    ))
+                } else {
+                    state.refill()
+                };
+                (state, result)
+            }) {
+                Ok(pending) => this.pending = Some(pending),
+                Err(error) => return Poll::Ready(Err(io::Error::other(error))),
+            }
         }
-        let n = buffer.remaining().min(this.ready.len() - this.offset);
-        buffer.put_slice(&this.ready[this.offset..this.offset + n]);
-        this.offset += n;
-        Poll::Ready(Ok(()))
     }
 }

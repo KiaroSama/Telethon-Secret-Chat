@@ -85,6 +85,7 @@ fn wrong_end(end: i32) {
                 service: false,
                 file: None,
                 pending: false,
+                obligation_generation: 1,
             },
         );
     }

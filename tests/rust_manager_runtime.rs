@@ -4,7 +4,7 @@ mod support;
 use kiaro_secret_chat::{
     chat::ChatState,
     custody::{CustodyLimits, CustodyStorage, TransientLimits, TransientStorage},
-    error::{Error, Result},
+    error::Error,
     manager::{Event, Options, RpcFailure, SecretChatManager, SendFileOptions},
     media::FileSource,
     storage::MemoryStorage,
@@ -95,6 +95,7 @@ async fn soon<F: std::future::Future>(future: F) -> F::Output {
 }
 #[tokio::test]
 async fn bounded_send_deadline_pauses_and_preserves_original_pending_identity() {
+    refused_receive_task_permit_marks_continuity_lost().await;
     bounded_callback_capacity_keeps_both_consumer_obligations().await;
     cancelling_bounded_send_preserves_retryable_identity_without_pausing().await;
     let (a, _b, store, world, id) = bounded_pair(0.04, 2).await;
@@ -158,11 +159,21 @@ async fn bounded_callback_capacity_keeps_both_consumer_obligations() {
     let (a, b, _store, world, id) = bounded_pair(2.0, 2).await;
     let entered = Arc::new(tokio::sync::Notify::new());
     let signal = Arc::clone(&entered);
-    a.on_async("MessageReceived", "held", move |_| {
+    let release = Arc::new(tokio::sync::Notify::new());
+    let wait = Arc::clone(&release);
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let delivered = Arc::clone(&seen);
+    a.on_async("MessageReceived", "held", move |event| {
         let signal = Arc::clone(&signal);
+        let wait = Arc::clone(&wait);
+        let delivered = Arc::clone(&delivered);
         async move {
+            if let Event::MessageReceived(message) = event {
+                delivered.lock().unwrap().push(message.text.clone());
+            }
             signal.notify_one();
-            std::future::pending::<Result<()>>().await
+            wait.notified().await;
+            Ok(())
         }
     })
     .unwrap();
@@ -174,7 +185,60 @@ async fn bounded_callback_capacity_keeps_both_consumer_obligations() {
     assert_eq!(a.active_handler_tasks(), 1);
     assert_eq!(a.pending_relay_deliveries(id).unwrap().len(), 2);
     assert!(a.read_history(id, 100).unwrap().is_empty());
+    release.notify_one();
+    a.settle().await.unwrap();
+    a.resume_chat(id).await.unwrap();
+    soon(entered.notified()).await;
+    assert_eq!(*seen.lock().unwrap(), ["first", "second"]);
+    assert_eq!(a.pending_relay_deliveries(id).unwrap().len(), 2);
+    release.notify_one();
+    a.settle().await.unwrap();
     a.stop().await.unwrap();
+}
+async fn refused_receive_task_permit_marks_continuity_lost() {
+    let (a, b, store, world, id) = bounded_pair(2.0, 2).await;
+    let second = a.create(peer(2000)).await.unwrap().id;
+    pump(&a, &b, &world).await;
+    b.accept(second).await.unwrap();
+    pump(&a, &b, &world).await;
+    b.send_message(id, "unprocessed received frame", None, None)
+        .await
+        .unwrap();
+    let incoming = world
+        .lock()
+        .unwrap()
+        .updates
+        .get_mut(&1000)
+        .unwrap()
+        .pop_front()
+        .unwrap();
+    let before = store.state.lock().unwrap().as_ref().unwrap().chats[&id].in_seq_no;
+    let gate = Arc::new(Gate::default());
+    world.lock().unwrap().send_gate = Some(Arc::clone(&gate));
+    let first = a.clone();
+    let held =
+        tokio::spawn(async move { first.send_message(id, "held task one", None, None).await });
+    soon(gate.entered.notified()).await;
+    let next = a.clone();
+    let other =
+        tokio::spawn(async move { next.send_message(second, "held task two", None, None).await });
+    soon(gate.entered.notified()).await;
+    a.handle_update(&incoming).await;
+    assert!(
+        !a.pause_status(id).unwrap().resumable,
+        "an input refused before processing loses continuity"
+    );
+    assert_eq!(
+        store.state.lock().unwrap().as_ref().unwrap().chats[&id].in_seq_no,
+        before
+    );
+    world.lock().unwrap().send_gate = None;
+    gate.release.notify_waiters();
+    assert!(soon(held).await.unwrap().is_err());
+    soon(other).await.unwrap().unwrap();
+    assert!(a.resume_chat(id).await.is_err());
+    a.stop().await.unwrap();
+    b.stop().await.unwrap();
 }
 #[tokio::test]
 async fn protected_message_without_consumer_suspends_and_keeps_keys() {

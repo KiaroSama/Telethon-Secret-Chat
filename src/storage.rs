@@ -3,6 +3,7 @@
 mod audit_tests;
 #[cfg(test)]
 mod contract_tests;
+mod directory;
 #[cfg(test)]
 mod foundation;
 #[cfg(test)]
@@ -228,16 +229,7 @@ impl FileStorage {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = std::path::absolute(path).map_err(|_| Error::Storage)?;
         let parent = path.parent().ok_or(Error::Storage)?;
-        if !parent.exists() {
-            let mut builder = fs::DirBuilder::new();
-            builder.recursive(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::DirBuilderExt;
-                builder.mode(0o700);
-            }
-            builder.create(parent).map_err(|_| Error::Storage)?;
-        }
+        directory::create_parent(parent)?;
         let parent = parent.canonicalize().map_err(|_| Error::Storage)?;
         let path = parent.join(path.file_name().ok_or(Error::Storage)?);
         if fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_symlink() || !m.is_file()) {

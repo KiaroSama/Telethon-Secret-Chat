@@ -35,6 +35,9 @@ impl Instant {
     pub fn saturating_duration_since(self, earlier: Self) -> Duration {
         self.0.saturating_sub(earlier.0)
     }
+    pub fn checked_add(self, duration: Duration) -> Option<Self> {
+        self.0.checked_add(duration).map(Self)
+    }
 }
 
 impl Add<Duration> for Instant {
@@ -477,7 +480,28 @@ fn test_process_socket_updates_flow_common_difference_ok() {
     );
     assert_eq!(
         message_boxes.process_updates(updates(NO_DATE, NO_SEQ, 57)),
-        updates_ok(12, 34, 57)
+        Ok((Vec::new(), Vec::new(), Vec::new()))
+    );
+    assert_eq!(
+        message_boxes.get_difference(),
+        Some(get_difference(12, 56, 78))
+    );
+    let delivered = message_boxes.apply_difference(
+        tl::types::updates::Difference {
+            new_messages: Vec::new(),
+            new_encrypted_messages: Vec::new(),
+            other_updates: vec![update(57)],
+            chats: Vec::new(),
+            users: Vec::new(),
+            state: state(12, 34, 57, 78).into(),
+        }
+        .into(),
+    );
+    assert_eq!(delivered, updates_ok(12, 34, 57).unwrap());
+    assert!(message_boxes.get_difference().is_none());
+    assert_eq!(
+        message_boxes.process_updates(updates(NO_DATE, NO_SEQ, 57)),
+        Ok((Vec::new(), Vec::new(), Vec::new()))
     );
 }
 

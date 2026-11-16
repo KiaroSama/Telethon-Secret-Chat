@@ -131,8 +131,27 @@ pub fn save_file(
     key: &FileKey,
     claimed: i32,
 ) -> Result<()> {
-    save_file_with_sync(source, path, size, key, claimed, std::fs::File::sync_all)
+    save_file_if(source, path, size, key, claimed, || Ok(()))
 }
+pub(crate) fn save_file_if(
+    source: &mut impl Read,
+    path: &std::path::Path,
+    size: u64,
+    key: &FileKey,
+    claimed: i32,
+    before_persist: impl FnOnce() -> Result<()>,
+) -> Result<()> {
+    save_file_with_guard(
+        source,
+        path,
+        size,
+        key,
+        claimed,
+        std::fs::File::sync_all,
+        before_persist,
+    )
+}
+#[cfg(test)]
 fn save_file_with_sync(
     source: &mut impl Read,
     path: &std::path::Path,
@@ -141,6 +160,17 @@ fn save_file_with_sync(
     claimed: i32,
     sync: impl FnOnce(&std::fs::File) -> std::io::Result<()>,
 ) -> Result<()> {
+    save_file_with_guard(source, path, size, key, claimed, sync, || Ok(()))
+}
+fn save_file_with_guard(
+    source: &mut impl Read,
+    path: &std::path::Path,
+    size: u64,
+    key: &FileKey,
+    claimed: i32,
+    sync: impl FnOnce(&std::fs::File) -> std::io::Result<()>,
+    before_persist: impl FnOnce() -> Result<()>,
+) -> Result<()> {
     key.verify(claimed)?;
     let absolute = std::path::absolute(path).map_err(|_| Error::Storage)?;
     let parent = absolute.parent().ok_or(Error::Storage)?;
@@ -148,6 +178,7 @@ fn save_file_with_sync(
     let mut temporary = crate::temporary::create(parent, ".secret-chat-file-")?;
     decrypt_file(source, &mut temporary, size, key)?;
     sync(temporary.as_file()).map_err(|_| Error::Storage)?;
+    before_persist()?;
     temporary.persist(&absolute).map_err(|_| Error::Storage)?;
     #[cfg(unix)]
     std::fs::File::open(parent)
@@ -184,5 +215,17 @@ mod primitive_tests {
         assert!(reached, "actual decrypted staging bytes must reach fsync");
         assert!(matches!(failure, Err(Error::Storage)));
         assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
+        std::fs::write(&target, b"existing destination").unwrap();
+        let refusal = save_file_if(
+            &mut &encrypted[..],
+            &target,
+            data.len() as u64,
+            &key,
+            key.fingerprint(),
+            || Err(Error::NotRunning),
+        );
+        assert_eq!(refusal, Err(Error::NotRunning));
+        assert_eq!(std::fs::read(&target).unwrap(), b"existing destination");
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
     }
 }

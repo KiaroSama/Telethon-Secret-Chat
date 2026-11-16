@@ -152,7 +152,6 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
             .transport
             .request(peer, pending.request_id, dh.public_value(&pending.secret))
             .await;
-        drop(creating);
         let encrypted = response.map_err(|_| Error::Transport)?;
         self.check_generation(generation)?;
         if self.inner.creation_generation.load(Ordering::Acquire) != creation_generation {
@@ -186,6 +185,7 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
                 Ok(())
             })
         });
+        drop(creating);
         if let Err(error) = installed {
             if self.protocol(|p| Ok(p.mode()))? == StoreMode::Durable {
                 let _ = self.inner.transport.discard(id, false).await;
@@ -285,7 +285,34 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
                 .await;
             self.check_generation(generation)?;
             match response {
-                Ok(_) | Err(RpcFailure::AlreadyAccepted) => {}
+                Ok(tl::enums::EncryptedChat::Chat(ready)) => {
+                    if ready.id != id
+                        || ready.access_hash != chat.access_hash
+                        || ready.admin_id != chat.peer_user_id
+                        || chat
+                            .participant_id
+                            .is_some_and(|peer| peer != ready.participant_id)
+                        || ready.g_a_or_b.iter().skip_while(|byte| **byte == 0).ne(chat
+                            .peer_public
+                            .as_ref()
+                            .ok_or(Error::ChatState)?
+                            .iter()
+                            .skip_while(|byte| **byte == 0))
+                    {
+                        return Err(Error::ChatState);
+                    }
+                    verify_fingerprint(&key, ready.key_fingerprint)?;
+                }
+                Err(RpcFailure::AlreadyAccepted) => {}
+                Ok(tl::enums::EncryptedChat::Discarded(discarded)) if discarded.id == id => {
+                    self.close_local(
+                        id,
+                        "the request is no longer open on the server",
+                        discarded.history_deleted,
+                    )?;
+                    return Err(Error::ChatClosed { chat_id: id });
+                }
+                Ok(_) => return Err(Error::ChatState),
                 Err(RpcFailure::ChatEnded | RpcFailure::Declined) => {
                     self.close_local(id, "the request is no longer open on the server", false)?;
                     return Err(Error::ChatClosed { chat_id: id });
@@ -372,6 +399,10 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
                             g: dh.generator(),
                             prime: dh.prime_bytes(),
                         });
+                        chat.created_at =
+                            u64::try_from(request.date).map_err(|_| Error::ChatState)?;
+                        chat.admin_id = Some(request.admin_id);
+                        chat.participant_id = Some(request.participant_id);
                         chat.peer_public = Some(request.g_a);
                         self.protocol(|protocol| protocol.insert_chat(chat))?;
                         if let Some(slot) = slot {
@@ -471,6 +502,11 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
         let id = encrypted.id();
         let mut early = self.inner.early.lock().map_err(|_| Error::Storage)?;
         if matches!(early.get(&id), Some(tl::enums::EncryptedChat::Discarded(_))) {
+            return Ok(());
+        }
+        if matches!(early.get(&id), Some(tl::enums::EncryptedChat::Chat(_)))
+            && matches!(encrypted, tl::enums::EncryptedChat::Waiting(_))
+        {
             return Ok(());
         }
         if early.contains_key(&id) || early.len() < 100 {

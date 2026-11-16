@@ -278,7 +278,7 @@ pub fn request_args(value: &Value) -> Value {
                     "InputDocumentFileLocation" => "InputDocumentFileLocation",
                     "InputPhotoFileLocation" => "InputPhotoFileLocation",
                     "InputTakeoutFileLocation" => "InputTakeoutFileLocation",
-                    "InputMessagesFilterEmpty" => "InputMessagesFilterEmpty",
+                    _ if *family == "InputMessagesFilter" => tag,
                     _ => tag.strip_prefix(family).unwrap_or(tag),
                 };
                 if values.is_empty() {

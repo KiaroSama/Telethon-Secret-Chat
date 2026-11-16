@@ -31,7 +31,9 @@ fn segments(bytes: &[u8]) -> Vec<(u8, &[u8])> {
 }
 pub fn source_metadata(bytes: &[u8]) -> ((u32, u32), Vec<u8>) {
     let mut dpm = [DEFAULT_DOTS_PER_METER; 2];
-    let mut icc = Vec::new();
+    let mut chunks = BTreeMap::new();
+    let mut expected_chunks = None;
+    let mut invalid_icc = false;
     for (marker, payload) in segments(bytes) {
         if marker == 224 && payload.starts_with(b"JFIF\0") && payload.len() >= 12 {
             let unit = payload[7];
@@ -46,10 +48,23 @@ pub fn source_metadata(bytes: &[u8]) -> ((u32, u32), Vec<u8>) {
                     dpm[axis] = value;
                 }
             }
-        } else if marker == 226 && payload.len() > 146 && payload.starts_with(b"ICC_PROFILE\0") {
-            icc.extend_from_slice(&payload[14..]);
+        } else if marker == 226 && payload.len() >= 14 && payload.starts_with(b"ICC_PROFILE\0") {
+            let (index, count) = (payload[12], payload[13]);
+            invalid_icc |= index == 0
+                || count == 0
+                || index > count
+                || expected_chunks.is_some_and(|previous| previous != count)
+                || chunks.insert(index, payload[14..].to_vec()).is_some();
+            expected_chunks = Some(count);
         }
     }
+    let icc = if !invalid_icc
+        && expected_chunks.is_some_and(|count| chunks.len() == usize::from(count))
+    {
+        chunks.into_values().flatten().collect()
+    } else {
+        Vec::new()
+    };
     ((dpm[0], dpm[1]), icc)
 }
 pub fn density_fields(dpm_x: u32, dpm_y: u32) -> (u8, u32, u32) {
@@ -156,6 +171,7 @@ pub fn desktop_thumb(source: &[u8], size: (u32, u32), quality: Option<u8>) -> Re
         return Err(ExportError::Image);
     }
     let decoded = decoder.decode().map_err(|_| ExportError::Image)?;
+    drop(decoder); // Release progressive coefficients before ICC/scaling work.
     let (channels, pixels) = match info.pixel_format {
         jpeg_decoder::PixelFormat::L8 => (1, decoded),
         jpeg_decoder::PixelFormat::RGB24 => (3, decoded),

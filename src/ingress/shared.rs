@@ -11,7 +11,7 @@ pub struct IngressProtocolStorage {
 impl Storage for IngressProtocolStorage {
     fn load(&self) -> Result<Option<State>> {
         let core = self.coordinator.core.lock().map_err(|_| Error::Storage)?;
-        if core.released {
+        if core.released || core.failed {
             return Err(Error::Storage);
         }
         Ok(Some(core.state.clone()))
@@ -21,6 +21,7 @@ impl Storage for IngressProtocolStorage {
             .core
             .lock()
             .ok()
+            .filter(|core| !core.failed && !core.released)
             .map(|core| core.state.clone())
     }
     fn commit(&mut self, state: &State) -> Result<()> {
@@ -47,7 +48,7 @@ impl Storage for IngressProtocolStorage {
     }
     fn resume_storage(&mut self) -> Result<Option<State>> {
         let core = self.coordinator.core.lock().map_err(|_| Error::Storage)?;
-        if core.stopped || core.released {
+        if core.stopped || core.released || core.failed {
             return Err(Error::IngressUnavailable);
         }
         Ok(Some(core.state.clone()))

@@ -9,7 +9,30 @@ use std::{
     fs::{self, OpenOptions},
     io::{Read, Write},
     path::{Path, PathBuf},
+    sync::{Arc, LazyLock, Mutex, Weak},
 };
+type ChatLocks = BTreeMap<PathBuf, Weak<Mutex<()>>>;
+static CHAT_LOCKS: LazyLock<Mutex<ChatLocks>> = LazyLock::new(Mutex::default);
+// Independently loaded settings and cloned archive workers must share the same
+// transaction lock for the same physical conversation directory.
+fn chat_lock(root: &Path, id: i32) -> Result<Arc<Mutex<()>>> {
+    let root = match fs::canonicalize(root) {
+        Ok(root) => root,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            std::path::absolute(root).map_err(|_| Error::Storage)?
+        }
+        Err(_) => return Err(Error::Storage),
+    };
+    let mut locks = CHAT_LOCKS.lock().map_err(|_| Error::Storage)?;
+    locks.retain(|_, lock| lock.strong_count() != 0);
+    let slot = locks.entry(root.join(id.to_string())).or_default();
+    if let Some(lock) = slot.upgrade() {
+        return Ok(lock);
+    }
+    let lock = Arc::new(Mutex::new(()));
+    *slot = Arc::downgrade(&lock);
+    Ok(lock)
+}
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PendingFile {
@@ -96,7 +119,13 @@ impl AutoSave {
         if self.folder.is_none() {
             return Ok(());
         }
-        let path = self.chat_dir(id)?.join("messages.jsonl");
+        let directory = self.chat_dir(id)?;
+        let lock = chat_lock(self.folder.as_deref().ok_or(Error::Storage)?, id)?;
+        let _guard = lock.lock().map_err(|_| Error::Storage)?;
+        self.append_unlocked(&directory, record)
+    }
+    fn append_unlocked(&self, directory: &Path, record: &Value) -> Result<()> {
+        let path = directory.join("messages.jsonl");
         let mut options = OpenOptions::new();
         options.append(true).create(true);
         #[cfg(unix)]
@@ -107,9 +136,9 @@ impl AutoSave {
                 .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
         }
         let mut file = options.open(path).map_err(|_| Error::Storage)?;
-        let encoded = serde_json::to_vec(record).map_err(|_| Error::Storage)?;
+        let mut encoded = serde_json::to_vec(record).map_err(|_| Error::Storage)?;
+        encoded.push(b'\n');
         file.write_all(&encoded)
-            .and_then(|()| file.write_all(b"\n"))
             .and_then(|()| file.sync_all())
             .map_err(|_| Error::Storage)
     }
@@ -117,6 +146,8 @@ impl AutoSave {
         let Some(folder) = &self.saved_in else {
             return Ok(Vec::new());
         };
+        let lock = chat_lock(folder, id)?;
+        let _guard = lock.lock().map_err(|_| Error::Storage)?;
         let path = folder.join(id.to_string()).join("messages.jsonl");
         let bytes = match fs::read(path) {
             Ok(bytes) => bytes,
@@ -153,6 +184,8 @@ impl AutoSave {
     }
     pub fn delete(&self, id: i32) -> Result<()> {
         if let Some(folder) = &self.saved_in {
+            let lock = chat_lock(folder, id)?;
+            let _guard = lock.lock().map_err(|_| Error::Storage)?;
             let path = folder.join(id.to_string());
             match fs::remove_dir_all(path) {
                 Ok(()) => {}
@@ -172,7 +205,10 @@ impl AutoSave {
         if self.folder.is_none() {
             return Ok(());
         }
-        let mut owed = self.pending(id)?;
+        self.chat_dir(id)?;
+        let lock = chat_lock(self.folder.as_deref().ok_or(Error::Storage)?, id)?;
+        let _guard = lock.lock().map_err(|_| Error::Storage)?;
+        let mut owed = self.pending_unlocked(id)?;
         owed.insert(
             random_id.to_string(),
             PendingFile {
@@ -183,13 +219,25 @@ impl AutoSave {
         self.write_pending(id, &owed)
     }
     pub fn settle(&self, id: i32, random_id: i64) -> Result<()> {
-        let mut owed = self.pending(id)?;
+        self.chat_dir(id)?;
+        let lock = chat_lock(self.folder.as_deref().ok_or(Error::Storage)?, id)?;
+        let _guard = lock.lock().map_err(|_| Error::Storage)?;
+        self.settle_unlocked(id, random_id)
+    }
+    fn settle_unlocked(&self, id: i32, random_id: i64) -> Result<()> {
+        let mut owed = self.pending_unlocked(id)?;
         if owed.remove(&random_id.to_string()).is_some() {
             self.write_pending(id, &owed)?;
         }
         Ok(())
     }
     pub fn pending(&self, id: i32) -> Result<BTreeMap<String, PendingFile>> {
+        self.chat_dir(id)?;
+        let lock = chat_lock(self.folder.as_deref().ok_or(Error::Storage)?, id)?;
+        let _guard = lock.lock().map_err(|_| Error::Storage)?;
+        self.pending_unlocked(id)
+    }
+    fn pending_unlocked(&self, id: i32) -> Result<BTreeMap<String, PendingFile>> {
         let path = self.chat_dir(id)?.join("pending.json");
         match fs::read(path) {
             Ok(bytes) => serde_json::from_slice(&bytes).map_err(|_| Error::InvalidState),
@@ -253,8 +301,14 @@ impl AutoSave {
         Ok(result)
     }
     pub fn completed_file(&self, id: i32, random_id: i64, path: &Path) -> Result<()> {
-        self.append(id,&json!({"v":1,"type":"file","id":random_id,"path":path.to_str().ok_or(Error::Storage)?}))?;
-        self.settle(id, random_id)
+        if self.folder.is_none() {
+            return Ok(());
+        }
+        let directory = self.chat_dir(id)?;
+        let lock = chat_lock(self.folder.as_deref().ok_or(Error::Storage)?, id)?;
+        let _guard = lock.lock().map_err(|_| Error::Storage)?;
+        self.append_unlocked(&directory,&json!({"v":1,"type":"file","id":random_id,"path":path.to_str().ok_or(Error::Storage)?}))?;
+        self.settle_unlocked(id, random_id)
     }
     pub fn copy_source(
         &self,

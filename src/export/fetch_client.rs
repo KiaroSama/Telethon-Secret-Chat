@@ -5,6 +5,8 @@ use std::{future::Future, pin::Pin};
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 #[derive(Clone, PartialEq, Eq)]
 pub enum FetchError {
+    /// Network, authorization or response-decoding failure without remote diagnostics.
+    Transport,
     Rpc {
         code: i32,
         name: String,

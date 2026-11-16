@@ -25,6 +25,20 @@ use super::common::{
 };
 
 const CODE_LANG_PREFIX: &str = "language-";
+fn escape_html(value: &str) -> String {
+    let mut escaped = String::new();
+    for c in value.chars() {
+        match c {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&#39;"),
+            _ => escaped.push(c),
+        }
+    }
+    escaped
+}
 
 /// Parse a message containing HTML tags into plain text and the list of formatting entities understood by Telegram.
 ///
@@ -118,8 +132,10 @@ pub fn parse_html_message(message: &str) -> (String, Vec<tl::enums::MessageEntit
                             .map(|a| a.value.to_string())
                             .unwrap_or_else(|| "".to_string());
 
-                        if url.starts_with(MENTION_URL_PREFIX) {
-                            let user_id = url[MENTION_URL_PREFIX.len()..].parse::<i64>().unwrap();
+                        if let Some(user_id) = url
+                            .strip_prefix(MENTION_URL_PREFIX)
+                            .and_then(|id| id.parse::<i64>().ok())
+                        {
                             entities.push(
                                 tl::types::MessageEntityMentionName {
                                     offset,
@@ -185,14 +201,25 @@ pub fn parse_html_message(message: &str) -> (String, Vec<tl::enums::MessageEntit
                         update_entity_len!(Pre(offset) in entities);
                     }
                     tag!("a") => {
-                        match entities.iter_mut().rev().next() {
-                            // If the previous url is a mention, don't close with `</a>`;
-                            Some(tl::enums::MessageEntity::MentionName(_)) => {
-                                update_entity_len!(MentionName(offset) in entities);
-                            }
-                            _ => {
-                                update_entity_len!(TextUrl(offset) in entities);
-                            }
+                        let mention = entities
+                            .iter()
+                            .rev()
+                            .find_map(|entity| match entity {
+                                tl::enums::MessageEntity::MentionName(value)
+                                    if value.length == 0 =>
+                                {
+                                    Some(true)
+                                }
+                                tl::enums::MessageEntity::TextUrl(value) if value.length == 0 => {
+                                    Some(false)
+                                }
+                                _ => None,
+                            })
+                            .unwrap_or(false);
+                        if mention {
+                            update_entity_len!(MentionName(offset) in entities);
+                        } else {
+                            update_entity_len!(TextUrl(offset) in entities);
                         }
                     }
                     tag!("time") => {
@@ -297,7 +324,10 @@ pub fn generate_html_message(message: &str, entities: &[tl::enums::MessageEntity
                         before(i, 0, e.offset),
                         Segment::Fixed("<pre><code class=\"language-"),
                     ));
-                    insertions.push((before(i, 1, e.offset), Segment::String(&e.language)));
+                    insertions.push((
+                        before(i, 1, e.offset),
+                        Segment::Owned(escape_html(&e.language)),
+                    ));
                     insertions.push((before(i, 2, e.offset), Segment::Fixed("\">")));
                     insertions.push((
                         after(i, 0, e.offset + e.length),
@@ -307,7 +337,7 @@ pub fn generate_html_message(message: &str, entities: &[tl::enums::MessageEntity
             }
             ME::TextUrl(e) => {
                 insertions.push((before(i, 0, e.offset), Segment::Fixed("<a href=\"")));
-                insertions.push((before(i, 1, e.offset), Segment::String(&e.url)));
+                insertions.push((before(i, 1, e.offset), Segment::Owned(escape_html(&e.url))));
                 insertions.push((before(i, 2, e.offset), Segment::Fixed("\">")));
                 insertions.push((after(i, 0, e.offset + e.length), Segment::Fixed("</a>")));
             }
@@ -397,7 +427,9 @@ pub fn generate_html_message(message: &str, entities: &[tl::enums::MessageEntity
             ME::TonAddress(_) => {}
         });
 
-    inject_into_message(message, insertions)
+    inject_into_message(message, insertions, |result, c, _| {
+        result.push_str(&escape_html(&c.to_string()))
+    })
 }
 
 /// Parse a regular `<time>` HTML tag into a Telegram message entity.
@@ -422,7 +454,7 @@ fn parse_time_tag(
     if let Some(dt_str) = dt_str
         && let Some(timestamp) = parse_timestamp(&dt_str)
     {
-        let tg_ts: i32 = timestamp.as_second() as i32;
+        let tg_ts = i32::try_from(timestamp.as_second()).ok()?;
 
         Some(create_formatted_date(offset, length, tg_ts, &format))
     } else {

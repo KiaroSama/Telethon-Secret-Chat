@@ -46,6 +46,14 @@ pub struct Sent {
     pub file: Option<tl::types::EncryptedFile>,
 }
 pub trait Transport: Clone + Send + Sync + 'static {
+    /// Complete already accepted blocking I/O before releasing manager ownership.
+    fn drain_io(&self) -> BoxFuture<'_, Result<()>> {
+        Box::pin(async { Ok(()) })
+    }
+    /// Reopen admission only after prior blocking workers have completed.
+    fn resume_io(&self) -> Result<()> {
+        Ok(())
+    }
     fn requires_verified_binding(&self) -> bool {
         false
     }
@@ -118,6 +126,13 @@ fn peer(id: i32, access_hash: i64) -> tl::enums::InputEncryptedChat {
     .into()
 }
 impl Transport for crate::transport::GrammersTransport {
+    fn drain_io(&self) -> BoxFuture<'_, Result<()>> {
+        Box::pin(self.io.drain())
+    }
+    fn resume_io(&self) -> Result<()> {
+        self.io.resume()
+    }
+
     fn requires_verified_binding(&self) -> bool {
         true
     }
@@ -226,25 +241,31 @@ impl Transport for crate::transport::GrammersTransport {
         source: &'a mut SourceReader,
         key: &'a FileKey,
     ) -> BoxFuture<'a, Result<tl::enums::InputEncryptedFile>> {
-        Box::pin(crate::media::upload_file(self.client(), source, key))
+        Box::pin(
+            self.io
+                .scope(crate::media::upload_file(self.client(), source, key)),
+        )
     }
     fn download_bytes<'a>(
         &'a self,
         reference: &'a MediaReference,
         maximum: usize,
     ) -> BoxFuture<'a, Result<Vec<u8>>> {
-        Box::pin(crate::media::download_bytes(
+        Box::pin(self.io.scope(crate::media::download_bytes(
             self.client(),
             reference,
             maximum,
-        ))
+        )))
     }
     fn download<'a>(
         &'a self,
         reference: &'a MediaReference,
         path: &'a Path,
     ) -> BoxFuture<'a, Result<PathBuf>> {
-        Box::pin(crate::media::download_file(self.client(), reference, path))
+        Box::pin(
+            self.io
+                .scope(crate::media::download_file(self.client(), reference, path)),
+        )
     }
 }
 pub(crate) fn file_handle(file: tl::types::EncryptedFile) -> Vec<u8> {

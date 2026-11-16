@@ -110,17 +110,25 @@ impl Drop for WorkPermit {
         self.budget.active.fetch_sub(self.count, Ordering::AcqRel);
     }
 }
-pub(crate) struct PayloadReservation(Option<Box<dyn FnOnce() + Send>>);
-impl PayloadReservation {
-    pub fn empty() -> Self {
-        Self(None)
-    }
-}
-impl Drop for PayloadReservation {
+struct PayloadRelease(Mutex<Option<Box<dyn FnOnce() + Send>>>);
+impl Drop for PayloadRelease {
     fn drop(&mut self) {
-        if let Some(release) = self.0.take() {
+        if let Ok(mut callback) = self.0.lock()
+            && let Some(release) = callback.take()
+        {
             release();
         }
+    }
+}
+pub(crate) struct PayloadReservation(Arc<PayloadRelease>);
+impl PayloadReservation {
+    pub fn empty() -> Self {
+        Self(Arc::new(PayloadRelease(Mutex::new(None))))
+    }
+    fn new(release: impl FnOnce() + Send + 'static) -> Self {
+        let resource = Arc::new(PayloadRelease(Mutex::new(Some(Box::new(release)))));
+        crate::media::blocking::retain(&resource);
+        Self(resource)
     }
 }
 #[derive(Default)]
@@ -160,6 +168,15 @@ pub(crate) enum WorkKind {
     Persistence,
     Resume,
 }
+#[derive(Default)]
+pub(crate) struct Headroom(BTreeMap<u64, (usize, usize)>);
+impl Headroom {
+    fn maximum(&self) -> (usize, usize) {
+        self.0.values().fold((0, 0), |(records, bytes), amount| {
+            (records.max(amount.0), bytes.max(amount.1))
+        })
+    }
+}
 impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
     pub(crate) fn reserve_headroom(
         &self,
@@ -179,10 +196,14 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
             .ok()
             .flatten()
             .ok_or(Error::InvalidState)?;
-        let previous = self.protocol(|p| {
+        let lease = self.inner.reservation.fetch_add(1, Ordering::AcqRel);
+        if lease == 0 {
+            return Err(Error::Capacity);
+        }
+        self.protocol(|p| {
             let mut held = self.inner.headroom.lock().map_err(|_| Error::Storage)?;
             let key = (id, owner);
-            let previous = held.get(&key).copied();
+            let previous = held.get(&key).map(Headroom::maximum);
             let requested = (
                 records.max(previous.map_or(0, |v| v.0)),
                 bytes.max(previous.map_or(0, |v| v.1)),
@@ -192,8 +213,8 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
                 .filter(|((chat, token), _)| *chat == id && *token != owner)
                 .try_fold((0usize, 0usize), |(rs, bs), (_, amount)| {
                     Ok::<_, Error>((
-                        rs.checked_add(amount.0).ok_or(Error::Capacity)?,
-                        bs.checked_add(amount.1).ok_or(Error::Capacity)?,
+                        rs.checked_add(amount.maximum().0).ok_or(Error::Capacity)?,
+                        bs.checked_add(amount.maximum().1).ok_or(Error::Capacity)?,
                     ))
                 })?;
             p.admit_budget(
@@ -207,24 +228,24 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
                     .checked_add(other_bytes)
                     .ok_or(Error::Capacity)?,
             )?;
-            held.insert(key, requested);
-            Ok(previous)
+            held.entry(key)
+                .or_default()
+                .0
+                .insert(lease, (records, bytes));
+            Ok(())
         })?;
         let weak = Arc::downgrade(&self.inner);
-        Ok(PayloadReservation(Some(Box::new(move || {
+        Ok(PayloadReservation::new(move || {
             if let Some(inner) = weak.upgrade()
                 && let Ok(mut held) = inner.headroom.lock()
+                && let Some(leases) = held.get_mut(&(id, owner))
             {
-                match previous {
-                    Some(previous) => {
-                        held.insert((id, owner), previous);
-                    }
-                    None => {
-                        held.remove(&(id, owner));
-                    }
+                leases.0.remove(&lease);
+                if leases.0.is_empty() {
+                    held.remove(&(id, owner));
                 }
             }
-        }))))
+        }))
     }
     pub(crate) fn runtime_refuse(&self, id: Option<i32>, reason: RuntimeRefusal, lost: bool) {
         if let Some(id) = id {
@@ -269,6 +290,7 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
         }
     }
     pub(crate) fn fence_runtime(&self) {
+        self.inner.startup_complete.store(false, Ordering::Release);
         self.inner.stopping.store(true, Ordering::Release);
         self.inner.generation.fetch_add(1, Ordering::AcqRel);
         if let Ok(token) = self.inner.creation_cancel.lock() {
@@ -311,14 +333,14 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
         }
         self.inner.expiry_changed.notify_one();
         let weak = Arc::downgrade(&self.inner);
-        Ok(PayloadReservation(Some(Box::new(move || {
+        Ok(PayloadReservation::new(move || {
             if let Some(inner) = weak.upgrade()
                 && let Ok(mut protocol) = inner.protocol.lock()
             {
                 protocol.release_external(token);
                 inner.expiry_changed.notify_one();
             }
-        }))))
+        }))
     }
     pub(crate) fn with_operation<'a, R: Send + 'a, F: Future<Output = Result<R>> + Send + 'a>(
         &'a self,
@@ -402,9 +424,13 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
                 None
             } else {
                 match self.inner.work.acquire(1) {
-                    Ok(permit) => Some(permit),
+                    Ok(permit) => Some(Arc::new(permit)),
                     Err(error) => {
-                        self.runtime_refuse(id, RuntimeRefusal::Capacity, false);
+                        self.runtime_refuse(
+                            id,
+                            RuntimeRefusal::Capacity,
+                            kind == WorkKind::Receive,
+                        );
                         return Err(error);
                     }
                 }
@@ -426,9 +452,13 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
                     std::future::pending::<()>().await;
                 }
             };
-            let cancellable = async {
+            let mut held: Vec<Arc<dyn Send + Sync>> = vec![_payload.0.clone()];
+            if let Some(permit) = &permit {
+                held.push(permit.clone());
+            }
+            let cancellable = crate::media::blocking::resources(held, async {
                 tokio::select! {result=future=>Some(result),_=interrupt=>None}
-            };
+            });
             let result = if already_owned {
                 match cancellable.await {
                     Some(result) => result,

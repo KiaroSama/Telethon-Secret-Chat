@@ -1,4 +1,6 @@
 #![allow(clippy::unwrap_used)]
+#[path = "support_manager/archive_review.rs"]
+mod archive_review;
 #[path = "support_manager/logging.rs"]
 mod logging;
 #[path = "support_manager/mod.rs"]
@@ -33,6 +35,7 @@ async fn saved_files(a: &Manager, id: i32, count: usize) -> Vec<serde_json::Valu
 }
 #[tokio::test]
 async fn messages_both_directions_include_ttl_and_service_records() {
+    archive_review::concurrent_archive_transactions();
     let (a, b, world, id, _folder) = saving().await;
     a.send_message(id, "from a", None, None).await.unwrap();
     pump(&a, &b, &world).await;
@@ -59,6 +62,7 @@ async fn messages_both_directions_include_ttl_and_service_records() {
 }
 #[tokio::test]
 async fn files_both_directions_are_saved_decrypted_without_keys() {
+    uncertain_attachment_send_keeps_saved_file_work().await;
     let (a, b, world, id, _folder) = saving().await;
     let incoming = b"a photo from b".repeat(50);
     let outgoing = b"a document from a".repeat(70);
@@ -107,6 +111,7 @@ async fn deleting_saved_conversation_removes_only_selected_folder() {
 }
 #[tokio::test]
 async fn turning_archive_off_retains_prior_rows_and_stops_new_rows() {
+    disabling_archive_closes_download_admission_first().await;
     let (a, _b, _world, id, _folder) = saving().await;
     a.send_message(id, "saved", None, None).await.unwrap();
     a.stop_auto_save_secret_chats().await.unwrap();
@@ -119,6 +124,114 @@ async fn turning_archive_off_retains_prior_rows_and_stops_new_rows() {
             .collect::<Vec<_>>(),
         ["saved"]
     );
+}
+
+async fn uncertain_attachment_send_keeps_saved_file_work() {
+    use kiaro_secret_chat::{error::Error, manager::RpcFailure};
+    let (a, b, world, id, _folder) = saving().await;
+    world.lock().unwrap().fail_send = Some(RpcFailure::Transient);
+    let error = a
+        .send_file(
+            id,
+            FileSource::bytes(b"uncertain plaintext".to_vec(), "uncertain.bin").unwrap(),
+            SendFileOptions::default(),
+        )
+        .await
+        .unwrap_err();
+    let Error::SendPending { random_id, .. } = error else {
+        panic!("expected retained pending send")
+    };
+    let rows = a.read_saved_messages(id).unwrap();
+    let row = rows.iter().find(|row| row["id"] == random_id).unwrap();
+    let Some(path) = row["file"].as_str() else {
+        panic!("an uncertain send must retain its local attachment before returning");
+    };
+    let path = path.to_owned();
+    assert_eq!(std::fs::read(&path).unwrap(), b"uncertain plaintext");
+    world.lock().unwrap().fail_send = None;
+    a.retry_pending(id).await.unwrap();
+    pump(&a, &b, &world).await;
+    let reference = b.read_history(id, 1).unwrap()[0]
+        .media_reference
+        .clone()
+        .unwrap();
+    world.lock().unwrap().fail_send = Some(RpcFailure::Transient);
+    let error = a
+        .forward_file(id, &reference, "uncertain forward", None)
+        .await
+        .unwrap_err();
+    let Error::SendPending {
+        random_id: forward_id,
+        ..
+    } = error
+    else {
+        panic!("expected retained forwarded send")
+    };
+    let rows = saved_files(&a, id, 2).await;
+    let forwarded = rows.iter().find(|row| row["id"] == forward_id).unwrap();
+    assert_eq!(
+        std::fs::read(forwarded["file"].as_str().unwrap()).unwrap(),
+        b"uncertain plaintext"
+    );
+    assert_eq!(
+        rows.iter().find(|row| row["id"] == random_id).unwrap()["file"],
+        path
+    );
+    world.lock().unwrap().fail_send = None;
+    a.retry_pending(id).await.unwrap();
+    a.stop().await.unwrap();
+    b.stop().await.unwrap();
+}
+
+async fn disabling_archive_closes_download_admission_first() {
+    use std::{future::Future, task::Poll};
+    let (a, b, world, id, _folder) = saving().await;
+    let gate = Arc::new(Gate::default());
+    world.lock().unwrap().download_gate = Some(Arc::clone(&gate));
+    b.send_file(
+        id,
+        FileSource::bytes(b"accepted before disable".to_vec(), "before.bin").unwrap(),
+        SendFileOptions::default(),
+    )
+    .await
+    .unwrap();
+    pump(&a, &b, &world).await;
+    tokio::time::timeout(Duration::from_secs(3), gate.entered.notified())
+        .await
+        .unwrap();
+    let mut stopping = Box::pin(a.stop_auto_save_secret_chats());
+    std::future::poll_fn(|cx| {
+        assert!(stopping.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    assert!(
+        a.auto_save_secret_chats().unwrap().is_none(),
+        "archive admission must close before accepted downloads drain"
+    );
+    b.send_file(
+        id,
+        FileSource::bytes(b"arrived after disable".to_vec(), "after.bin").unwrap(),
+        SendFileOptions::default(),
+    )
+    .await
+    .unwrap();
+    pump(&a, &b, &world).await;
+    world.lock().unwrap().download_gate = None;
+    gate.release.notify_one();
+    tokio::time::timeout(Duration::from_secs(3), stopping)
+        .await
+        .unwrap()
+        .unwrap();
+    let rows = a.read_saved_messages(id).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        std::fs::read(rows[0]["file"].as_str().unwrap()).unwrap(),
+        b"accepted before disable"
+    );
+    assert_eq!(world.lock().unwrap().downloads, 1);
+    a.stop().await.unwrap();
+    b.stop().await.unwrap();
 }
 #[tokio::test]
 async fn archive_failure_never_breaks_delivery_or_send() {

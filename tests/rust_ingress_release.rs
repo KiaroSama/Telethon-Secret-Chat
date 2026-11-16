@@ -2,6 +2,8 @@
 mod boundary;
 #[path = "support_sdk/machine.rs"]
 mod machine;
+#[path = "support_sdk/session_regressions.rs"]
+mod session_regressions;
 mod support_sdk;
 #[tokio::test]
 #[allow(clippy::unwrap_used)]
@@ -30,6 +32,7 @@ async fn real_original_client_and_live_receiver_commit_before_deleting_server_ac
 }
 #[tokio::test]
 async fn real_original_client_and_difference_receiver_commit_before_deleting_server_ack() {
+    session_regressions::run().await;
     boundary::receiver_restores_checkpoint_before_initial_state_rpc().await;
     machine::checkpoint_restores_counter_and_difference_ownership();
     machine::checkpoint_rejects_trailing_bytes_and_truncation();

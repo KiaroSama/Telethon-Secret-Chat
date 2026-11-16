@@ -11,7 +11,7 @@
 use std::collections::VecDeque;
 
 use grammers_mtsender::{InvocationError, UpdatesConfiguration, UpdatesReceiver};
-use grammers_session::updates::{State, UpdatesLike};
+use grammers_session::updates::{State, UpdateAndPeers, UpdatesLike};
 use grammers_tl_types as tl;
 use tokio::sync::mpsc;
 
@@ -24,6 +24,7 @@ pub struct UpdateStream {
     client: Client,
     updates: UpdatesReceiver,
     buffer: VecDeque<(tl::enums::Update, State, PeerMap)>,
+    pending: Option<UpdateAndPeers>,
 }
 
 impl UpdateStream {
@@ -41,17 +42,35 @@ impl UpdateStream {
                 return Ok(update);
             }
 
-            let (updates, users, chats) = self.updates.next().await?;
-            let peer_map = self.client.build_peer_map(users, chats).await;
-            self.buffer
-                .extend(updates.into_iter().map(|(u, s)| (u, s, peer_map.handle())));
+            if self.pending.is_none() {
+                self.pending = Some(self.updates.next().await?);
+            }
+            if let Some((_, users, chats)) = &self.pending {
+                let peer_map = self
+                    .client
+                    .build_peer_map(users.clone(), chats.clone())
+                    .await;
+                if let Some((updates, _, _)) = self.pending.take() {
+                    self.buffer
+                        .extend(updates.into_iter().map(|(u, s)| (u, s, peer_map.handle())));
+                }
+            }
         }
     }
 
     /// Synchronize the updates state to the session.
     ///
-    /// This is **not** automatically done on drop.
+    /// This is **not** automatically done on drop. Drain all buffered items with
+    /// `next` or `next_raw` first. A received batch still awaiting peer caching
+    /// also prevents synchronization, so a canceled read cannot skip its updates.
     pub async fn sync_update_state(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if self.pending.is_some() || !self.buffer.is_empty() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "cannot synchronize while received updates remain buffered",
+            )
+            .into());
+        }
         self.updates.sync_update_state().await
     }
 }
@@ -83,6 +102,7 @@ impl Client {
             client: self.clone(),
             updates,
             buffer: VecDeque::new(),
+            pending: None,
         })
     }
 }

@@ -16,6 +16,7 @@ include = [
     "vendor/grammers/*/src/**", "vendor/grammers/*/Cargo.toml",
     "vendor/grammers/*/LICENSE-*", "vendor/grammers/README.md",
     "vendor/grammers/upstream-hashes.json",
+    "vendor/grammers/local-patches.json",
     "tools/secret-scan/src/**", "tools/secret-scan/Cargo.toml", "tools/secret-scan/Cargo.lock",
 ]
 

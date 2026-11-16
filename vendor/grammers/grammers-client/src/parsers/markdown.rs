@@ -25,113 +25,152 @@ pub fn parse_markdown_message(message: &str) -> (String, Vec<tl::enums::MessageE
 
     let mut offset = 0;
     let length = 0;
-    Parser::new(message).for_each(|event| match event {
-        // text
-        Event::Text(string) => {
-            text.push_str(&string);
-            offset += telegram_string_len(&string);
+    let mut pending_paragraph = false;
+    for event in Parser::new(message) {
+        if matches!(&event, Event::End(TagEnd::Paragraph)) {
+            pending_paragraph = true;
+            continue;
         }
-
-        // `code`
-        Event::Code(string) => {
-            text.push_str(&string);
-            let length = telegram_string_len(&string);
-            entities.push(tl::types::MessageEntityCode { offset, length }.into());
-            offset += length;
-        }
-
-        // **bold text**
-        Event::Start(Tag::Strong) => {
-            entities.push(tl::types::MessageEntityBold { offset, length }.into());
-        }
-        Event::End(TagEnd::Strong) => {
-            update_entity_len!(Bold(offset) in entities);
-        }
-
-        // *italic text*
-        Event::Start(Tag::Emphasis) => {
-            entities.push(tl::types::MessageEntityItalic { offset, length }.into());
-        }
-        Event::End(TagEnd::Emphasis) => {
-            update_entity_len!(Italic(offset) in entities);
-        }
-
-        // [text link](https://example.com) or [user mention](tg://user?id=12345678)
-        Event::Start(Tag::Link { dest_url, .. }) => {
-            if dest_url.starts_with(MENTION_URL_PREFIX) {
-                let user_id = dest_url[MENTION_URL_PREFIX.len()..].parse::<i64>().unwrap();
-                entities.push(
-                    tl::types::MessageEntityMentionName {
-                        offset,
-                        length,
-                        user_id,
-                    }
-                    .into(),
-                );
-            } else {
-                entities.push(
-                    tl::types::MessageEntityTextUrl {
-                        offset,
-                        length,
-                        url: dest_url.to_string(),
-                    }
-                    .into(),
-                );
-            }
-        }
-        Event::End(TagEnd::Link) => {
-            let is_mention = entities
-                .iter()
-                .rev()
-                .find_map(|e| match e {
-                    tl::enums::MessageEntity::MentionName(_) => Some(true),
-                    tl::enums::MessageEntity::TextUrl(_) => Some(false),
-                    _ => None,
-                })
-                .unwrap_or(false);
-
-            if is_mention {
-                update_entity_len!(MentionName(offset) in entities);
-            } else {
-                update_entity_len!(TextUrl(offset) in entities);
-            }
-        }
-
-        // ```lang\npre```
-        Event::Start(Tag::CodeBlock(kind)) => {
-            let lang = match kind {
-                CodeBlockKind::Indented => "".to_string(),
-                CodeBlockKind::Fenced(lang) => lang.to_string(),
-            }
-            .to_string();
-
-            entities.push(
-                tl::types::MessageEntityPre {
-                    offset,
-                    length,
-                    language: lang,
-                }
-                .into(),
-            );
-        }
-        Event::End(TagEnd::CodeBlock) => {
-            update_entity_len!(Pre(offset) in entities);
-        }
-        // "\\\n"
-        Event::HardBreak => {
-            text.push('\n');
-            offset += 1;
-        }
-        // "\n\n"
-        Event::End(TagEnd::Paragraph) => {
+        if pending_paragraph
+            && matches!(
+                &event,
+                Event::Text(_)
+                    | Event::Code(_)
+                    | Event::HardBreak
+                    | Event::SoftBreak
+                    | Event::Start(
+                        Tag::Strong | Tag::Emphasis | Tag::Link { .. } | Tag::CodeBlock(_)
+                    )
+            )
+        {
             text.push_str("\n\n");
             offset += 2;
+            pending_paragraph = false;
         }
-        _ => {}
-    });
+        match event {
+            // text
+            Event::Text(string) => {
+                text.push_str(&string);
+                offset += telegram_string_len(&string);
+            }
 
-    text.truncate(text.trim_end().len());
+            // `code`
+            Event::Code(string) => {
+                text.push_str(&string);
+                let length = telegram_string_len(&string);
+                entities.push(tl::types::MessageEntityCode { offset, length }.into());
+                offset += length;
+            }
+
+            // **bold text**
+            Event::Start(Tag::Strong) => {
+                entities.push(tl::types::MessageEntityBold { offset, length }.into());
+            }
+            Event::End(TagEnd::Strong) => {
+                update_entity_len!(Bold(offset) in entities);
+            }
+
+            // *italic text*
+            Event::Start(Tag::Emphasis) => {
+                entities.push(tl::types::MessageEntityItalic { offset, length }.into());
+            }
+            Event::End(TagEnd::Emphasis) => {
+                update_entity_len!(Italic(offset) in entities);
+            }
+
+            // [text link](https://example.com) or [user mention](tg://user?id=12345678)
+            Event::Start(Tag::Link { dest_url, .. }) => {
+                if let Some(user_id) = dest_url
+                    .strip_prefix(MENTION_URL_PREFIX)
+                    .and_then(|id| id.parse::<i64>().ok())
+                {
+                    entities.push(
+                        tl::types::MessageEntityMentionName {
+                            offset,
+                            length,
+                            user_id,
+                        }
+                        .into(),
+                    );
+                } else {
+                    entities.push(
+                        tl::types::MessageEntityTextUrl {
+                            offset,
+                            length,
+                            url: dest_url.to_string(),
+                        }
+                        .into(),
+                    );
+                }
+            }
+            Event::End(TagEnd::Link) => {
+                let is_mention = entities
+                    .iter()
+                    .rev()
+                    .find_map(|e| match e {
+                        tl::enums::MessageEntity::MentionName(_) => Some(true),
+                        tl::enums::MessageEntity::TextUrl(_) => Some(false),
+                        _ => None,
+                    })
+                    .unwrap_or(false);
+
+                if is_mention {
+                    update_entity_len!(MentionName(offset) in entities);
+                } else {
+                    update_entity_len!(TextUrl(offset) in entities);
+                }
+            }
+
+            // ```lang\npre```
+            Event::Start(Tag::CodeBlock(kind)) => {
+                let lang = match kind {
+                    CodeBlockKind::Indented => "".to_string(),
+                    CodeBlockKind::Fenced(lang) => lang.to_string(),
+                }
+                .to_string();
+
+                entities.push(
+                    tl::types::MessageEntityPre {
+                        offset,
+                        length,
+                        language: lang,
+                    }
+                    .into(),
+                );
+            }
+            Event::End(TagEnd::CodeBlock) => {
+                update_entity_len!(Pre(offset) in entities);
+            }
+            // "\\\n"
+            Event::HardBreak | Event::SoftBreak => {
+                text.push('\n');
+                offset += 1;
+            }
+            _ => {}
+        }
+    }
+
     (text, entities)
+}
+
+fn entity_text(message: &str, offset: i32, length: i32) -> String {
+    String::from_utf16_lossy(
+        &message
+            .encode_utf16()
+            .skip(offset.max(0) as usize)
+            .take(length.max(0) as usize)
+            .collect::<Vec<_>>(),
+    )
+}
+fn longest_run(value: &str, delimiter: char) -> usize {
+    value
+        .chars()
+        .scan(0, |run, c| {
+            *run = if c == delimiter { *run + 1 } else { 0 };
+            Some(*run)
+        })
+        .max()
+        .unwrap_or(0)
 }
 
 /// Combine plain text and the list of formatting entities understood by Telegram into CommonMark-compliant markdown.
@@ -178,19 +217,36 @@ pub fn generate_markdown_message(message: &str, entities: &[tl::enums::MessageEn
                 insertions.push((after(i, 0, e.offset + e.length), Segment::Fixed("_")));
             }
             ME::Code(e) => {
-                insertions.push((before(i, 0, e.offset), Segment::Fixed("`")));
-                insertions.push((after(i, 0, e.offset + e.length), Segment::Fixed("`")));
+                let content = entity_text(message, e.offset, e.length);
+                let delimiter = "`".repeat(longest_run(&content, '`') + 1);
+                let padding = content.starts_with('`')
+                    || content.ends_with('`')
+                    || content.starts_with(' ')
+                        && content.ends_with(' ')
+                        && content.chars().any(|c| c != ' ');
+                let edge = format!("{delimiter}{}", if padding { " " } else { "" });
+                let end = format!("{}{delimiter}", if padding { " " } else { "" });
+                insertions.push((before(i, 0, e.offset), Segment::Owned(edge)));
+                insertions.push((after(i, 0, e.offset + e.length), Segment::Owned(end)));
             }
             ME::Pre(e) => {
-                if e.language.is_empty() {
-                    insertions.push((before(i, 0, e.offset), Segment::Fixed("```\n")));
-                    insertions.push((after(i, 0, e.offset + e.length), Segment::Fixed("```\n")));
-                } else {
-                    insertions.push((before(i, 0, e.offset), Segment::Fixed("```")));
-                    insertions.push((before(i, 1, e.offset), Segment::String(&e.language)));
-                    insertions.push((before(i, 2, e.offset), Segment::Fixed("\n")));
-                    insertions.push((after(i, 0, e.offset + e.length), Segment::Fixed("```\n")));
-                }
+                let content = entity_text(message, e.offset, e.length);
+                let delimiter = if e.language.contains('`') { '~' } else { '`' };
+                let fence = delimiter
+                    .to_string()
+                    .repeat((longest_run(&content, delimiter) + 1).max(3));
+                let language = e.language.split(['\r', '\n']).next().unwrap_or("");
+                insertions.push((
+                    before(i, 0, e.offset),
+                    Segment::Owned(format!("{fence}{language}\n")),
+                ));
+                insertions.push((
+                    after(i, 0, e.offset + e.length),
+                    Segment::Owned(format!(
+                        "{}{fence}\n",
+                        if content.ends_with('\n') { "" } else { "\n" }
+                    )),
+                ));
             }
             ME::TextUrl(e) => {
                 insertions.push((before(i, 0, e.offset), Segment::Fixed("[")));
@@ -223,7 +279,21 @@ pub fn generate_markdown_message(message: &str, entities: &[tl::enums::MessageEn
             ME::TonAddress(_) => {}
         });
 
-    inject_into_message(message, insertions)
+    inject_into_message(message, insertions, |result, c, position| {
+        let code = entities.iter().any(|entity| {
+            let (offset, length) = match entity {
+                ME::Code(e) => (e.offset, e.length),
+                ME::Pre(e) => (e.offset, e.length),
+                _ => return false,
+            };
+            let at = position as i64;
+            at >= i64::from(offset) && at < i64::from(offset) + i64::from(length)
+        });
+        if !code && c.is_ascii_punctuation() {
+            result.push('\\');
+        }
+        result.push(c);
+    })
 }
 
 #[cfg(test)]
@@ -379,7 +449,12 @@ mod tests {
         [mentions](tg://user?id=12345678)";
         let (text, entities) = parse_markdown_message(markdown);
         let generated = generate_markdown_message(&text, &entities);
-        assert_eq!(generated, markdown);
+        // Escaped punctuation is canonical output; its parsed message is unchanged.
+        let expected = "Some **bold 🤷🏽‍♀️**\\, _italics_\\, inline `🤷🏽‍♀️ code`\\, \
+        a\n\n```rust\npre\n```\nblock\\, a [**link**](https://example.com)\\, and \
+        [mentions](tg://user?id=12345678)";
+        assert_eq!(generated, expected);
+        assert_eq!(parse_markdown_message(&generated), (text, entities));
     }
 
     #[test]

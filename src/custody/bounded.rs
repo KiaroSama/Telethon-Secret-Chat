@@ -5,6 +5,9 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+#[cfg(test)]
+#[path = "../../tests/support_protocol/custody_controls.rs"]
+pub(crate) mod review;
 const CONTROL: &str = "custody/v1";
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -40,7 +43,6 @@ pub struct CustodyStorage<S: Storage> {
     limits: CustodyLimits,
     state: State,
     controls: BTreeMap<i32, Control>,
-    active: Option<(i32, Operation)>,
     expired_runtime: BTreeSet<i32>,
 }
 impl<S: Storage> CustodyStorage<S> {
@@ -81,7 +83,6 @@ impl<S: Storage> CustodyStorage<S> {
             limits,
             state,
             controls,
-            active: None,
             expired_runtime: BTreeSet::new(),
         })
     }
@@ -338,22 +339,29 @@ impl<S: Storage> Storage for CustodyStorage<S> {
         self.limits.validate()?;
         if bytes > self.limits.frame_bytes {
             if let Some(id) = id {
-                self.pause(id, PauseReason::Capacity, operation == Operation::Receive)?;
+                self.pause(
+                    id,
+                    PauseReason::Capacity,
+                    operation == Operation::Receive && self.state.mode != StoreMode::Ingress,
+                )?;
             }
             return Err(Error::Capacity);
         }
-        if let Some(id) = id {
-            if let Some(chat) = self.state.chats.get(&id) {
-                let control = self.controls.get(&id).ok_or(Error::InvalidState)?;
-                if chat.paused || control.pause.is_some() {
-                    return Err(Error::Paused);
-                }
-                if let Err(error) = check_chat(chat, control, &self.limits, now()?) {
-                    self.pause(id, PauseReason::Age, operation == Operation::Receive)?;
-                    return Err(error);
-                }
+        if let Some(id) = id
+            && let Some(chat) = self.state.chats.get(&id)
+        {
+            let control = self.controls.get(&id).ok_or(Error::InvalidState)?;
+            if chat.paused || control.pause.is_some() {
+                return Err(Error::Paused);
             }
-            self.active = Some((id, operation));
+            if let Err(error) = check_chat(chat, control, &self.limits, now()?) {
+                self.pause(
+                    id,
+                    PauseReason::Age,
+                    operation == Operation::Receive && self.state.mode != StoreMode::Ingress,
+                )?;
+                return Err(error);
+            }
         }
         Ok(())
     }
@@ -389,7 +397,22 @@ impl<S: Storage> Storage for CustodyStorage<S> {
                     return Err(Error::Paused);
                 }
                 if let Err(error) = check_chat(chat, control, &self.limits, timestamp) {
-                    let lost = self.active == Some((*id, Operation::Receive));
+                    // Loss belongs to newly admitted input in THIS candidate,
+                    // never to a previous operation that returned before commit.
+                    // Journal-backed ingress retains refused input durably.
+                    let lost = self.state.mode != StoreMode::Ingress
+                        && self.state.chats.get(id).is_some_and(|previous| {
+                            chat.in_seq_no != previous.in_seq_no
+                                || chat.gaps.keys().any(|key| !previous.gaps.contains_key(key))
+                                || chat
+                                    .deliveries
+                                    .keys()
+                                    .any(|key| !previous.deliveries.contains_key(key))
+                                || chat
+                                    .service_deliveries
+                                    .keys()
+                                    .any(|key| !previous.service_deliveries.contains_key(key))
+                        });
                     if self.state.chats.contains_key(id) {
                         self.pause(
                             *id,
@@ -416,7 +439,6 @@ impl<S: Storage> Storage for CustodyStorage<S> {
         self.backend.commit(&candidate)?;
         self.state = self.backend.committed_view().unwrap_or(candidate);
         self.controls = controls;
-        self.active = None;
         Ok(())
     }
 }
