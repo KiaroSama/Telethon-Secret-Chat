@@ -198,9 +198,14 @@ async fn acknowledged_receipt_reconstructs_before_consumer_application() {
             )
             .is_ok()
     );
+    let owner = Arc::downgrade(&ingress);
     drop(receiver);
     drop(pool);
     drop(ingress);
+    assert!(
+        owner.upgrade().is_none(),
+        "completed SDK callbacks must release the custody owner before reopen"
+    );
     let restored = restore(&dir.path().join("state/custody.bin"), binding);
     assert_eq!(qts(&restored), 41);
     let rows = restored.pending_batches().unwrap();
