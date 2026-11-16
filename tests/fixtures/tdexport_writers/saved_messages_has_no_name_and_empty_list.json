@@ -1,0 +1,6 @@
+{
+  "legacy_case": "tests/test_tdexport_json.py::test_saved_messages_has_no_name_and_empty_list",
+  "files": {
+    "result.json": "7b0a202274797065223a202273617665645f6d65737361676573222c0a20226964223a203130302c0a20226d65737361676573223a205b0a205d0a7d"
+  }
+}

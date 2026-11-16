@@ -6,8 +6,8 @@
 # package refuses or repairs them. Standing alerts for the tests that reproduce a
 # bug teach everyone to scroll past alerts.
 #
-# Production code stays in scope in full, including `tools/` and `scripts/`.
-name: "telethon-secret-chat CodeQL"
+# Production Rust stays in scope, including native tools and SDK supplements.
+name: "kiaro-secret-chat Rust CodeQL"
 
 paths-ignore:
   - tests

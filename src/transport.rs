@@ -1,0 +1,199 @@
+//! Same-client grammers adapter. It never creates a client, signs in, or opens a
+//! second authorization. The application continues to own its update stream.
+use crate::{
+    dh::DhConfig,
+    error::{Error, Result},
+    protocol::SendEffect,
+};
+use grammers_client::Client;
+use grammers_tl_types::{self as tl, Deserializable};
+#[derive(Clone)]
+pub struct GrammersTransport {
+    client: Client,
+    pub(crate) io: std::sync::Arc<crate::media::blocking::IoTracker>,
+    ingress: Option<std::sync::Arc<crate::ingress::DurableIngress>>,
+}
+impl GrammersTransport {
+    pub fn new(client: Client) -> Self {
+        Self {
+            client,
+            io: std::sync::Arc::default(),
+            ingress: None,
+        }
+    }
+    pub(crate) fn from_verified_ingress(
+        client: Client,
+        ingress: std::sync::Arc<crate::ingress::DurableIngress>,
+    ) -> Self {
+        Self {
+            client,
+            io: std::sync::Arc::default(),
+            ingress: Some(ingress),
+        }
+    }
+    /// Verify binding through this exact supplied client using read-only RPCs.
+    /// Current authorization hashes identify the logged-in device without
+    /// exposing the private Client.session or copying any authorization key.
+    pub async fn verified_binding(
+        &self,
+        generation: &str,
+    ) -> Result<crate::binding::AuthorizationBinding> {
+        if let Some(ingress) = &self.ingress {
+            return ingress.verified_binding();
+        }
+        let users = self
+            .client
+            .invoke(&tl::functions::users::GetUsers {
+                id: vec![tl::enums::InputUser::UserSelf],
+            })
+            .await
+            .map_err(|_| Error::Transport)?;
+        let user_id = match users.as_slice() {
+            [tl::enums::User::User(user)] if user.is_self && !user.bot => user.id,
+            _ => return Err(Error::Authorization),
+        };
+        let tl::enums::account::Authorizations::Authorizations(authorizations) = self
+            .client
+            .invoke(&tl::functions::account::GetAuthorizations {})
+            .await
+            .map_err(|_| Error::Transport)?;
+        let current = authorizations
+            .authorizations
+            .into_iter()
+            .filter_map(|authorization| {
+                let tl::enums::Authorization::Authorization(authorization) = authorization;
+                authorization.current.then_some(authorization.hash)
+            })
+            .collect::<Vec<_>>();
+        let [authorization_hash] = current.as_slice() else {
+            return Err(Error::Authorization);
+        };
+        let tl::enums::Config::Config(config) = self
+            .client
+            .invoke(&tl::functions::help::GetConfig {})
+            .await
+            .map_err(|_| Error::Transport)?;
+        crate::binding::AuthorizationBinding::from_parts(
+            user_id,
+            *authorization_hash,
+            config.this_dc,
+            generation.to_owned(),
+        )
+    }
+    pub fn client(&self) -> &Client {
+        &self.client
+    }
+    pub async fn dh_config(&self) -> Result<DhConfig> {
+        match self
+            .client
+            .invoke(&tl::functions::messages::GetDhConfig {
+                version: 0,
+                random_length: 0,
+            })
+            .await
+            .map_err(|_| Error::Transport)?
+        {
+            tl::enums::messages::DhConfig::Config(config) => {
+                DhConfig::new(config.g as u32, &config.p)
+            }
+            _ => Err(Error::DhParameters),
+        }
+    }
+    pub async fn request_encryption(
+        &self,
+        user: tl::enums::InputUser,
+        random_id: i32,
+        g_a: Vec<u8>,
+    ) -> Result<tl::enums::EncryptedChat> {
+        self.client
+            .invoke(&tl::functions::messages::RequestEncryption {
+                user_id: user,
+                random_id,
+                g_a,
+            })
+            .await
+            .map_err(|_| Error::Transport)
+    }
+    pub async fn accept_encryption(
+        &self,
+        id: i32,
+        access_hash: i64,
+        g_b: Vec<u8>,
+        key_fingerprint: i64,
+    ) -> Result<tl::enums::EncryptedChat> {
+        self.client
+            .invoke(&tl::functions::messages::AcceptEncryption {
+                peer: peer(id, access_hash),
+                g_b,
+                key_fingerprint,
+            })
+            .await
+            .map_err(|_| Error::Transport)
+    }
+    pub async fn discard(&self, id: i32, delete_history: bool) -> Result<()> {
+        if !self
+            .client
+            .invoke(&tl::functions::messages::DiscardEncryption {
+                delete_history,
+                chat_id: id,
+            })
+            .await
+            .map_err(|_| Error::Transport)?
+        {
+            return Err(Error::Transport);
+        }
+        Ok(())
+    }
+    pub async fn send(&self, effect: &SendEffect) -> Result<()> {
+        let row = &effect.outgoing;
+        let peer = peer(effect.chat_id, effect.access_hash);
+        if let Some(file) = &row.file {
+            let file = tl::enums::InputEncryptedFile::from_bytes(file).map_err(|_| Error::Media)?;
+            self.client
+                .invoke(&tl::functions::messages::SendEncryptedFile {
+                    silent: false,
+                    peer,
+                    random_id: row.random_id,
+                    data: row.frame.clone(),
+                    file,
+                })
+                .await
+                .map_err(|_| Error::Transport)?;
+        } else if row.service {
+            self.client
+                .invoke(&tl::functions::messages::SendEncryptedService {
+                    peer,
+                    random_id: row.random_id,
+                    data: row.frame.clone(),
+                })
+                .await
+                .map_err(|_| Error::Transport)?;
+        } else {
+            self.client
+                .invoke(&tl::functions::messages::SendEncrypted {
+                    silent: false,
+                    peer,
+                    random_id: row.random_id,
+                    data: row.frame.clone(),
+                })
+                .await
+                .map_err(|_| Error::Transport)?;
+        }
+        Ok(())
+    }
+    /// Receiving an ordinary Raw update does not establish durable pre-ack custody.
+    pub fn require_strong_ingress(&self) -> Result<()> {
+        self.ingress
+            .as_ref()
+            .ok_or(Error::IngressUnavailable)?
+            .verified_binding()
+            .map(|_| ())
+    }
+}
+fn peer(id: i32, access_hash: i64) -> tl::enums::InputEncryptedChat {
+    tl::types::InputEncryptedChat {
+        chat_id: id,
+        access_hash,
+    }
+    .into()
+}

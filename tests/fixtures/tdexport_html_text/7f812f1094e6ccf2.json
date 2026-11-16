@@ -1,0 +1,17 @@
+{
+  "legacy_case": "tests/test_tdexport_html_text.py::test_safe_message_href_follows_qurl[mailto:a@b.c-mailto:a@b.c]",
+  "traces": [
+    {
+      "function": "html_safe.safe_message_href",
+      "args": [
+        "mailto:a@b.c"
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": "mailto:a@b.c",
+      "after": [
+        "mailto:a@b.c"
+      ]
+    }
+  ]
+}

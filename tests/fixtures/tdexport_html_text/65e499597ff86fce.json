@@ -1,0 +1,153 @@
+{
+  "legacy_case": "tests/test_tdexport_html_text.py::test_safe_http_email_phone_and_mention_hrefs",
+  "traces": [
+    {
+      "function": "html_safe.safe_http_href",
+      "args": [
+        "a.com"
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": null,
+      "after": [
+        "a.com"
+      ]
+    },
+    {
+      "function": "html_safe.safe_http_href",
+      "args": [
+        "http://a.com"
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": "http://a.com",
+      "after": [
+        "http://a.com"
+      ]
+    },
+    {
+      "function": "html_safe.safe_http_href",
+      "args": [
+        "mailto:a@b.c"
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": null,
+      "after": [
+        "mailto:a@b.c"
+      ]
+    },
+    {
+      "function": "html_safe.safe_email_href",
+      "args": [
+        "a@b.c"
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": "mailto:a@b.c",
+      "after": [
+        "a@b.c"
+      ]
+    },
+    {
+      "function": "html_safe.safe_email_href",
+      "args": [
+        "a@@b.c"
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": null,
+      "after": [
+        "a@@b.c"
+      ]
+    },
+    {
+      "function": "html_safe.safe_email_href",
+      "args": [
+        "a b@c.d"
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": null,
+      "after": [
+        "a b@c.d"
+      ]
+    },
+    {
+      "function": "html_safe.safe_email_href",
+      "args": [
+        "a@b.c?x"
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": null,
+      "after": [
+        "a@b.c?x"
+      ]
+    },
+    {
+      "function": "html_safe.safe_phone_href",
+      "args": [
+        "+1 (234) 5-6.7"
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": "tel:+1 (234) 5-6.7",
+      "after": [
+        "+1 (234) 5-6.7"
+      ]
+    },
+    {
+      "function": "html_safe.safe_phone_href",
+      "args": [
+        "+()"
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": null,
+      "after": [
+        "+()"
+      ]
+    },
+    {
+      "function": "html_safe.safe_phone_href",
+      "args": [
+        "12a"
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": null,
+      "after": [
+        "12a"
+      ]
+    },
+    {
+      "function": "html_safe.safe_mention_href",
+      "args": [
+        "@user_1",
+        "https://t.me/"
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": "https://t.me/user_1",
+      "after": [
+        "@user_1",
+        "https://t.me/"
+      ]
+    },
+    {
+      "function": "html_safe.safe_mention_href",
+      "args": [
+        "@us-er",
+        "https://t.me/"
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": null,
+      "after": [
+        "@us-er",
+        "https://t.me/"
+      ]
+    }
+  ]
+}

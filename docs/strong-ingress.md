@@ -1,110 +1,96 @@
-# Strong ingress: protected custody and prerequisite contract
+# Encrypted commit-before-ack ingress
 
-**Independent source review completed and PR26 merged; exact implementation CI is green.**
-Public `DurableIngress.prepare()` now
-validates the exact patched prerequisite, protected store and explicit baseline
-before attaching to an unconnected caller-owned client. Incompatible, live or
-unbound configurations refuse. Do not infer live interoperability or consumer
-installation approval from the synthetic checks described below.
+`ingress::DurableIngress` and `manager::StrongSecretChatManager` use the bundled
+native grammers supplement. Ordinary post-SDK update delivery cannot establish
+this guarantee. No second client, session import, login or device conversion is
+performed. Use the crate's canonical SDK re-exports.
 
-## Why the prerequisite changes
+## Setup order
 
-Official Telethon 1.45.0 advances MessageBox state before Raw callbacks. A subsequent
-`updates.getDifference` uses its input qts as an implicit queue acknowledgment;
-withholding `messages.receivedQueue` alone is insufficient. The library's existing
-bounded mode protects committed post-Raw custody, not this earlier gap.
+1. The application constructs its original `SenderPool` and `Client` from its
+   existing authorization. Keep the runner unstarted and the update receiver
+   unclaimed, with no invocation dispatched by any handle clone. A pool already
+   running, with an earlier queued invocation, or attached to another owner is refused.
+2. Derive `AuthorizationBinding::from_session_parts` from the known self user,
+   home DC and authorization key ID; never persist the raw authorization key as
+   the binding. Open `EncryptedIngressStorage` with a caller-owned 32-byte AEAD
+   key, separate from Telegram authorization and secret-chat keys.
+3. Construct `DurableIngress::new(storage, IngressLimits)` and call
+   `prepare(&original_pool_handle, Some(verified_MessageBoxes_checkpoint)).await`
+   for a fresh store. The baseline must represent the caller's verified existing
+   update state. A reconstructed journal uses `None` and refuses replacement.
+4. Start the original runner. `StrongSecretChatManager::new(original_client,
+   ingress.clone(), CustodyLimits).await` proves the exact original pool with a
+   CSPRNG ping cookie and verifies the server self-user response is a non-bot.
+   Unverified attachment permits no acknowledgement.
+5. Start the strong manager and create the original `UpdatesReceiver`. Feed its
+   updates to the strong manager to wake journal replay. The manager consumes
+   committed journal rows, not arbitrary post-dispatch ciphertext as receipts.
+6. Stop/settle the strong manager before handing off storage or stopping the
+   original pool. The application owns receiver/runner shutdown.
 
-The project-owned prerequisite tracks patches and helper source, not the full
-upstream tree. `tools/build_telethon.py` downloads a checksum-pinned official wheel,
-checks every edited source module, applies exact hunks and creates a normal
-installable wheel with rewritten RECORD and provenance. See
-[prerequisite instructions](../prerequisites/telethon/README.md).
-No installed-package mutation, runtime monkeypatch, new client or authorization is
-part of this approach. Upstream MIT notices remain in the resulting wheel.
+The exact `prepare` and binding signatures are in the Rust API. The supplement is
+already included in source/Git installs; [SDK preparation](rust-migration.md) is
+an optional hash-verification/auditing tool, not a runtime patch step.
 
-## Separate boundaries
+Choose an owner-controlled physical directory for custody. The encrypted store
+refuses symbolic links in the path or its ancestors, including temporary
+directory aliases. Resolve the trusted base directory before appending the new
+custody filename.
 
-1. Durable ingress receipt commits an exact live envelope or complete difference
-   response and its checkpoint/cursor before permitting queue acknowledgment.
-2. Secret-protocol application commits counters/mailbox and applied cursor together.
-3. Relay projection preserves consumer obligations until explicit acknowledgment.
-4. External cloud-send settlement remains the consumer's responsibility.
+## Custody and acknowledgement
 
-Packet MTProto ACK, queue qts acknowledgment, peer sequence acknowledgment and a
-user read receipt are different operations. Nothing here enables automatic read,
-acceptance, device settings, session migration, forum/UI relay or account activation.
+A complete live input is staged before any volatile SDK forwarding. The receiver
+applies it to a cloned MessageBoxes, commits the full envelope, emitted updates
+and next checkpoint, then replaces the observed machine. Checkpoints include
+account/channel counters, date/seq, held gaps, deadlines and difference ownership.
+Caller-issued account/channel difference responses are captured whole before the
+RPC result is returned, including qts-less secret messages and slices.
 
-## Public APIs
+Operational SDK callbacks run on one ordered blocking worker per original pool.
+The pool owns that thread independently of its callers' Tokio runtimes. RPC
+permit cleanup is queued on the same executor when its guard is dropped, so
+destroying a short-lived runtime cannot strand an issued request or bypass
+callback ordering.
+The worker owns its serial permit until the synchronous callback actually ends,
+including after cancellation of its async waiter. The receiver's checkpoint read,
+state transition and commit share one operation, so a caller-issued difference
+cannot replace the checkpoint between those steps. Initialization also stages
+updates received alongside the connection result before another network step can
+flush acknowledgements. Constructors, direct synchronous protocol/storage calls
+and exclusive pre-start attachment remain synchronous interfaces.
 
-- `EncryptedIngressStorage(path, *, key, binding, max_bytes)` supplies AEAD-encrypted
-  transactional custody and exclusive file ownership. The caller supplies a
-  32-byte key and binding fields `user_id`, `auth_key_id`, `dc_id`, `generation`.
-  The caller manages keys separately and configures owner-only Windows ACLs.
-- `IngressLimits(records, bytes, age_seconds, batch_bytes=1048576,
-  operation_seconds=15)` specifies finite aggregate ingress budgets.
-- `DurableIngress(storage, *, limits)` owns durable checkpoint and batch custody.
-  Its bootstrap is explicit; it cannot recover history never held in the store.
-- `StrongSecretChatManager(client, ingress, *, limits, admission=None)` reuses
-  bounded protocol, retained send identities, relay polling and RAM media receipt.
-  Auto-save is disabled before startup; previously saved archives remain untouched.
+Every original handle clone shares request guards. Explicit receivedQueue and
+implicit difference acknowledgement cannot exceed committed qts. Known wrappers
+are inspected recursively; unknown flags/wrappers and caller-packed MTProto
+containers refuse. Unissued/cancelled permits cannot capture results. Too-long
+differences, capacity/age/commit uncertainty, identity/DC replacement and stopped
+owners fence participation. A saved frontier must agree with its checkpoint even
+after completed batches are pruned. Existing protocol records without their
+journal refuse a fresh baseline.
 
-Call `await ingress.prepare(client, baseline=verified_state)` before connection
-for a fresh store. `verified_state` is the caller's explicitly verified MessageBox
-session-state tuple, not a guessed zero or recovery of already acknowledged history.
-For a reconstructed store call `await ingress.prepare(client)` with no replacement
-baseline. The coordinator verifies installed module hashes/import paths and restores
-its protected checkpoint before startup state requests can skip owed work. Then
-construct `StrongSecretChatManager(client, ingress, limits=custody_limits)` and start
-it with the original caller-owned client. No connect/login is performed by prepare.
+Protocol receive/establishment/terminal changes and their exact input application
+cursor commit to the same encrypted State. Unrelated settings or failed decrypts
+do not settle a journal row. Unknown terminal rows wait while held creations or
+pending request identities could still claim them; healthy peer work can proceed.
+No-create proof is only used after all relevant creation ownership is absent.
 
-Use the same caller-key/binding/generation on reconstruction, and close the previous
-manager and encrypted store before replacing them. Shutdown fences acknowledgments,
-cancels/joins owned replay and retains ownership if cancellation-resistant code
-cannot be joined. Asynchronous application callbacks cannot be forcibly killed;
-external effects are not covered by a Python hard-deadline guarantee.
+AES-256-GCM encrypts the whole state using a random nonce and binding/version AAD.
+The file backend retains atomic replacement, exclusive ownership and refusal on
+uncertain persistence. Protect and back up the caller's AEAD key separately.
+The frontend/session projection exposes only a durably backed checkpoint.
 
-## Storage and operational limits
+## Evidence and limits
 
-The encrypted file contains temporary protocol/ingress/relay custody, including
-payloads and media keys where needed for recovery; it is not payload-free. No media
-archive is created. Exclude custody and encryption keys from logs, exports,
-backups, packages and deployment bundles. AEAD cannot prevent replacement with an
-older valid snapshot without a separate trusted anti-rollback anchor.
+The offline tier uses the real original Client/receiver, modified SDK and a
+synthetic deleting-server model for live, difference, explicit acknowledgement
+and failed receipt commits. It also exercises filesystem faults, restart,
+backpressure, wrong-client proof, cancellation and mixed streams. Fixtures use
+burned keys; these are not real-account claims.
 
-POSIX file and directory fsync are required. Windows file fsync protects file data;
-this is not a universal power-loss/hardware guarantee. On uncertainty the store
-refuses further work; no physical-erasure guarantee is made.
-
-qts is authorization-wide. Finite durable spooling can bridge a paused chat only
-until aggregate capacity is exhausted; then authorization acknowledgment must
-stop, preserving already committed custody. Unlimited per-chat isolation with
-unaffected global acknowledgment and finite storage is not promised. Resume
-requires verified continuity, not fabricated counters or a reset baseline.
-
-Telegram can delete acknowledged or older-than-seven-day events and clears the
-authorization queue on deauthorization. No local change removes those limits.
-
-## Evidence and unfinished gates
-
-Observed checks include the original real-release gap reproduction,
-pinned build hash refusal, AEAD checkpoint reconstruction/exclusive ownership,
-whole qts-less difference custody, and an original PFS response retained despite
-uncertain transmission. The PFS seam also checks an ordinary relay item preceding
-that service action. These are non-sensitive deterministic fixtures, not owner
-accounts or live Telegram interoperability.
-
-The complete Linux/Windows fault, mixed-stream, backpressure and installed-wheel
-CI passed on implementation commit `f52dd57fa06445875164d45475f29b881a70bdee`.
-All 13 checks succeeded. Six matrix legs agreed on 1851 case identities; each
-platform exercised 49 ingress cases with zero ingress skips or failures. Installed
-wheel public preparation passed on Python 3.11 and 3.13 outside the checkout.
-Independent final source review completed and PR26 merged on 2026-10-13. Documentation-only successors
-do not imply another test run; these results belong to the implementation SHA. CI builds and installs the prerequisite after
-normal lockfile synchronization and then uses `--no-sync` to avoid silently restoring
-official Telethon. Ordinary/default/transient regressions remain required.
-
-Both explicit `receivedQueue(max_qts)` and implicit `getDifference(qts)` use a
-verified shared durable frontier. Source tests exercise real release update-loop
-and RPC handling with a server model that deletes acknowledged events. This model
-proves only the tested local ordering and recovery boundaries, not a live Telegram
-service run, indefinite offline recovery or exactly-once external cloud sends.
+This policy provides finite addon content/task ownership, not total process-RSS,
+external side-effect atomicity or erasure of SDK/OS copies. Application callbacks
+must define their own durable side-effect contract. Cooperative cleanup can
+refuse settlement; it cannot forcibly terminate arbitrary external blocking code.
+See [bounded mode](bounded-mode.md), [architecture](architecture.md) and
+[the exact inventory](../migration/README.md).

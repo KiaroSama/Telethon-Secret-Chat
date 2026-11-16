@@ -1,0 +1,17 @@
+{
+  "legacy_case": "tests/test_tdexport_html_text.py::test_safe_message_href_follows_qurl[https://b\\xfccher.de/\\xe4?x=\\xfc#f-https://xn--bcher-kva.de/%C3%A4?x=%C3%BC#f]",
+  "traces": [
+    {
+      "function": "html_safe.safe_message_href",
+      "args": [
+        "https://bücher.de/ä?x=ü#f"
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": "https://xn--bcher-kva.de/%C3%A4?x=%C3%BC#f",
+      "after": [
+        "https://bücher.de/ä?x=ü#f"
+      ]
+    }
+  ]
+}

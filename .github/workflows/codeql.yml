@@ -1,14 +1,5 @@
-# Static security analysis of the package source.
-#
-# CodeQL is the only scanner that reads the code here: this repository has no
-# secret-scanning or dependency-review workflow (Dependabot watches the
-# dependencies). For a library that parses attacker-supplied ciphertext, derives
-# keys and writes a chat store to disk, the questions worth asking are taint from
-# a decrypted frame to a sink and a path built from caller-supplied text.
-#
-# Why `build-mode: none`: Python needs no build, and an `autobuild` step on a
-# project whose dependencies come from a lockfile only invites the analysis to
-# resolve something. The extraction is over the source as committed.
+# Rust CodeQL uses rust-analyzer extraction, including build scripts and macros.
+# The separate Rust matrix always builds and executes the locked source graph.
 name: CodeQL
 
 on:
@@ -17,8 +8,7 @@ on:
   pull_request:
     branches: [ main ]
   schedule:
-    # A dependency-free scanner still gets new queries. Weekly, off-peak, so a
-    # rule added upstream reaches this repository without waiting for a push.
+    # Receive upstream query updates without waiting for a source change.
     - cron: "27 5 * * 1"
   workflow_dispatch:
 
@@ -31,7 +21,7 @@ concurrency:
 
 jobs:
   analyze:
-    name: Analyse Python
+    name: Analyse Rust
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -42,28 +32,26 @@ jobs:
 
     steps:
       - name: Check out repository code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - name: Set up Python
-        uses: actions/setup-python@v7
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca
         with:
-          python-version: '3.13'
+          toolchain: '1.99.1'
 
       - name: Initialise CodeQL
-        uses: github/codeql-action/init@v4
+        uses: github/codeql-action/init@5895b2c9be147bc7f1c75ce72c5cb577febb1907 # v4
         with:
-          languages: python
+          languages: rust
           build-mode: none
           # Scopes the analysis; see the file for why `tests/` is out.
           config-file: ./.github/codeql/codeql-config.yml
-          # security-extended over the default: the default suite leaves out most
-          # of the path-injection and weak-crypto queries, which are the ones a
-          # key-handling library with an on-disk store most needs.
+          # Official codeql/rust-queries security-extended suite.
           queries: security-extended
 
       - name: Analyse
-        uses: github/codeql-action/analyze@v4
+        uses: github/codeql-action/analyze@5895b2c9be147bc7f1c75ce72c5cb577febb1907 # v4
         with:
-          category: "/language:python"
+          category: "/language:rust"

@@ -5,7 +5,34 @@ package by commit and reads this file before moving its pin. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/) with the pre-1.0 rule that a minor bump may break.
 
-## [Unreleased]
+## [0.3.0-alpha.1] — Rust rewrite (PR #33, unmerged)
+
+### Changed
+
+- Replaced the library, tools, schema generator and executable tests with Rust
+  2024 (MSRV 1.95), using the official pinned grammers 0.12 graph.
+- Added coherent Rust SDK supplements for full encrypted pre-ack receipt custody,
+  original-client proof, checkpoint restoration and caller-issued difference RPCs.
+- Ported managed lifecycle, durable handshakes/mailboxes, exact retries, PFS,
+  eight media kinds, protected/transient/bounded modes, saving and HTML/JSON export.
+- Preserved the 1851-scenario inventory and types with distinct native mappings,
+  strict seven-leg execution evidence and real installed-Git consumer checks.
+- Converted CI to always build Rust on Linux and Windows, plus current Rust
+  CodeQL, native secret-scan orchestration, formatting, Clippy and coverage.
+- Updated docs and provenance; retained licensed static viewer assets as data.
+
+### Breaking compatibility
+
+- Crate name is `kiaro-secret-chat`; APIs and persisted format are native Rust.
+  Python stores/sessions are not imported. Source/Git installation is supported;
+  this alpha is not published to crates.io. See [migration](docs/rust-migration.md).
+- No live Telegram run or `telegram-mcp` integration is implied by offline checks.
+  Final qualification is the latest commit's checks in PR #33, not older releases.
+
+## Historical Python unreleased changes
+
+The entries below describe the previous implementation and its historical checks.
+They do not qualify the Rust rewrite or describe its current installation steps.
 
 ### Added
 

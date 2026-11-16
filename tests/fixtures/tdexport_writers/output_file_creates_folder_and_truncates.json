@@ -1,0 +1,7 @@
+{
+  "legacy_case": "tests/test_tdexport_json.py::test_output_file_creates_folder_and_truncates",
+  "files": {
+    "new/x.json": "31",
+    "sub dir/result.json": "616263"
+  }
+}

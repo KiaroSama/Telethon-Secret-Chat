@@ -1,0 +1,24 @@
+{
+  "legacy_case": "tests/test_tdexport_html_media.py::test_calculate_thumb_size[size0-False-expected0]",
+  "traces": [
+    {
+      "function": "html_media.calculate_thumb_size",
+      "args": [
+        520,
+        520,
+        80,
+        80,
+        false
+      ],
+      "kwargs": {},
+      "size": [
+        1040,
+        780
+      ],
+      "result": [
+        520,
+        390
+      ]
+    }
+  ]
+}

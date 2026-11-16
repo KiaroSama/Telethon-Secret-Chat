@@ -1,0 +1,382 @@
+name: Rust Build and Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Retain debug assertions while bounding generated TL and test artifact sizes.
+  CARGO_PROFILE_DEV_DEBUG: '0'
+  CARGO_PROFILE_TEST_DEBUG: '0'
+  CARGO_INCREMENTAL: '0'
+
+concurrency:
+  group: rust-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Rust (${{ matrix.os }}, ${{ matrix.arch }}, ${{ matrix.toolchain }}, ${{ matrix.profile }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            arch: x86_64
+            runner_arch: X64
+            target: x86_64-unknown-linux-gnu
+            toolchain: '1.95.0'
+            profile: debug
+          - os: ubuntu-24.04
+            arch: x86_64
+            runner_arch: X64
+            target: x86_64-unknown-linux-gnu
+            toolchain: '1.99.1'
+            profile: debug
+          - os: ubuntu-24.04
+            arch: x86_64
+            runner_arch: X64
+            target: x86_64-unknown-linux-gnu
+            toolchain: '1.99.1'
+            profile: release
+          - os: ubuntu-24.04
+            arch: x86_64
+            runner_arch: X64
+            target: x86_64-unknown-linux-gnu
+            toolchain: '1.99.1'
+            profile: portable-aes
+          - os: ubuntu-24.04-arm
+            arch: aarch64
+            runner_arch: ARM64
+            target: aarch64-unknown-linux-gnu
+            toolchain: '1.99.1'
+            profile: release
+          - os: windows-2025
+            arch: x86_64
+            runner_arch: X64
+            target: x86_64-pc-windows-msvc
+            toolchain: '1.99.1'
+            profile: release
+          - os: windows-11-arm
+            arch: aarch64
+            runner_arch: ARM64
+            target: aarch64-pc-windows-msvc
+            toolchain: '1.99.1'
+            profile: release
+    env:
+      # Keep rust-toolchain.toml and nested Cargo/rustc calls on this exact leg.
+      RUSTUP_TOOLCHAIN: ${{ matrix.toolchain }}
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
+      CARGO_TERM_COLOR: always
+      COVERAGE_EXCLUDE: '(/tests/|/vendor/|/src/export/jpeg_decoder/|/src/bin/|/tools/|/target/|/registry/src/|/git/checkouts/|/rustc/[^/]+/library/|/(debug|release)/build/[^/]+/([0-9a-f]+/)?out/|/src/storage/(audit_tests|contract_tests|foundation|guard_tests|lifecycle_tests)\.rs$|/src/ingress/(attachment_tests|contract_tests|test_fixture|tests|strong_tests)\.rs$|/src/ingress/strong_tests/)'
+      RUSTFLAGS: ${{ matrix.profile == 'portable-aes' && '--cfg aes_backend="soft"' || '' }}
+      TSC_RUST_AES_BACKEND: ${{ matrix.profile == 'portable-aes' && 'soft' || 'default' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Use a physical temporary directory for guarded storage fixtures
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          canonical_temp=$(cd "$RUNNER_TEMP" && pwd -P)
+          printf 'TMPDIR=%s\n' "$canonical_temp" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca
+        if: matrix.os != 'windows-11-arm'
+        with:
+          toolchain: ${{ matrix.toolchain }}
+          targets: ${{ matrix.target }}
+          components: ${{ matrix.os == 'ubuntu-24.04' && matrix.toolchain == '1.99.1' && matrix.profile == 'debug' && 'rustfmt,clippy,llvm-tools-preview' || 'rustfmt,clippy' }}
+      # Git Bash under ARM Windows emulation can silently return success without
+      # executing commands (actions/runner-images#14052). Use native PowerShell.
+      - name: Install the native Windows ARM64 toolchain
+        if: matrix.os == 'windows-11-arm'
+        shell: pwsh
+        run: |
+          rustup set default-host aarch64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          rustup toolchain install $env:RUSTUP_TOOLCHAIN --profile minimal --component 'rustfmt,clippy'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify the actual native architecture and compiler host
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          EXPECTED_TARGET: ${{ matrix.target }}
+          EXPECTED_RUNNER_ARCH: ${{ matrix.runner_arch }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ARCH" = "$EXPECTED_RUNNER_ARCH"
+          compiler_host=$(rustc -vV | sed -n 's/^host: //p')
+          test "$compiler_host" = "$EXPECTED_TARGET"
+          rustc --version
+      - name: Verify the actual native Windows architecture and compiler host
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          EXPECTED_TARGET: ${{ matrix.target }}
+          EXPECTED_RUNNER_ARCH: ${{ matrix.runner_arch }}
+        run: |
+          if ($env:RUNNER_ARCH -ne $env:EXPECTED_RUNNER_ARCH) { throw 'Unexpected runner architecture' }
+          $compiler = rustc -vV
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($compiler -notcontains "host: $env:EXPECTED_TARGET") { throw 'Unexpected Rust compiler host' }
+          rustc --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Install the pinned native coverage runner
+        if: matrix.os == 'ubuntu-24.04' && matrix.toolchain == '1.99.1' && matrix.profile == 'debug'
+        uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2
+        with:
+          tool: cargo-llvm-cov@0.9.1
+      - name: Fetch the complete locked cross-platform dependency graph
+        if: runner.os != 'Windows'
+        shell: bash
+        run: cargo fetch --locked
+      - name: Fetch the locked dependency graph on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cargo fetch --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build library and executables on every run
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          BUILD_PROFILE: ${{ matrix.profile }}
+          BUILD_TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          graph="$RUNNER_TEMP/compile-artifacts.jsonl"
+          if [ "$BUILD_PROFILE" = release ]; then
+            profile=release
+            cargo build --locked --all-targets --release --message-format=json-render-diagnostics > "$graph"
+          else
+            profile=debug
+            cargo build --locked --all-targets --message-format=json-render-diagnostics > "$graph"
+          fi
+          if command -v sha256sum >/dev/null; then
+            graph_sha256=$(sha256sum "$graph" | cut -d ' ' -f 1)
+          else
+            graph_sha256=$(shasum -a 256 "$graph" | cut -d ' ' -f 1)
+          fi
+          jq -n --arg checkout_sha "$(git rev-parse HEAD)" \
+            --arg manifest_path "$GITHUB_WORKSPACE/Cargo.toml" \
+            --arg target "$BUILD_TARGET" --arg profile "$profile" \
+            --arg target_dir "$CARGO_TARGET_DIR" --arg rustflags "${RUSTFLAGS-}" \
+            --arg compiler "$(rustc -vV)" --arg graph_sha256 "$graph_sha256" \
+            '{version: 1, checkout_sha: $checkout_sha, manifest_path: $manifest_path,
+              target: $target, profile: $profile, target_dir: $target_dir,
+              rustflags: $rustflags, encoded_rustflags: (env.CARGO_ENCODED_RUSTFLAGS // null),
+              compiler: $compiler, graph_sha256: $graph_sha256}' > "$graph.context.json"
+          printf 'KIARO_COMPILE_ARTIFACTS=%s\n' "$graph" >> "$GITHUB_ENV"
+      - name: Build the native Windows library and executables
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+        run: |
+          $graph = Join-Path $env:RUNNER_TEMP 'compile-artifacts.jsonl'
+          cargo build --locked --all-targets --release --message-format=json-render-diagnostics > $graph
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $checkoutSha = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $compilerLines = rustc -vV
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $context = @{
+            version = 1
+            checkout_sha = $checkoutSha
+            manifest_path = Join-Path $env:GITHUB_WORKSPACE 'Cargo.toml'
+            target = $env:BUILD_TARGET
+            profile = 'release'
+            target_dir = $env:CARGO_TARGET_DIR
+            rustflags = [string]$env:RUSTFLAGS
+            encoded_rustflags = $env:CARGO_ENCODED_RUSTFLAGS
+            compiler = $compilerLines -join "`n"
+            graph_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $graph).Hash.ToLowerInvariant()
+          }
+          $context | ConvertTo-Json | Set-Content -LiteralPath "$graph.context.json" -Encoding utf8
+          "KIARO_COMPILE_ARTIFACTS=$graph" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Execute Rust tests
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          BUILD_PROFILE: ${{ matrix.profile }}
+          RUST_COVERAGE: ${{ matrix.os == 'ubuntu-24.04' && matrix.toolchain == '1.99.1' && matrix.profile == 'debug' }}
+          LLVM_COV_FLAGS: ${{ matrix.os == 'ubuntu-24.04' && matrix.toolchain == '1.99.1' && matrix.profile == 'debug' && format('--object={0}/target/debug/kiaro-sdk-ingress-harness', github.workspace) || '' }}
+        run: |
+          set -o pipefail
+          if [ "$RUST_COVERAGE" = true ]; then
+            cargo llvm-cov --locked --all-targets --lcov --output-path coverage.lcov --ignore-filename-regex "$COVERAGE_EXCLUDE" -- --test-threads=2 2>&1 | tee rust-tests.txt
+          elif [ "$BUILD_PROFILE" = release ]; then
+            cargo test --locked --all-targets --release -- --test-threads=2 2>&1 | tee rust-tests.txt
+          else
+            cargo test --locked --all-targets -- --test-threads=2 2>&1 | tee rust-tests.txt
+          fi
+      - name: Execute native Windows tests and retain the actual Cargo status
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          cargo test --locked --all-targets --release -- --test-threads=2 2>&1 | Tee-Object -FilePath rust-tests.txt
+          $cargoStatus = $LASTEXITCODE
+          if ($cargoStatus -ne 0) { exit $cargoStatus }
+      - name: Export stable line and region coverage statistics
+        if: always() && matrix.os == 'ubuntu-24.04' && matrix.toolchain == '1.99.1' && matrix.profile == 'debug'
+        shell: bash
+        env:
+          LLVM_COV_FLAGS: --object=${{ github.workspace }}/target/debug/kiaro-sdk-ingress-harness
+        run: cargo llvm-cov report --json --summary-only --output-path coverage-summary.json --ignore-filename-regex "$COVERAGE_EXCLUDE"
+      # In pinned llvm-cov0.9.1, the internal threshold query omits extra objects
+      # from LLVM_COV_FLAGS. Check the actual published JSON, including the SDK.
+      - name: Require 90 percent measured owned-library line coverage
+        if: matrix.os == 'ubuntu-24.04' && matrix.toolchain == '1.99.1' && matrix.profile == 'debug'
+        shell: bash
+        run: target/debug/matrix-evidence --coverage coverage-summary.json
+      - name: Save native library coverage
+        if: always() && matrix.os == 'ubuntu-24.04' && matrix.toolchain == '1.99.1' && matrix.profile == 'debug'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: native-library-coverage
+          path: |
+            coverage.lcov
+            coverage-summary.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Check formatting and warnings
+        if: matrix.os == 'ubuntu-24.04' && matrix.toolchain == '1.99.1' && matrix.profile == 'debug'
+        shell: bash
+        run: |
+          cargo fmt --all --check
+          cargo clippy --locked --all-targets -- -D warnings
+      - name: Compile from a path containing spaces
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $targetDir = Join-Path $env:RUNNER_TEMP 'Secret Chat Space Path'
+          $archivePath = Join-Path $env:RUNNER_TEMP 'rust-space-input.tar'
+          New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+          git archive --format=tar "--output=$archivePath" HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Could not archive the tracked Rust input' }
+          tar.exe -xf $archivePath -C $targetDir
+          if ($LASTEXITCODE -ne 0) { throw 'Could not extract the tracked Rust input' }
+          cargo check --locked --manifest-path (Join-Path $targetDir 'Cargo.toml')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Report legacy-case parity separately
+        if: runner.os != 'Windows'
+        shell: bash
+        run: cargo run --locked --bin migration-audit
+      - name: Report legacy-case parity on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cargo run --locked --bin migration-audit
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Package the native release tools and provenance
+        if: matrix.profile == 'release' && runner.os != 'Windows'
+        shell: bash
+        env:
+          NATIVE_TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          stage="$RUNNER_TEMP/native-tools"
+          dist="$RUNNER_TEMP/native-dist"
+          mkdir -p "$stage" "$dist"
+          for tool in generate-schema matrix-evidence migration-audit prepare-sdk; do
+            cp "target/release/$tool" "$stage/$tool"
+          done
+          cp LICENSE NOTICE "$stage/"
+          compiler=$(rustc --version)
+          printf '{"target":"%s","toolchain":"%s","compiler":"%s","commit":"%s"}\n' "$NATIVE_TARGET" "$RUSTUP_TOOLCHAIN" "$compiler" "$GITHUB_SHA" > "$stage/build-info.json"
+          if command -v sha256sum >/dev/null; then
+            (cd "$stage" && sha256sum generate-schema matrix-evidence migration-audit prepare-sdk LICENSE NOTICE build-info.json > SHA256SUMS)
+          else
+            (cd "$stage" && shasum -a 256 generate-schema matrix-evidence migration-audit prepare-sdk LICENSE NOTICE build-info.json > SHA256SUMS)
+          fi
+          tar -czf "$dist/native-$NATIVE_TARGET.tar.gz" -C "$stage" .
+          if command -v sha256sum >/dev/null; then
+            (cd "$dist" && sha256sum "native-$NATIVE_TARGET.tar.gz" > SHA256SUMS)
+          else
+            (cd "$dist" && shasum -a 256 "native-$NATIVE_TARGET.tar.gz" > SHA256SUMS)
+          fi
+      - name: Package the native Windows release tools and provenance
+        if: matrix.profile == 'release' && runner.os == 'Windows'
+        shell: pwsh
+        env:
+          NATIVE_TARGET: ${{ matrix.target }}
+        run: |
+          $stage = Join-Path $env:RUNNER_TEMP 'native-tools'
+          $dist = Join-Path $env:RUNNER_TEMP 'native-dist'
+          New-Item -ItemType Directory -Force -Path $stage, $dist | Out-Null
+          foreach ($tool in 'generate-schema', 'matrix-evidence', 'migration-audit', 'prepare-sdk') {
+            Copy-Item (Join-Path 'target/release' "$tool.exe") (Join-Path $stage "$tool.exe")
+          }
+          Copy-Item LICENSE, NOTICE $stage
+          $compiler = rustc --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          [ordered]@{target=$env:NATIVE_TARGET; toolchain=$env:RUSTUP_TOOLCHAIN; compiler=$compiler; commit=$env:GITHUB_SHA} | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $stage 'build-info.json')
+          Get-ChildItem $stage -File | Where-Object Name -ne 'SHA256SUMS' | Sort-Object Name | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)"
+          } | Set-Content -Encoding utf8 (Join-Path $stage 'SHA256SUMS')
+          $archive = Join-Path $dist "native-$env:NATIVE_TARGET.zip"
+          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $archive -Force
+          $archiveHash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$archiveHash  $([System.IO.Path]::GetFileName($archive))" | Set-Content -Encoding utf8 (Join-Path $dist 'SHA256SUMS')
+      - name: Upload native tools for this operating system and architecture
+        if: matrix.profile == 'release'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: native-${{ matrix.target }}
+          path: ${{ runner.temp }}/native-dist/*
+          if-no-files-found: error
+          retention-days: 14
+      - name: Save test execution evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: rust-${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.toolchain }}-${{ matrix.profile }}
+          path: rust-tests.txt
+          if-no-files-found: error
+          retention-days: 7
+
+  evidence:
+    name: Complete Rust Matrix Evidence
+    needs: build
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca
+        with:
+          toolchain: '1.99.1'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: rust-*
+          path: records
+      - name: Require every build, test and space-path step
+        env:
+          MATRIX_RESULT: ${{ needs.build.result }}
+        run: test "$MATRIX_RESULT" = success
+      - run: cargo run --locked --bin matrix-evidence -- records
+
+  parity:
+    name: Rust migration completeness (1851 legacy cases)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca
+        with:
+          toolchain: '1.99.1'
+      - run: cargo run --locked --bin migration-audit -- --require-complete

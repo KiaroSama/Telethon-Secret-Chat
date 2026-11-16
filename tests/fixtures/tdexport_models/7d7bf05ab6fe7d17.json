@@ -1,0 +1,189 @@
+{
+  "legacy_case": "tests/test_tdexport_model.py::test_photo_media_takes_largest_real_size",
+  "traces": [
+    {
+      "function": "model_media.parse_media",
+      "args": [
+        {
+          "self_peer_id": 0,
+          "photos": 0,
+          "audios": 0,
+          "videos": 0,
+          "files": 0,
+          "contacts": 0,
+          "bot_id": 0
+        },
+        {
+          "_": "MessageMediaPhoto",
+          "spoiler": null,
+          "live_photo": null,
+          "photo": {
+            "_": "Photo",
+            "id": 5,
+            "access_hash": 7,
+            "file_reference": [
+              114,
+              101,
+              102
+            ],
+            "date": 1705053605,
+            "sizes": [
+              {
+                "_": "PhotoStrippedSize",
+                "type": "i",
+                "bytes": [
+                  120,
+                  120
+                ]
+              },
+              {
+                "_": "PhotoCachedSize",
+                "type": "s",
+                "w": 90,
+                "h": 90,
+                "bytes": [
+                  97,
+                  98,
+                  99
+                ]
+              },
+              {
+                "_": "PhotoSize",
+                "type": "m",
+                "w": 320,
+                "h": 320,
+                "size": 500
+              },
+              {
+                "_": "PhotoSizeProgressive",
+                "type": "y",
+                "w": 800,
+                "h": 800,
+                "sizes": [
+                  100,
+                  900
+                ]
+              }
+            ],
+            "dc_id": 2,
+            "has_stickers": null,
+            "video_sizes": null
+          },
+          "ttl_seconds": null,
+          "video": null
+        },
+        "",
+        1705053605
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": {
+        "content": {
+          "Photo": {
+            "id": 5,
+            "date": 1705053605,
+            "spoilered": false,
+            "image": {
+              "width": 800,
+              "height": 800,
+              "file": {
+                "location": {
+                  "dc_id": 2,
+                  "data": {
+                    "_": "InputPhotoFileLocation",
+                    "id": 5,
+                    "access_hash": 7,
+                    "file_reference": [
+                      114,
+                      101,
+                      102
+                    ],
+                    "thumb_size": "y"
+                  }
+                },
+                "size": 900,
+                "content": [],
+                "suggested_path": "photos/photo_1@12-01-2024_10-00-05.jpg",
+                "relative_path": "",
+                "skip_reason": "None"
+              }
+            }
+          }
+        },
+        "ttl": 0
+      },
+      "after": [
+        {
+          "self_peer_id": 0,
+          "photos": 1,
+          "audios": 0,
+          "videos": 0,
+          "files": 0,
+          "contacts": 0,
+          "bot_id": 0
+        },
+        {
+          "_": "MessageMediaPhoto",
+          "spoiler": null,
+          "live_photo": null,
+          "photo": {
+            "_": "Photo",
+            "id": 5,
+            "access_hash": 7,
+            "file_reference": [
+              114,
+              101,
+              102
+            ],
+            "date": 1705053605,
+            "sizes": [
+              {
+                "_": "PhotoStrippedSize",
+                "type": "i",
+                "bytes": [
+                  120,
+                  120
+                ]
+              },
+              {
+                "_": "PhotoCachedSize",
+                "type": "s",
+                "w": 90,
+                "h": 90,
+                "bytes": [
+                  97,
+                  98,
+                  99
+                ]
+              },
+              {
+                "_": "PhotoSize",
+                "type": "m",
+                "w": 320,
+                "h": 320,
+                "size": 500
+              },
+              {
+                "_": "PhotoSizeProgressive",
+                "type": "y",
+                "w": 800,
+                "h": 800,
+                "sizes": [
+                  100,
+                  900
+                ]
+              }
+            ],
+            "dc_id": 2,
+            "has_stickers": null,
+            "video_sizes": null
+          },
+          "ttl_seconds": null,
+          "video": null
+        },
+        "",
+        1705053605
+      ]
+    }
+  ]
+}
