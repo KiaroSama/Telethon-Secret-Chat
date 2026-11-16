@@ -155,13 +155,22 @@ impl DurableWorker {
             .await
             .map_err(|_| IngressRefused)?;
         let (send, response) = tokio::sync::oneshot::channel();
+        let executor = Arc::clone(&self.executor);
         self.executor
+            .queue
+            .as_ref()
+            .ok_or(IngressRefused)?
             .send(Box::new(move |hook| {
-                let _permit = permit;
-                let _ = send.send(operation(hook));
+                let result = operation(hook);
+                drop(permit);
+                // Successful completion transfers the work's executor owner
+                // to the caller. It must not remain on this thread after the
+                // caller resumes and drops its last public pool handle.
+                let _ = send.send((result, executor));
             }))
             .map_err(|_| IngressRefused)?;
-        response.await.map_err(|_| IngressRefused)?
+        let (result, _executor) = response.await.map_err(|_| IngressRefused)?;
+        result
     }
 }
 pub(crate) struct Boundary {
