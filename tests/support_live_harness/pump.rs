@@ -45,6 +45,43 @@ pub(super) fn belongs(
     }
 }
 impl Pump {
+    /// Offline ownership probe: no receiver, client or authorization is opened.
+    #[allow(dead_code, clippy::expect_used)]
+    pub(crate) async fn verify_cancelled_pause_aborts_task() {
+        struct NotifyDrop(Option<oneshot::Sender<()>>);
+        impl Drop for NotifyDrop {
+            fn drop(&mut self) {
+                if let Some(sender) = self.0.take() {
+                    let _ = sender.send(());
+                }
+            }
+        }
+        let (started, ready) = oneshot::channel();
+        let (finished, dropped) = oneshot::channel();
+        let task = tokio::spawn(async move {
+            let _drop = NotifyDrop(Some(finished));
+            let _ = started.send(());
+            std::future::pending::<UpdatesReceiver>().await
+        });
+        ready.await.expect("the offline task must have started");
+        let mut pause = Box::pin(
+            Pump {
+                stop: None,
+                task: Some(task),
+            }
+            .pause(),
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_millis(1), &mut pause)
+                .await
+                .is_err()
+        );
+        drop(pause);
+        tokio::time::timeout(Duration::from_secs(1), dropped)
+            .await
+            .expect("cancelled pause must abort its owned task")
+            .expect("the task's drop observer must run");
+    }
     #[allow(clippy::too_many_arguments)] // All observers belong to this one caller-owned stream.
     pub fn spawn(
         mut receiver: UpdatesReceiver,
@@ -114,11 +151,13 @@ impl Pump {
         if let Some(stop) = self.stop.take() {
             let _ = stop.send(());
         }
-        let mut task = self
+        let task = self
             .task
-            .take()
+            .as_mut()
             .ok_or(Refused("The live update-pump task is unavailable"))?;
-        match tokio::time::timeout(Duration::from_secs(15), &mut task).await {
+        // Keep the abort owner in self even if an outer cleanup timeout drops
+        // this future while the update handler or task join is still pending.
+        match tokio::time::timeout(Duration::from_secs(15), &mut *task).await {
             Ok(Ok(receiver)) => Ok(receiver),
             Ok(Err(_)) => Err(Refused("The live caller update task failed").into()),
             Err(_) => {

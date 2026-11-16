@@ -1,11 +1,12 @@
 //! Desktop English service sentences, including preserved action-specific quirks.
 use super::{
     error::Result,
-    format::{DateContext, fill_amount_and_currency, format_date_time},
+    format::{DateContext, fill_amount_and_currency, format_date_time, format_grams_amount},
     html_text::{
         PeersMap, format_date_text, format_text, format_time_text, month_name, serialize_list,
         serialize_string,
     },
+    model::peer_from_user,
     model_actions::*,
     model_dialogs::{DialogInfo, DialogType},
     model_message::Message,
@@ -143,7 +144,7 @@ pub fn service_text(
             }
         }
         A::ScreenshotTaken(_) => format!("{from} took a screenshot"),
-        A::CustomAction(d) => d.message.clone(),
+        A::CustomAction(d) => serialize_string(&d.message),
         A::BotAllowed(d) => {
             let reason = if d.attach_menu {
                 "when you added it in the attachment menu.".into()
@@ -248,9 +249,15 @@ pub fn service_text(
                     format!("{from} disabled chat theme")
                 }
             } else if channel {
-                format!("Channel theme was changed to {}", d.emoji)
+                format!(
+                    "Channel theme was changed to {}",
+                    serialize_string(&d.emoji)
+                )
             } else {
-                format!("{from} changed chat theme to {}", d.emoji)
+                format!(
+                    "{from} changed chat theme to {}",
+                    serialize_string(&d.emoji)
+                )
             }
         }
         A::ChatJoinedByRequest(_) => format!("{from} joined group by request"),
@@ -265,7 +272,8 @@ pub fn service_text(
             } else {
                 format!(
                     "{from} sent you a gift for {}: Telegram Premium for {} days.",
-                    d.cost, d.days
+                    serialize_string(&d.cost),
+                    d.days
                 )
             }
         }
@@ -345,7 +353,7 @@ pub fn service_text(
             } else {
                 format!(
                     "{from} sent you a gift for {}: {}{}",
-                    d.cost,
+                    serialize_string(&d.cost),
                     qt_number(d.amount.value()),
                     if d.amount.ton() {
                         " TON."
@@ -415,8 +423,14 @@ pub fn service_text(
             }
             return Ok(result);
         }
-        A::PollAppendAnswer(d) => format!("{from} added &quot;{}&quot; to the poll.", d.option),
-        A::PollDeleteAnswer(d) => format!("{from} removed &quot;{}&quot; from the poll.", d.option),
+        A::PollAppendAnswer(d) => format!(
+            "{from} added &quot;{}&quot; to the poll.",
+            serialize_string(&d.option)
+        ),
+        A::PollDeleteAnswer(d) => format!(
+            "{from} removed &quot;{}&quot; from the poll.",
+            serialize_string(&d.option)
+        ),
         A::SuggestedPostApproval(d) => {
             let mut result = format!(
                 "{from} {} your suggested post",
@@ -491,6 +505,59 @@ pub fn service_text(
         A::ManagedBotCreated(d) => {
             format!("{from} created a bot {}", peers.wrap_user_name(d.bot_id))
         }
+        A::GramTransfer(d) => {
+            let amount = format_grams_amount(d.amount);
+            let address = if d.peer_address.is_empty() {
+                String::new()
+            } else {
+                format!(" ({})", serialize_string(&d.peer_address))
+            };
+            let hidden = [peer_from_user(333000), peer_from_user(777000)].contains(&dialog.peer_id);
+            let mut result = if message.out {
+                format!(
+                    "You sent {amount} to {}{address}",
+                    peers.wrap_peer_name(dialog.peer_id)
+                )
+            } else {
+                format!(
+                    "{}{address} sent you {amount}",
+                    if hidden { "Someone" } else { &from }
+                )
+            };
+            if !d.transaction_id.is_empty() {
+                result += &format!(", transaction {}", serialize_string(&d.transaction_id));
+            }
+            if d.comment_encrypted {
+                result += &format!(
+                    ", with an <span class=\"gram_transfer_encrypted_comment\" data-encrypted-comment=\"{}\">encrypted comment</span>",
+                    serialize_string(&d.comment)
+                );
+            } else if !d.comment.is_empty() {
+                result += &format!(
+                    ", with comment: &laquo;{}&raquo;",
+                    serialize_string(&d.comment)
+                );
+            }
+            result
+        }
+        A::WalletTonConnectRequest(d) => {
+            let topic = if d.topic.is_empty() {
+                String::new()
+            } else {
+                format!(" &laquo;{}&raquo;", serialize_string(&d.topic))
+            };
+            format!(
+                "You {} a TON Connect request{topic}.",
+                if d.accepted {
+                    "approved"
+                } else if d.declined {
+                    "declined"
+                } else {
+                    "received"
+                }
+            )
+        }
+        A::NoPaidMessagesTokenUsed(_) => format!("{from} started a chat via a free messages link"),
         A::PhoneCall(_) => String::new(),
     };
     Ok(result.into_bytes())

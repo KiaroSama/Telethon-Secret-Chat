@@ -178,6 +178,7 @@ pub const DATA: &str = r########"}
 .default .rich_message .rich_custom_emoji,
 .default .rich_message .rich_inert_link,
 .default .rich_message .rich_bank_card,
+.default .rich_message .rich_ton_address,
 .default .rich_message .rich_reference,
 .default .rich_message .spoiler {
     max-width: 100%;

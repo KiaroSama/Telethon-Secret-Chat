@@ -395,6 +395,32 @@ pub fn push_service_action(v: &mut MessageValues<'_>, data: Option<&Action>) -> 
             actor(v, "managed_bot_created");
             v.bare("bot", v.wrap_user_name(d.bot_id));
         }
+        A::GramTransfer(d) => {
+            actor(v, "gram_transfer");
+            v.number("amount_whole", d.amount / 1_000_000_000);
+            v.number("amount_nano", d.amount % 1_000_000_000);
+            v.string("peer_address", &d.peer_address);
+            v.string("transaction_id", &d.transaction_id);
+            v.boolean("comment_encrypted", d.comment_encrypted);
+            v.string(
+                if d.comment_encrypted {
+                    "encrypted_comment_base64"
+                } else {
+                    "comment"
+                },
+                &d.comment,
+            );
+        }
+        A::WalletTonConnectRequest(d) => {
+            actor(v, "ton_connect_request");
+            v.number("session_id", d.session_id);
+            v.number("expires", d.expires);
+            v.string("topic", &d.topic);
+            v.string("trace_id", &d.trace_id);
+            v.boolean("accepted", d.accepted);
+            v.boolean("declined", d.declined);
+        }
+        A::NoPaidMessagesTokenUsed(_) => actor(v, "no_paid_messages_token_used"),
     }
     Ok(())
 }

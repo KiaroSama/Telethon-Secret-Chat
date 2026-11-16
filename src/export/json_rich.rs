@@ -193,7 +193,8 @@ pub fn serialize_rich_text(
                 | T::AutoUrl
                 | T::AutoEmail
                 | T::AutoPhone
-                | T::BankCard => push(values, "text", child(context, &data.children)?),
+                | T::BankCard
+                | T::TonAddress => push(values, "text", child(context, &data.children)?),
                 T::Url => {
                     push(values, "href", serialize_string(&data.data));
                     if data.id != 0 {
@@ -427,8 +428,8 @@ pub fn map_point(context: &RichSerializeContext<'_>, data: &RichMapPoint) -> Vec
         data.source,
         RichMapPointSource::GeoPoint | RichMapPointSource::InputGeoPoint
     ) {
-        push(&mut values, "latitude", number(data.latitude));
-        push(&mut values, "longitude", number(data.longitude));
+        push(&mut values, "latitude", float_allow_null(data.latitude));
+        push(&mut values, "longitude", float_allow_null(data.longitude));
     }
     if let Some(value) = data.access_hash {
         push(&mut values, "access_hash", serialize_string(number(value)));

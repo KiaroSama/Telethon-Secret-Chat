@@ -125,7 +125,7 @@ pub fn parse_rich_text(text: &Value) -> RichText {
     match name {
         "Bold" | "Italic" | "Underline" | "Strike" | "Fixed" | "Subscript" | "Superscript"
         | "Marked" | "Spoiler" | "Mention" | "Hashtag" | "BotCommand" | "Cashtag" | "AutoUrl"
-        | "AutoEmail" | "AutoPhone" | "BankCard" => {
+        | "AutoEmail" | "AutoPhone" | "BankCard" | "TonAddress" => {
             wrapper(enum_value(name).unwrap_or_default(), &text["text"])
         }
         "Plain" => RichText {

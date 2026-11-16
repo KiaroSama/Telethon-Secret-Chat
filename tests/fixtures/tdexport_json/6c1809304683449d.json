@@ -53,7 +53,31 @@
       ],
       "after": [
         "\u0001\u001fé"
-      ]
+      ],
+      "current_result": [
+        34,
+        92,
+        117,
+        48,
+        48,
+        48,
+        49,
+        92,
+        117,
+        48,
+        48,
+        49,
+        70,
+        127,
+        195,
+        169,
+        34
+      ],
+      "current_reference": {
+        "desktop_tag": "v7.4.4",
+        "commit": "bf4f714036f21c750d535dab199c811b3f9bfdd4",
+        "reason": "Intentional upstream JSON-validity or HTML-escaping fix; original baseline result retained"
+      }
     },
     {
       "function": "json_serialize.serialize_string",
@@ -79,7 +103,23 @@
           255,
           0
         ]
-      ]
+      ],
+      "current_result": [
+        34,
+        255,
+        92,
+        117,
+        48,
+        48,
+        48,
+        48,
+        34
+      ],
+      "current_reference": {
+        "desktop_tag": "v7.4.4",
+        "commit": "bf4f714036f21c750d535dab199c811b3f9bfdd4",
+        "reason": "Intentional upstream JSON-validity or HTML-escaping fix; original baseline result retained"
+      }
     }
   ]
 }

@@ -301,6 +301,25 @@ pub struct ActionChangeCreator {
 pub struct ActionManagedBotCreated {
     pub bot_id: i64,
 }
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ActionGramTransfer {
+    pub amount: i64,
+    pub peer_address: String,
+    pub transaction_id: String,
+    pub comment: String,
+    pub comment_encrypted: bool,
+}
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ActionWalletTonConnectRequest {
+    pub session_id: u64,
+    pub expires: i64,
+    pub topic: String,
+    pub trace_id: String,
+    pub accepted: bool,
+    pub declined: bool,
+}
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ActionNoPaidMessagesTokenUsed {}
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Action {
     ChatCreate(ActionChatCreate),
@@ -362,6 +381,9 @@ pub enum Action {
     NewCreatorPending(ActionNewCreatorPending),
     ChangeCreator(ActionChangeCreator),
     ManagedBotCreated(ActionManagedBotCreated),
+    GramTransfer(ActionGramTransfer),
+    WalletTonConnectRequest(ActionWalletTonConnectRequest),
+    NoPaidMessagesTokenUsed(ActionNoPaidMessagesTokenUsed),
 }
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ServiceAction {

@@ -95,6 +95,7 @@ pub enum RichTextType {
     AutoEmail,
     AutoPhone,
     BankCard,
+    TonAddress,
     MentionName,
     FormattedDate,
     InlineImage,

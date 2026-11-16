@@ -121,18 +121,15 @@ fn media(
     Ok(Media { content, ttl: 0 })
 }
 fn point(v: &Value) -> GeoPoint {
-    GeoPoint {
-        latitude: v["lat"].as_f64().unwrap_or(0.0),
-        longitude: v["long"].as_f64().unwrap_or(0.0),
-        valid: true,
-    }
+    super::parse_media::coordinates(v["lat"].as_f64(), v["long"].as_f64())
 }
 fn entity(v: &Value) -> Option<Value> {
     let name = kind(v);
     let suffix = name.strip_prefix("messageEntity")?;
     let extra = match suffix {
         "Unknown" | "Mention" | "Hashtag" | "BotCommand" | "Url" | "Email" | "Bold" | "Italic"
-        | "Code" | "Phone" | "Cashtag" | "Underline" | "Strike" | "BankCard" | "Spoiler" => None,
+        | "Code" | "Phone" | "Cashtag" | "Underline" | "Strike" | "BankCard" | "TonAddress"
+        | "Spoiler" => None,
         "Pre" => Some("language"),
         "TextUrl" => Some("url"),
         "MentionName" => Some("user_id"),

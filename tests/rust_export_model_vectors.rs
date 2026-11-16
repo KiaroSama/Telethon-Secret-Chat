@@ -1,5 +1,7 @@
-#![allow(clippy::unwrap_used)]
 //! Independent complete-output legacy oracles, including extra reference inputs.
+#![allow(clippy::unwrap_used)]
+#[path = "rust_export_support/desktop744.rs"]
+mod current;
 use kiaro_secret_chat::export::{
     format::DateContext, model::*, model_dialogs, model_document::*, model_message::*,
     model_peers::*, model_rich::*, parse_actions::*, parse_media::*, parse_rich::*,
@@ -168,7 +170,11 @@ fn run(name: &str) {
             _ => panic!("Unregistered native vector function: {function}"),
         };
         assert_eq!(
-            result, trace["result"],
+            result,
+            trace
+                .get("current_result")
+                .unwrap_or(&trace["result"])
+                .clone(),
             "{}: {function} result",
             case["legacy_case"]
         );
@@ -286,6 +292,7 @@ fn model_2f9857de6dc1ae65() {
 }
 #[test]
 fn model_9196c9b75f8d5b06() {
+    current::model_actions();
     run("9196c9b75f8d5b06.json");
 }
 #[test]

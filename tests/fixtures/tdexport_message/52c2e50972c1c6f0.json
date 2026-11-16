@@ -1596,7 +1596,13 @@
         },
         "https://t.me/",
         ""
-      ]
+      ],
+      "current_result": "&lt;raw&gt;",
+      "current_reference": {
+        "desktop_tag": "v7.4.4",
+        "commit": "bf4f714036f21c750d535dab199c811b3f9bfdd4",
+        "reason": "Intentional upstream JSON-validity or HTML-escaping fix; original baseline result retained"
+      }
     },
     {
       "function": "html_service.service_text",

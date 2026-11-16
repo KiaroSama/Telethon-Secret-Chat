@@ -61,7 +61,12 @@ fn update(id: i32, wire: Vec<u8>) -> grammers_tl_types::enums::Update {
     }
     .into()
 }
-async fn resend(a: &Seeded, id: i32, seq: i32) {
+async fn resend(
+    a: &Seeded,
+    world: &Arc<Mutex<World>>,
+    id: i32,
+    seq: i32,
+) -> kiaro_secret_chat::chat::Outgoing {
     let service = types::DecryptedMessageService {
         random_id: 71,
         action: types::DecryptedMessageActionResend {
@@ -70,7 +75,15 @@ async fn resend(a: &Seeded, id: i32, seq: i32) {
         }
         .into(),
     };
+    let before = world.lock().unwrap().sent.len();
     a.handle_update(&update(id, frame(service.into(), 0))).await;
+    let world = world.lock().unwrap();
+    assert_eq!(
+        world.sent.len(),
+        before + 1,
+        "Resend must issue a new transport call"
+    );
+    world.sent[before].outgoing.clone()
 }
 #[tokio::test]
 async fn forged_pending_fingerprint_never_switches_key() {
@@ -150,8 +163,7 @@ async fn peer_resend_reuses_confirmed_ciphertext_sequence_and_id() {
     a.send_message(id, "retained", None, None).await.unwrap();
     let first = w.lock().unwrap().sent.last().unwrap().outgoing.clone();
     assert!(!store.load().unwrap().unwrap().chats[&id].outbox[&first.seq_no].pending);
-    resend(&a, id, first.seq_no).await;
-    let replay = w.lock().unwrap().sent.last().unwrap().outgoing.clone();
+    let replay = resend(&a, &w, id, first.seq_no).await;
     assert_eq!(replay.frame, first.frame);
     assert_eq!(replay.random_id, first.random_id);
     assert_eq!(replay.seq_no, first.seq_no);
@@ -401,8 +413,7 @@ async fn peer_file_resend_preserves_media_transport_and_server_id() {
     .await
     .unwrap();
     let original = w.lock().unwrap().sent.last().unwrap().outgoing.clone();
-    resend(&a, id, original.seq_no).await;
-    let repeated = w.lock().unwrap().sent.last().unwrap().outgoing.clone();
+    let repeated = resend(&a, &w, id, original.seq_no).await;
     assert!(!repeated.service);
     assert_eq!(repeated.frame, original.frame);
     let first =

@@ -47,12 +47,21 @@ impl OutputFile {
         if let Some(parent) = self.path.parent().filter(|p| !p.as_os_str().is_empty()) {
             fs::create_dir_all(parent).map_err(|_| ExportError::Filesystem)?;
         }
-        let file = OpenOptions::new()
+        // Windows append-only handles deliberately lack FILE_WRITE_DATA, which
+        // set_len requires. Resize with write access, then retain a true append
+        // handle so later blocks keep the same append semantics on every OS.
+        let resize = OpenOptions::new()
             .create(true)
-            .append(true)
+            .write(true)
+            .truncate(false)
             .open(&self.path)
             .map_err(|_| ExportError::Filesystem)?;
-        file.set_len(self.offset)
+        resize
+            .set_len(self.offset)
+            .map_err(|_| ExportError::Filesystem)?;
+        let file = OpenOptions::new()
+            .append(true)
+            .open(&self.path)
             .map_err(|_| ExportError::Filesystem)?;
         self.file = Some(file);
         Ok(())

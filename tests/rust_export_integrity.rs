@@ -44,7 +44,26 @@ fn native_export_source_and_original_assets_have_explicit_provenance() {
         "native source integrity manifest requires a reviewed update"
     );
     let assets: BTreeMap<String, String> =
+        serde_json::from_value(manifest["current_emitted_assets_sha256"].clone()).unwrap();
+    let baseline: BTreeMap<String, String> =
+        serde_json::from_value(manifest["baseline_emitted_assets_sha256"].clone()).unwrap();
+    let unchanged: BTreeMap<String, String> =
         serde_json::from_value(manifest["unchanged_emitted_assets_sha256"].clone()).unwrap();
+    assert_eq!(baseline.len(), 44);
+    assert_eq!(unchanged.len(), 43);
+    assert_eq!(manifest["current_reference"]["desktop_tag"], "v7.4.4");
+    assert_eq!(
+        manifest["current_reference"]["desktop_commit"],
+        "bf4f714036f21c750d535dab199c811b3f9bfdd4"
+    );
+    assert_eq!(
+        manifest["current_reference"]["css_source_git_blob"],
+        "90506ecf5b4babb8fa91184130e062dadb872500"
+    );
+    for (name, hash) in &unchanged {
+        assert_eq!(baseline[name], *hash);
+        assert_eq!(assets[name], *hash);
+    }
     assert_eq!(ASSET_NAMES.len(), 44);
     assert_eq!(
         assets.keys().map(String::as_str).collect::<Vec<_>>(),

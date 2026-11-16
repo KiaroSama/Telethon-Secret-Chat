@@ -15,6 +15,8 @@ pub struct Server {
     pub sent: Vec<(u32, i64, Vec<u8>)>,
     pub migrate: bool,
     pub wrappers: Vec<i64>,
+    pub history_queries: Vec<(i32, i32, i32, i32)>,
+    pub chat_queries: Vec<Vec<i64>>,
 }
 pub fn rpc(name: &str) -> InvocationError {
     InvocationError::Rpc(RpcError::from(tl::types::RpcError {
@@ -261,10 +263,47 @@ impl Server {
                 .to_bytes()
             }
             id if id == tl::functions::messages::GetChats::CONSTRUCTOR_ID => {
+                let r = request!(tl::functions::messages::GetChats);
+                self.chat_queries.push(r.id);
                 boxed(&tl::types::messages::Chats { chats: vec![] })
             }
-            id if id == tl::functions::messages::GetHistory::CONSTRUCTOR_ID
-                || id == tl::functions::messages::GetMessages::CONSTRUCTOR_ID
+            id if id == tl::functions::messages::GetHistory::CONSTRUCTOR_ID => {
+                let r = request!(tl::functions::messages::GetHistory);
+                self.history_queries
+                    .push((r.offset_id, r.offset_date, r.add_offset, r.limit));
+                if r.offset_date != 0 && r.limit == 1 {
+                    return Ok(boxed(&tl::types::messages::MessagesSlice {
+                        inexact: false,
+                        count: 131,
+                        next_rate: None,
+                        offset_id_offset: Some(131),
+                        search_flood: None,
+                        messages: vec![],
+                        topics: vec![],
+                        chats: vec![],
+                        users: vec![],
+                    }));
+                }
+                if r.offset_id == 25 {
+                    return Ok(boxed(&tl::types::messages::ChannelMessages {
+                        inexact: false,
+                        pts: 9,
+                        count: 131,
+                        offset_id_offset: Some(100),
+                        messages: vec![],
+                        topics: vec![],
+                        chats: vec![],
+                        users: vec![],
+                    }));
+                }
+                boxed(&tl::types::messages::Messages {
+                    messages: vec![],
+                    topics: vec![],
+                    chats: vec![],
+                    users: vec![],
+                })
+            }
+            id if id == tl::functions::messages::GetMessages::CONSTRUCTOR_ID
                 || id == tl::functions::messages::Search::CONSTRUCTOR_ID =>
             {
                 boxed(&tl::types::messages::Messages {

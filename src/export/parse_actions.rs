@@ -348,6 +348,28 @@ pub fn parse_service_action(
         "ManagedBotCreated" => Action::ManagedBotCreated(ActionManagedBotCreated {
             bot_id: integer(data, "bot_id"),
         }),
+        "GramTransfer" => Action::GramTransfer(ActionGramTransfer {
+            amount: integer(data, "amount"),
+            peer_address: string(data, "peer_address").into(),
+            transaction_id: string(data, "transaction_id").into(),
+            comment: string(data, "comment").into(),
+            comment_encrypted: boolean(data, "comment_encrypted"),
+        }),
+        "WalletTonConnectRequest" => {
+            Action::WalletTonConnectRequest(ActionWalletTonConnectRequest {
+                session_id: data["session_id"]
+                    .as_u64()
+                    .unwrap_or_else(|| integer(data, "session_id") as u64),
+                expires: integer(data, "expires"),
+                topic: string(data, "topic").into(),
+                trace_id: string(data, "trace_id").into(),
+                accepted: boolean(data, "accepted"),
+                declined: boolean(data, "declined"),
+            })
+        }
+        "NoPaidMessagesTokenUsed" => {
+            Action::NoPaidMessagesTokenUsed(ActionNoPaidMessagesTokenUsed {})
+        }
         _ => return Ok(ServiceAction::default()),
     };
     Ok(ServiceAction {

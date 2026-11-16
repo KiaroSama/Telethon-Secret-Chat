@@ -323,7 +323,8 @@ impl<'a> RichHtmlRenderer<'a> {
             | T::Subscript
             | T::Superscript
             | T::Marked
-            | T::BankCard => {
+            | T::BankCard
+            | T::TonAddress => {
                 let (tag, class) = match text.r#type {
                     T::Bold => ("strong", None),
                     T::Italic => ("em", None),
@@ -333,6 +334,7 @@ impl<'a> RichHtmlRenderer<'a> {
                     T::Subscript => ("sub", None),
                     T::Superscript => ("sup", None),
                     T::Marked => ("mark", None),
+                    T::TonAddress => ("span", Some("rich_ton_address")),
                     _ => ("span", Some("rich_bank_card")),
                 };
                 let mut attributes = BTreeMap::new();

@@ -4,7 +4,24 @@ mod boundary;
 mod machine;
 mod support_sdk;
 #[tokio::test]
+#[allow(clippy::unwrap_used)]
 async fn real_original_client_and_live_receiver_commit_before_deleting_server_ack() {
+    let path = std::path::PathBuf::from("custom target")
+        .join("native-host-triple")
+        .join("debug")
+        .join(format!(
+            "kiaro-sdk-ingress-harness{}",
+            std::env::consts::EXE_SUFFIX
+        ));
+    let mut artifact = serde_json::json!({"reason":"compiler-artifact","target":{"name":"kiaro-sdk-ingress-harness","kind":["bin"]},"executable":path});
+    let valid = serde_json::to_vec(&artifact).unwrap();
+    assert_eq!(support_sdk::compiler_executable(&valid), Some(path));
+    artifact["target"]["name"] = "another-binary".into();
+    assert!(support_sdk::compiler_executable(&serde_json::to_vec(&artifact).unwrap()).is_none());
+    artifact["target"]["name"] = "kiaro-sdk-ingress-harness".into();
+    artifact["executable"] = serde_json::Value::Null;
+    assert!(support_sdk::compiler_executable(&serde_json::to_vec(&artifact).unwrap()).is_none());
+    assert!(support_sdk::compiler_executable(b"not Cargo JSON").is_none());
     support_sdk::run("adapter");
     boundary::original_handle_clone_refuses_before_request_is_queued().await;
     machine::live_codec_retains_complete_envelope_and_peers();

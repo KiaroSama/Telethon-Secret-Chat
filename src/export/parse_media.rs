@@ -37,9 +37,21 @@ pub fn parse_shared_contact(
 }
 pub fn parse_geo_point(data: &Value) -> GeoPoint {
     if type_is(data, "GeoPoint") {
+        coordinates(data["lat"].as_f64(), data["long"].as_f64())
+    } else {
+        GeoPoint::default()
+    }
+}
+pub(super) fn coordinates(latitude: Option<f64>, longitude: Option<f64>) -> GeoPoint {
+    if let Some((latitude, longitude)) = latitude.zip(longitude)
+        && latitude.is_finite()
+        && longitude.is_finite()
+        && latitude.abs() <= 90.0
+        && longitude.abs() <= 180.0
+    {
         GeoPoint {
-            latitude: data["lat"].as_f64().unwrap_or(0.0),
-            longitude: data["long"].as_f64().unwrap_or(0.0),
+            latitude,
+            longitude,
             valid: true,
         }
     } else {

@@ -272,7 +272,6 @@ impl Account {
         )
         .await?;
         self.manager.stop_auto_save_secret_chats().await?;
-        self.recorder = Recorder::default();
         record(&self.manager, &self.recorder)?;
         self.manager.start().await?;
         self.pump = Some(Pump::spawn(
