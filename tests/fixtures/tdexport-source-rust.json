@@ -127,7 +127,7 @@
     "src/export/qt_icc.rs": "66aaaa2353fa0500b87f22c24836ae1586aa2e6be99a1f97fcde85fd16f45b11",
     "src/export/qt_jpeg.rs": "a0a577d5d33196c81a45a6c30aa58e377253a4dbb0794cbe54ba3e6945c2d7cc",
     "src/export/qt_scale.rs": "7288a398ced46edd25aa5008ac8cb8236f1d26930096ec3e05fb613c369b8115",
-    "src/export/saved.rs": "b517f96cbf86e063188d496acbbdd09dcda2bdb2e03b283b5a9d45ae3b906fce",
+    "src/export/saved.rs": "1763206321b58af35bcd55b70b54cfd9f84b1a6957773992461a7304a5fbb45a",
     "src/export/saved_parse.rs": "8f215286a9d701aa86a98434c32112d8ef59a811ceecdaf8416ffcf096400c6e",
     "src/export/settings.rs": "45f25207c4e0cb8ca253cd9c5464c9aaba1a79fa6989393f67d31e981e6b6125",
     "src/export/thumbnail.rs": "16c9d4514f2cda04eb4e02efb770e380ac736538c3792fdf9c0b2d63257f3ebf",
