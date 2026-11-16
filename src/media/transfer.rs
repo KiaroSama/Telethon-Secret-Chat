@@ -6,7 +6,7 @@ use crate::{
 use grammers_client::Client;
 use grammers_tl_types as tl;
 use std::{
-    io::{Cursor, Seek, SeekFrom, Write},
+    io::{Seek, SeekFrom, Write},
     path::{Path, PathBuf},
 };
 pub async fn upload_file(
@@ -16,13 +16,11 @@ pub async fn upload_file(
 ) -> Result<tl::enums::InputEncryptedFile> {
     let size = source.size;
     let name = source.name.clone();
-    let owned = std::mem::replace(&mut source.reader, Box::new(Cursor::new(Vec::<u8>::new())));
-    let mut reader = EncryptingReader::new(owned, size, key.clone())?;
+    let mut reader = EncryptingReader::new(source.reader.clone(), size, key.clone())?;
     let encrypted_size = usize::try_from(reader.size).map_err(|_| Error::Media)?;
     let uploaded = client
         .upload_stream(&mut reader, encrypted_size, name)
         .await;
-    source.reader = reader.into_source().await.map_err(|_| Error::Storage)?;
     let uploaded = uploaded.map_err(|_| Error::Transport)?;
     let fingerprint = key.fingerprint();
     Ok(match uploaded.raw {
@@ -125,12 +123,24 @@ pub async fn download_bytes(
     if encrypted.len() != expected {
         return Err(Error::Media);
     }
-    let mut plaintext = Vec::with_capacity(size);
-    crate::files::decrypt_file(
-        &mut encrypted.as_slice(),
-        &mut plaintext,
-        parts.size,
-        &parts.key,
-    )?;
-    Ok(plaintext)
+    super::blocking::spawn(move |cancelled| {
+        if cancelled.load(std::sync::atomic::Ordering::Acquire) {
+            return Err(Error::ManagerStopping);
+        }
+        // An abandoned worker result must scrub plaintext as well as ciphertext.
+        let mut plaintext = zeroize::Zeroizing::new(Vec::with_capacity(size));
+        crate::files::decrypt_file(
+            &mut encrypted.as_slice(),
+            &mut *plaintext,
+            parts.size,
+            &parts.key,
+        )?;
+        if cancelled.load(std::sync::atomic::Ordering::Acquire) {
+            return Err(Error::ManagerStopping);
+        }
+        Ok(plaintext)
+    })?
+    .await
+    .map_err(|_| Error::Storage)?
+    .map(|mut plaintext| std::mem::take(&mut *plaintext))
 }

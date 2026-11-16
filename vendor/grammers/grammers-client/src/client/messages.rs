@@ -32,8 +32,13 @@ async fn map_random_ids_to_messages(
             updates,
             users,
             chats,
-            date: _,
-            seq: _,
+            ..
+        })
+        | tl::enums::Updates::Combined(tl::types::UpdatesCombined {
+            updates,
+            users,
+            chats,
+            ..
         }) => {
             let peers = client.build_peer_map(users, chats).await;
 
@@ -85,7 +90,7 @@ async fn map_random_ids_to_messages(
                 })
                 .collect())
         }
-        _ => panic!("API returned something other than Updates so messages can't be mapped"),
+        _ => Err(std::io::Error::other("unsupported send response container").into()),
     }
 }
 
@@ -128,6 +133,11 @@ pub(crate) async fn parse_mention_entities(
 }
 
 const MAX_LIMIT: usize = 100;
+struct SearchCursor {
+    rate: i32,
+    peer: InputPeer,
+    id: i32,
+}
 
 /// Build a reply-to a plain message by its ID, leaving all other fields unset.
 fn input_reply_to(reply_to_msg_id: i32) -> tl::enums::InputReplyTo {
@@ -197,43 +207,54 @@ impl<R: tl::RemoteCall<Return = tl::enums::messages::Messages>> IterBuffer<R, Me
         limit: i32,
         reverse: bool,
         peer: Option<PeerRef>,
-    ) -> Result<Option<i32>, InvocationError> {
+    ) -> Result<Option<SearchCursor>, InvocationError> {
         use tl::enums::messages::Messages;
 
-        let (mut messages, users, chats, rate) = match self.client.invoke(&self.request).await? {
-            Messages::Messages(m) => {
-                self.last_chunk = true;
-                self.total = Some(m.messages.len());
-                (m.messages, m.users, m.chats, None)
-            }
-            Messages::Slice(m) => {
-                // Can't rely on `count(messages) < limit` as the stop condition.
-                // See https://t.me/tdlibchat/57257 for discussion. As an example:
-                // offset_id 132002, limit 4 => we get msg 131999 & 131998
-                // offset_id 132002, limit 3 => we get msg 131999
-                // offset_id 132002, limit 2 => we get msg 132000
-                // offset_id 132002, limit 1 => we get msg 132001
-                //
-                // When iterating newest-to-oldest, the highest fetched message ID is
-                // lower than or equal to the limit, there can't be more messages after
-                // (highest ID - limit), because the absolute lowest message ID is 1.
-                self.last_chunk = m.messages.is_empty()
-                    || (peer.is_some() && !reverse && m.messages[0].id() <= limit);
+        let (mut messages, users, chats, rate, last_chunk, total) =
+            match self.client.invoke(&self.request).await? {
+                Messages::Messages(m) => {
+                    let total = m.messages.len();
+                    (m.messages, m.users, m.chats, None, true, total)
+                }
+                Messages::Slice(m) => {
+                    // Can't rely on `count(messages) < limit` as the stop condition.
+                    // See https://t.me/tdlibchat/57257 for discussion. As an example:
+                    // offset_id 132002, limit 4 => we get msg 131999 & 131998
+                    // offset_id 132002, limit 3 => we get msg 131999
+                    // offset_id 132002, limit 2 => we get msg 132000
+                    // offset_id 132002, limit 1 => we get msg 132001
+                    //
+                    // When iterating newest-to-oldest, the highest fetched message ID is
+                    // lower than or equal to the limit, there can't be more messages after
+                    // (highest ID - limit), because the absolute lowest message ID is 1.
+                    let last_chunk = m.messages.is_empty()
+                        || (peer.is_some() && !reverse && m.messages[0].id() <= limit);
 
-                self.total = Some(m.count as usize);
-
-                (m.messages, m.users, m.chats, m.next_rate)
-            }
-            Messages::ChannelMessages(m) => {
-                self.last_chunk = m.messages.is_empty()
-                    || (peer.is_some() && !reverse && m.messages[0].id() <= limit);
-                self.total = Some(m.count as usize);
-                (m.messages, m.users, m.chats, None)
-            }
-            Messages::NotModified(_) => {
-                panic!("API returned Messages::NotModified even though hash = 0")
-            }
-        };
+                    (
+                        m.messages,
+                        m.users,
+                        m.chats,
+                        m.next_rate,
+                        last_chunk,
+                        m.count as usize,
+                    )
+                }
+                Messages::ChannelMessages(m) => {
+                    let last_chunk = m.messages.is_empty()
+                        || (peer.is_some() && !reverse && m.messages[0].id() <= limit);
+                    (
+                        m.messages,
+                        m.users,
+                        m.chats,
+                        None,
+                        last_chunk,
+                        m.count as usize,
+                    )
+                }
+                Messages::NotModified(_) => {
+                    panic!("API returned Messages::NotModified even though hash = 0")
+                }
+            };
 
         if reverse {
             messages.reverse();
@@ -242,13 +263,33 @@ impl<R: tl::RemoteCall<Return = tl::enums::messages::Messages>> IterBuffer<R, Me
         let peers = self.client.build_peer_map(users, chats).await;
 
         let client = self.client.clone();
-        self.buffer.extend(
-            messages
-                .into_iter()
-                .map(|message| Message::from_raw(&client, message, peer, peers.handle())),
-        );
-
-        Ok(rate)
+        let page = messages
+            .into_iter()
+            .map(|message| Message::from_raw(&client, message, peer, peers.handle()))
+            .collect::<Vec<_>>();
+        let cursor = if peer.is_none()
+            && !last_chunk
+            && let Some(last) = page.last()
+        {
+            Some(SearchCursor {
+                rate: rate.unwrap_or(0),
+                peer: last
+                    .peer_ref()
+                    .await?
+                    .ok_or(InvocationError::Dropped(
+                        "global-search continuation peer unavailable",
+                    ))?
+                    .into(),
+                id: last.id(),
+            })
+        } else {
+            None
+        };
+        // Commit the complete page and its terminal state only after all session awaits.
+        self.last_chunk = last_chunk;
+        self.total = Some(total);
+        self.buffer.extend(page);
+        Ok(cursor)
     }
 }
 
@@ -547,18 +588,13 @@ impl GlobalSearchIter {
         }
 
         self.request.limit = self.determine_limit(MAX_LIMIT);
-        let offset_rate = self.fill_buffer(self.request.limit, false, None).await?;
+        let cursor = self.fill_buffer(self.request.limit, false, None).await?;
 
         // Don't bother updating offsets if this is the last time stuff has to be fetched.
-        if !self.last_chunk && !self.buffer.is_empty() {
-            let last = &self.buffer[self.buffer.len() - 1];
-            self.request.offset_rate = offset_rate.unwrap_or(0);
-            self.request.offset_peer = last
-                .peer_ref()
-                .await?
-                .map(|peer| peer.into())
-                .unwrap_or(tl::enums::InputPeer::Empty);
-            self.request.offset_id = last.id();
+        if let Some(cursor) = cursor {
+            self.request.offset_rate = cursor.rate;
+            self.request.offset_peer = cursor.peer;
+            self.request.offset_id = cursor.id;
         }
 
         Ok(self.pop_item())
@@ -864,7 +900,7 @@ impl Client {
             schedule_date: new_message.schedule_date,
             schedule_repeat_period: None,
             quick_reply_shortcut_id: None,
-            rich_message: None,
+            rich_message: new_message.rich_message,
         })
         .await?;
 
@@ -1152,6 +1188,11 @@ impl Client {
         message_ids: &[i32],
     ) -> Result<Vec<Option<Message>>, InvocationError> {
         let peer = peer.into();
+        let expected_peer = if peer.id == PeerId::self_user() {
+            self.get_me().await?.id()
+        } else {
+            peer.id
+        };
         let id = message_ids
             .iter()
             .map(|&id| tl::enums::InputMessage::Id(tl::types::InputMessageId { id }))
@@ -1175,7 +1216,7 @@ impl Client {
             .into_iter()
             .filter(|message| !matches!(message, tl::enums::Message::Empty(_)))
             .map(|m| Message::from_raw(self, m, Some(peer), peers.handle()))
-            .filter(|m| m.peer_id() == peer.id)
+            .filter(|m| m.peer_id() == expected_peer)
             .map(|m| (m.id(), m))
             .collect::<HashMap<_, _>>();
 
@@ -1201,19 +1242,28 @@ impl Client {
         peer: C,
     ) -> Result<Option<Message>, InvocationError> {
         let peer = peer.into();
-        // TODO return types::Message and print its text in the example
+        let expected_peer = if peer.id == PeerId::self_user() {
+            self.get_me().await?.id()
+        } else {
+            peer.id
+        };
+        if peer.id.kind() != PeerKind::Channel {
+            return Ok(self
+                .search_messages(peer)
+                .filter(tl::enums::MessagesFilter::InputMessagesFilterPinned)
+                .limit(1)
+                .next()
+                .await?
+                .filter(|message| message.peer_id() == expected_peer));
+        }
         let id = vec![tl::enums::InputMessage::Pinned];
 
-        let result = if peer.id.kind() == PeerKind::Channel {
-            self.invoke(&tl::functions::channels::GetMessages {
+        let result = self
+            .invoke(&tl::functions::channels::GetMessages {
                 channel: peer.into(),
                 id,
             })
-            .await
-        } else {
-            self.invoke(&tl::functions::messages::GetMessages { id })
-                .await
-        }?;
+            .await?;
 
         let (messages, users, chats) = unpack_messages(result);
 
@@ -1222,7 +1272,7 @@ impl Client {
             .into_iter()
             .filter(|message| !matches!(message, tl::enums::Message::Empty(_)))
             .map(|m| Message::from_raw(self, m, Some(peer), peers.handle()))
-            .find(|m| m.peer_id() == peer.id))
+            .find(|m| m.peer_id() == expected_peer))
     }
 
     /// Pin a message in the peer. This will not notify any users.

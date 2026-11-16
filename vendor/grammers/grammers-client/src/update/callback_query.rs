@@ -89,12 +89,8 @@ impl CallbackQuery {
 
     /// They binary payload data contained by the inline button which was pressed.
     ///
-    /// This data cannot be faked by the client, since Telegram will only accept "button presses"
-    /// on data that actually existed in the buttons of the message, so you do not need to perform
-    /// any sanity checks.
-    ///
-    /// *Trivia*: it used to be possible to fake the callback data, but a server-side check was
-    /// added circa 2018 to prevent malicious clients from doing so.
+    /// A malicious client can supply arbitrary callback data. Validate the payload and
+    /// verify the sender's authorization before performing a protected action.
     pub fn data(&self) -> &[u8] {
         match &self.raw {
             tl::enums::Update::BotCallbackQuery(update) => update.data.as_deref().unwrap_or(&[]),

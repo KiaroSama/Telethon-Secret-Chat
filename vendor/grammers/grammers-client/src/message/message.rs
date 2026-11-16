@@ -417,11 +417,10 @@ impl Message {
     /// such as underline, are also ignored.
     #[cfg(feature = "markdown")]
     pub fn markdown_text(&self) -> String {
-        if let Some(entities) = self.entities() {
-            parsers::generate_markdown_message(self.text(), entities)
-        } else {
-            self.text().to_owned()
-        }
+        parsers::generate_markdown_message(
+            self.text(),
+            self.entities().map_or(&[], |entities| entities.as_slice()),
+        )
     }
 
     /// Like [`text`](Self::text), but with the [`fmt_entities`](Self::fmt_entities)
@@ -432,11 +431,10 @@ impl Message {
     /// sent for Telegram to include them in the message.
     #[cfg(feature = "html")]
     pub fn html_text(&self) -> String {
-        if let Some(entities) = self.entities() {
-            parsers::generate_html_message(self.text(), entities)
-        } else {
-            self.text().to_owned()
-        }
+        parsers::generate_html_message(
+            self.text(),
+            self.entities().map_or(&[], |entities| entities.as_slice()),
+        )
     }
 
     /// The media displayed by this message, if any.
@@ -626,11 +624,8 @@ impl Message {
 
     /// If this message is replying to another message, return the replied message ID.
     pub fn reply_to_message_id(&self) -> Option<i32> {
-        match &self.raw {
-            tl::enums::Message::Message(tl::types::Message {
-                reply_to: Some(tl::enums::MessageReplyHeader::Header(header)),
-                ..
-            }) => header.reply_to_msg_id,
+        match self.reply_header() {
+            Some(tl::enums::MessageReplyHeader::Header(header)) => header.reply_to_msg_id,
             _ => None,
         }
     }
@@ -706,7 +701,12 @@ impl Message {
         &self,
         mut medias: Vec<InputMedia>,
     ) -> Result<Vec<Option<Self>>, InvocationError> {
-        medias.first_mut().unwrap().reply_to = Some(self.id());
+        if medias.is_empty() {
+            return Err(InvocationError::Dropped("reply album contains no media"));
+        }
+        for media in &mut medias {
+            media.reply_to = Some(self.id());
+        }
         self.client
             .send_album(
                 self.peer_ref()
@@ -734,7 +734,11 @@ impl Message {
                     .ok_or(InvocationError::Dropped(NO_PEER_REF_REASON))?,
             )
             .await
-            .map(|mut msgs| msgs.pop().unwrap().unwrap())
+            .and_then(|mut msgs| {
+                msgs.pop().flatten().ok_or(InvocationError::Dropped(
+                    "forwarded message was unavailable",
+                ))
+            })
     }
 
     /// Edit this message to change its text or media.

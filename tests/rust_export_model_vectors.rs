@@ -193,6 +193,7 @@ fn run(name: &str) {
 }
 #[test]
 fn model_bff356ec02059d68() {
+    review::unicode_and_images();
     run("bff356ec02059d68.json");
 }
 #[test]

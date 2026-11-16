@@ -132,19 +132,37 @@ impl Server {
         }
     }
 }
-#[tokio::main(flavor = "current_thread")]
-async fn main() {
+fn main() {
     let mode = std::env::args().nth(1).unwrap();
     if mode == "adapter" {
-        tokio::time::timeout(std::time::Duration::from_secs(90), async {
-            adapter::run().await;
-            review_export::run().await;
-            review_manager::run().await;
-        })
-        .await
-        .unwrap();
-        return;
+        run_adapter();
+    } else {
+        run_other_mode(mode);
     }
+}
+fn runtime() -> tokio::runtime::Runtime {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+}
+fn run_adapter() {
+    runtime().block_on(Box::pin(adapter_suite()));
+}
+fn run_other_mode(mode: String) {
+    runtime().block_on(Box::pin(run_ingress_mode(mode)));
+}
+async fn adapter_suite() {
+    tokio::time::timeout(std::time::Duration::from_secs(90), async {
+        Box::pin(adapter::run()).await;
+        Box::pin(review_export::run()).await;
+        Box::pin(review_manager::run()).await;
+    })
+    .await
+    .unwrap();
+}
+// Keep the independent scenario's generator temporaries off the adapter poll stack.
+async fn run_ingress_mode(mode: String) {
     assert!(matches!(
         mode.as_str(),
         "live" | "difference" | "explicit" | "bot" | "capacity"

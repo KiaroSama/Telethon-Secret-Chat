@@ -29,6 +29,77 @@ pub fn run() {
         }
         .into(),
     );
+    let api::InputMedia::UploadedDocument(video) = InputVideo::new(uploaded.clone())
+        .nosound(true)
+        .animated(false)
+        .into()
+    else {
+        panic!("video conversion")
+    };
+    assert!(video.nosound_video);
+    let mut photo = Photo::from_raw_media(raw::MessageMediaPhoto {
+        spoiler: false,
+        live_photo: true,
+        photo: None,
+        ttl_seconds: None,
+        video: Some(
+            raw::Document {
+                id: 12,
+                access_hash: 34,
+                file_reference: vec![56],
+                date: 0,
+                mime_type: "video/mp4".into(),
+                size: 1,
+                thumbs: None,
+                video_thumbs: None,
+                dc_id: 2,
+                attributes: vec![],
+            }
+            .into(),
+        ),
+    });
+    let copied = photo.to_raw_input_media();
+    assert!(copied.live_photo);
+    assert!(
+        matches!(copied.video,Some(api::InputDocument::Document(document)) if document.id==12 && document.access_hash==34 && document.file_reference==[56])
+    );
+    photo.raw.photo = Some(
+        raw::Photo {
+            has_stickers: false,
+            id: 7,
+            access_hash: 8,
+            file_reference: vec![],
+            date: 0,
+            sizes: vec![
+                raw::PhotoStrippedSize {
+                    r#type: "i".into(),
+                    bytes: vec![1; 100],
+                }
+                .into(),
+                raw::PhotoSize {
+                    r#type: "m".into(),
+                    w: 10,
+                    h: 10,
+                    size: 700,
+                }
+                .into(),
+            ],
+            video_sizes: None,
+            dc_id: 2,
+        }
+        .into(),
+    );
+    assert_eq!(photo.size(), Some(700));
+    assert!(
+        matches!(photo.to_raw_input_location(),Some(api::InputFileLocation::InputPhotoFileLocation(location)) if location.thumb_size=="m")
+    );
+    let Some(api::Photo::Photo(raw)) = &mut photo.raw.photo else {
+        panic!("photo")
+    };
+    raw.sizes
+        .retain(|size| matches!(size, api::PhotoSize::PhotoStrippedSize(_)));
+    assert_eq!(photo.size(), None);
+    assert!(photo.to_raw_input_location().is_none());
     let api::InputMedia::UploadedDocument(video) = InputVideo::new(uploaded.clone()).into() else {
         panic!("video conversion")
     };

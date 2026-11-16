@@ -260,7 +260,7 @@ impl<R: Read> Decoder<R> {
                     // keep going; don't send it yet. We also need to ensure we don't skip over the last
                     // row(s) of the image.
                     if !is_interleaved
-                        && (mcu_y + 1) * 8 < frame.image_size.height
+                        && (u32::from(mcu_y) + 1) * 8 < u32::from(frame.image_size.height)
                         && (mcu_y + 1) % component.vertical_sampling_factor as u16 > 0
                     {
                         continue;

@@ -273,7 +273,7 @@ pub(super) fn adapt(updates: UpdatesLike) -> Result<tl::types::UpdatesCombined, 
                 return Err(Gap);
             }
             Ok(update_short(tl::types::UpdateShort {
-                update: tl::types::UpdateNewMessage {
+                update: short_sent_update(tl::types::UpdateNewMessage {
                     message: tl::types::Message {
                         out: update.out,
                         mentioned: false,
@@ -368,8 +368,7 @@ pub(super) fn adapt(updates: UpdatesLike) -> Result<tl::types::UpdatesCombined, 
                     .into(),
                     pts: update.pts,
                     pts_count: update.pts_count,
-                }
-                .into(),
+                }),
                 date: update.date,
             }))
         }
@@ -497,7 +496,48 @@ fn message_channel_id(message: &tl::enums::Message) -> Option<i64> {
     }
 }
 
+fn short_sent_update(update: tl::types::UpdateNewMessage) -> tl::enums::Update {
+    if message_channel_id(&update.message).is_some() {
+        tl::types::UpdateNewChannelMessage {
+            message: update.message,
+            pts: update.pts,
+            pts_count: update.pts_count,
+        }
+        .into()
+    } else {
+        update.into()
+    }
+}
+
 impl PtsInfo {
+    /// Validate stored gap ownership before calling the normal protocol adaptor.
+    pub(super) fn from_gap_update(update: &tl::enums::Update) -> Option<Self> {
+        use tl::enums::Update::*;
+        let invalid_peer = match update {
+            NewMessage(update) => matches!(
+                message_peer(&update.message),
+                Some(tl::enums::Peer::Channel(_))
+            ),
+            EditMessage(update) => matches!(
+                message_peer(&update.message),
+                Some(tl::enums::Peer::Channel(_))
+            ),
+            ReadHistoryInbox(update) => matches!(update.peer, tl::enums::Peer::Channel(_)),
+            ReadHistoryOutbox(update) => matches!(update.peer, tl::enums::Peer::Channel(_)),
+            PinnedMessages(update) => matches!(update.peer, tl::enums::Peer::Channel(_)),
+            _ => false,
+        };
+        if invalid_peer {
+            return None;
+        }
+        Self::from_update(update).filter(|info| {
+            info.pts > 0
+                && info.count >= 0
+                && info.count <= info.pts
+                && !matches!(info.key,Key::Channel(id) if id<=0)
+        })
+    }
+
     pub(super) fn from_update(update: &tl::enums::Update) -> Option<Self> {
         use tl::enums::Update::*;
         match update {

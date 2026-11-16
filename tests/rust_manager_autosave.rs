@@ -35,6 +35,7 @@ async fn saved_files(a: &Manager, id: i32, count: usize) -> Vec<serde_json::Valu
 }
 #[tokio::test]
 async fn messages_both_directions_include_ttl_and_service_records() {
+    archive_review::incomplete_tail_does_not_eat_next_record();
     archive_review::concurrent_archive_transactions();
     let (a, b, world, id, _folder) = saving().await;
     a.send_message(id, "from a", None, None).await.unwrap();
@@ -99,6 +100,7 @@ async fn files_both_directions_are_saved_decrypted_without_keys() {
 }
 #[tokio::test]
 async fn deleting_saved_conversation_removes_only_selected_folder() {
+    deletion_invalidates_accepted_workers().await;
     let (a, _b, _world, id, folder) = saving().await;
     a.send_message(id, "x", None, None).await.unwrap();
     let unrelated = folder.path().join("unrelated.txt");
@@ -308,4 +310,45 @@ async fn saved_copy_survives_message_delete_and_both_sides_chat_delete() {
             .collect::<Vec<_>>(),
         ["keep me"]
     );
+}
+
+async fn deletion_invalidates_accepted_workers() {
+    for first_poll in [false, true] {
+        let (a, b, world, id, folder) = saving().await;
+        let gate = Arc::new(Gate::default());
+        if first_poll {
+            world.lock().unwrap().download_gate = Some(gate.clone());
+        }
+        b.send_file(
+            id,
+            FileSource::bytes(b"old private attachment".to_vec(), "old.bin").unwrap(),
+            SendFileOptions::default(),
+        )
+        .await
+        .unwrap();
+        pump(&a, &b, &world).await;
+        if first_poll {
+            tokio::time::timeout(Duration::from_secs(3), gate.entered.notified())
+                .await
+                .unwrap();
+        } else {
+            assert_eq!(world.lock().unwrap().downloads, 0);
+        }
+        a.delete_saved_messages(id).unwrap();
+        world.lock().unwrap().download_gate = None;
+        gate.release.notify_one();
+        a.stop_auto_save_secret_chats().await.unwrap();
+        assert!(
+            !folder.path().join(id.to_string()).exists(),
+            "an accepted stale download cannot recreate a deleted archive (first_poll={first_poll})"
+        );
+        assert!(a.read_saved_messages(id).unwrap().is_empty());
+        a.start_auto_save_secret_chats(folder.path()).await.unwrap();
+        a.send_message(id, "fresh after deletion", None, None)
+            .await
+            .unwrap();
+        assert_eq!(a.read_saved_messages(id).unwrap().len(), 1);
+        a.stop().await.unwrap();
+        b.stop().await.unwrap();
+    }
 }

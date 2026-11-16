@@ -184,6 +184,7 @@ async fn protocol_cursor_and_consumer_identity_survive_reconstruction() {
 }
 #[tokio::test]
 async fn expired_spool_refuses_ack_without_rewriting_custody() {
+    crate::custody::transient::review::verify_refusals();
     crate::custody::bounded::review::verify_refusal_ownership();
     review::expired_receipts_reopen_and_drain().await;
     let (dir, ingress, pool) = super::test_fixture::fixture(32).await;

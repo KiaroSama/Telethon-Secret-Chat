@@ -37,11 +37,16 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<CustodyStorage<S>, T>
     }
     /// Check age and capacity now, retaining every required record.
     pub fn check_custody(&self) -> Result<Vec<i32>> {
-        let paused = self.protocol(|p| p.check_custody())?;
-        for id in &paused {
-            self.cancel_runtime(*id);
+        let (result, paused) = self.protocol(|p| {
+            let result = p.check_custody();
+            // Earlier pauses may have committed before a later persistence failure.
+            // The protocol adopts that committed view on both success and error.
+            Ok((result, p.paused_custody_ids()))
+        })?;
+        for id in paused {
+            self.cancel_runtime(id);
         }
-        Ok(paused)
+        result
     }
     /// Resume intact custody and retry its original delivery/send identities.
     pub async fn resume_chat(&self, id: i32) -> Result<()> {

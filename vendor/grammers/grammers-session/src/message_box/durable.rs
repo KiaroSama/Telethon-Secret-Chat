@@ -2,7 +2,7 @@
 //! Bounded, versioned custody codecs. These contain private update bodies and
 //! deliberately have no Debug implementation. They are not session exports.
 use super::defs::{Key, MessageBox, State, UpdateAndPeers, UpdatesLike};
-use super::{Instant, LiveEntry, MessageBoxes, PossibleGap};
+use super::{Instant, LiveEntry, MessageBoxes, PossibleGap, PtsInfo};
 use grammers_tl_types::{self as tl, Deserializable, Serializable};
 use std::{
     collections::BTreeSet,
@@ -255,7 +255,12 @@ impl MessageBoxes {
                     let n = r.count()?;
                     let mut updates = Vec::with_capacity(n);
                     for _ in 0..n {
-                        updates.push(r.tl()?);
+                        let update = r.tl()?;
+                        let info = PtsInfo::from_gap_update(&update).ok_or(CustodyCodecError)?;
+                        if info.key != key || pts.checked_add(info.count).is_none() {
+                            return Err(CustodyCodecError);
+                        }
+                        updates.push(update);
                     }
                     Some(PossibleGap { deadline, updates })
                 }

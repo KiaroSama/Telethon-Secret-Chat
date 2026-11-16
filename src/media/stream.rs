@@ -131,16 +131,6 @@ impl<R: Read> EncryptingReader<R> {
             pending: None,
         })
     }
-    pub(crate) async fn into_source(mut self) -> io::Result<R> {
-        if let Some(pending) = self.pending.take() {
-            let (state, _) = pending.await.map_err(io::Error::other)?;
-            self.state = Some(state);
-        }
-        self.state
-            .take()
-            .map(|state| state.source)
-            .ok_or_else(|| io::Error::other("encrypted source is unavailable"))
-    }
 }
 impl<R: Read> Read for EncryptingReader<R> {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {

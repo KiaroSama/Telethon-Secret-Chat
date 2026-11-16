@@ -96,7 +96,7 @@ pub fn parse_html_message(message: &str) -> (String, Vec<tl::enums::MessageEntit
                         entities.push(tl::types::MessageEntitySpoiler { offset, length }.into());
                     }
                     tag!("code") => {
-                        match entities.iter_mut().rev().next() {
+                        match entities.iter_mut().next_back() {
                             // If the previous tag is an open `<pre>`, don't add `<code>`;
                             // we most likely want to indicate `class="language-foo"`.
                             Some(tl::enums::MessageEntity::Pre(e)) if e.length == 0 => {
@@ -188,7 +188,7 @@ pub fn parse_html_message(message: &str) -> (String, Vec<tl::enums::MessageEntit
                         update_entity_len!(Spoiler(offset) in entities);
                     }
                     tag!("code") => {
-                        match entities.iter_mut().rev().next() {
+                        match entities.iter_mut().next_back() {
                             // If the previous tag is an open `<pre>`, don't update `<code>` len;
                             // we most likely want to indicate `class="language-foo"`.
                             Some(tl::enums::MessageEntity::Pre(e)) if e.length == 0 => {}
@@ -242,7 +242,7 @@ pub fn parse_html_message(message: &str) -> (String, Vec<tl::enums::MessageEntit
         }
     }
 
-    let mut input = BufferQueue::default();
+    let input = BufferQueue::default();
     input.push_back(StrTendril::from_slice(message).try_reinterpret().unwrap());
 
     let tok = Tokenizer::new(
@@ -253,7 +253,7 @@ pub fn parse_html_message(message: &str) -> (String, Vec<tl::enums::MessageEntit
         },
         Default::default(),
     );
-    let _ = tok.feed(&mut input);
+    let _ = tok.feed(&input);
     tok.end();
 
     let Sink { text, entities, .. } = tok.sink;

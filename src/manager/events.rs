@@ -85,6 +85,9 @@ impl Event {
                 ..
             } => action.to_bytes().len().saturating_add(action_name.len()),
             Self::ChatReady { key_hash, .. } => key_hash.as_ref().map_or(0, Vec::len),
+            Self::MessageAcknowledged { random_ids, .. } => {
+                random_ids.len().saturating_mul(std::mem::size_of::<i64>())
+            }
             _ => 0,
         };
         dynamic.saturating_add(512)

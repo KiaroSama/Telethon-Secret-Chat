@@ -249,7 +249,8 @@ impl RichHtmlRenderer<'_> {
             return self.render_media_group(block, "slideshow", true);
         };
         for size in sizes {
-            if size.0 * widest.1 > widest.0 * size.1 {
+            if i128::from(size.0) * i128::from(widest.1) > i128::from(widest.0) * i128::from(size.1)
+            {
                 widest = size;
             }
         }

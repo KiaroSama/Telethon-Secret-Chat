@@ -25,6 +25,8 @@ impl From<IngressRefused> for crate::InvocationError {
 /// Calls are synchronous and must complete the durable transaction before
 /// returning. Implementations must fence themselves after uncertain storage.
 /// They must not invoke Telegram or re-enter the sender pool from a callback.
+/// Operational SDK paths await one ordered blocking worker per original pool;
+/// the pre-start attachment callback still runs under its exclusive setup lock.
 pub trait DurableIngressHook: Send + Sync {
     /// Called under the original pool's pre-start ownership lock. No runner or
     /// update receiver can acquire that boundary until this commit completes.
@@ -61,18 +63,85 @@ pub trait DurableIngressHook: Send + Sync {
     fn cancel_request(&self, permit: u64);
 }
 pub(crate) struct InvocationPermit {
-    pub(crate) hook: Arc<dyn DurableIngressHook>,
+    pub(crate) worker: DurableWorker,
     pub(crate) permit: u64,
+    pub(crate) armed: bool,
+}
+impl InvocationPermit {
+    pub(crate) fn disarm(&mut self) {
+        self.armed = false;
+    }
 }
 impl Drop for InvocationPermit {
     fn drop(&mut self) {
-        self.hook.cancel_request(self.permit);
+        if !self.armed {
+            return;
+        }
+        let worker = self.worker.clone();
+        let permit = self.permit;
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            runtime.spawn(async move {
+                let _ = worker
+                    .run(move |hook| {
+                        hook.cancel_request(permit);
+                        Ok(())
+                    })
+                    .await;
+            });
+        } else {
+            worker.hook.cancel_request(permit);
+        }
     }
 }
-#[derive(Default)]
+/// One ordered blocking operation per original pool. Cancellation cannot release
+/// the permit while a filesystem callback is still executing on its worker.
+#[derive(Clone)]
+pub(crate) struct DurableWorker {
+    pub(crate) hook: Arc<dyn DurableIngressHook>,
+    serial: Arc<tokio::sync::Semaphore>,
+}
+impl DurableWorker {
+    pub(crate) async fn run<T: Send + 'static>(
+        &self,
+        operation: impl FnOnce(&dyn DurableIngressHook) -> Result<T, IngressRefused> + Send + 'static,
+    ) -> Result<T, IngressRefused> {
+        let permit = Arc::clone(&self.serial)
+            .acquire_owned()
+            .await
+            .map_err(|_| IngressRefused)?;
+        let hook = Arc::clone(&self.hook);
+        tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            operation(hook.as_ref())
+        })
+        .await
+        .map_err(|_| IngressRefused)?
+    }
+}
 pub(crate) struct Boundary {
     pub(crate) started: bool,
+    pub(crate) dispatched: bool,
     pub(crate) receiver: bool,
     pub(crate) hook: Option<Arc<dyn DurableIngressHook>>,
+    serial: Arc<tokio::sync::Semaphore>,
+}
+impl Default for Boundary {
+    fn default() -> Self {
+        Self {
+            started: false,
+            dispatched: false,
+            receiver: false,
+            hook: None,
+            serial: Arc::new(tokio::sync::Semaphore::new(1)),
+        }
+    }
+}
+impl Boundary {
+    pub(crate) fn worker(&self) -> Option<DurableWorker> {
+        self.hook.as_ref().map(|hook| DurableWorker {
+            hook: Arc::clone(hook),
+            serial: Arc::clone(&self.serial),
+        })
+    }
 }
 pub(crate) type SharedBoundary = Arc<Mutex<Boundary>>;

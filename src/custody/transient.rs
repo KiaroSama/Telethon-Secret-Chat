@@ -6,6 +6,9 @@ use crate::{
     storage::{FileStorage, Operation, State, Storage, StoreMode},
 };
 use std::{collections::BTreeMap, path::Path};
+#[cfg(test)]
+#[path = "../../tests/support_protocol/transient_review.rs"]
+pub(crate) mod review;
 const MAX_STORE: usize = 4 * 1024 * 1024;
 const MAX_CHAT: usize = 64 * 1024;
 pub struct ProtectedFileStorage {
@@ -126,7 +129,6 @@ pub struct TransientStorage<S: Storage> {
     created: BTreeMap<(i32, String), u64>,
     attempts: BTreeMap<(i32, i32), u8>,
     external: BTreeMap<u64, ExternalReservation>,
-    active: Option<(i32, Operation)>,
     refused: bool,
 }
 #[derive(Clone)]
@@ -167,7 +169,6 @@ impl<S: Storage> TransientStorage<S> {
             created: BTreeMap::new(),
             attempts: BTreeMap::new(),
             external: BTreeMap::new(),
-            active: None,
             refused: false,
         })
     }
@@ -202,7 +203,6 @@ impl<S: Storage> TransientStorage<S> {
                 .get(id)
                 .is_some_and(|chat| chat.outbox.contains_key(seq))
         });
-        self.active = None;
         result
     }
     pub fn limits(&self) -> &TransientLimits {
@@ -258,9 +258,6 @@ impl<S: Storage> TransientStorage<S> {
 }
 impl<S: Storage> Storage for TransientStorage<S> {
     fn next_runtime_expiry_ms(&self) -> Result<Option<u64>> {
-        if self.refused {
-            return Ok(None);
-        }
         let age = (self.limits.retention_seconds * 1000.0).ceil() as u64;
         Ok(self
             .created
@@ -435,7 +432,7 @@ impl<S: Storage> Storage for TransientStorage<S> {
     fn committed_view(&self) -> Option<State> {
         Some(self.state.clone())
     }
-    fn admit(&mut self, id: Option<i32>, operation: Operation, bytes: usize) -> Result<()> {
+    fn admit(&mut self, id: Option<i32>, _operation: Operation, bytes: usize) -> Result<()> {
         if self.refused {
             return Err(Error::Storage);
         }
@@ -458,7 +455,6 @@ impl<S: Storage> Storage for TransientStorage<S> {
                 self.suspend(id)?;
                 return Err(Error::Paused);
             }
-            self.active = Some((id, operation));
         }
         Ok(())
     }
@@ -490,7 +486,19 @@ impl<S: Storage> Storage for TransientStorage<S> {
             return Err(Error::Paused);
         }
         if let Err(error) = self.check(state) {
-            if let Some((id, _)) = self.active.take() {
+            // Only a changed existing conversation belongs to this failed
+            // transaction. An earlier admission can have returned without a
+            // commit; global creation work must not inherit that chat's identity.
+            let mut affected = Vec::new();
+            for (id, previous) in &self.state.chats {
+                if let Some(next) = state.chats.get(id)
+                    && serde_json::to_vec(previous).map_err(|_| Error::InvalidState)?
+                        != serde_json::to_vec(next).map_err(|_| Error::InvalidState)?
+                {
+                    affected.push(*id);
+                }
+            }
+            for id in affected {
                 self.suspend(id)?;
             }
             return Err(error);
@@ -527,7 +535,6 @@ impl<S: Storage> Storage for TransientStorage<S> {
                 .is_some_and(|chat| chat.outbox.contains_key(seq))
         });
         self.state = state.clone();
-        self.active = None;
         Ok(())
     }
 }

@@ -48,6 +48,12 @@ pub struct ConnectionParams {
     /// - socks5://127.0.0.1:1234
     /// - socks5://username:password@example.com:5678
     ///
+    /// SOCKS5 does not encrypt its username/password exchange. Credentials
+    /// require a trusted local proxy or an independently encrypted tunnel to
+    /// the proxy (for example SSH or a VPN). MTProto encryption protects the
+    /// Telegram connection; it does not protect SOCKS5 authentication on the
+    /// intervening plain TCP connection. This option does not add proxy TLS.
+    ///
     /// Both a host and port must be provided. If a domain is used for the host, its address will be looked up,
     /// and the first IP address found will be used. If a different IP address should be used, consider resolving
     /// the host manually and selecting an IP address of your choice.

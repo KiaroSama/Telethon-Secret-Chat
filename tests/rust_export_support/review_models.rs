@@ -5,6 +5,29 @@ use kiaro_secret_chat::export::{
     model_peers::*, parse_actions::parse_service_action,
 };
 use serde_json::json;
+pub fn unicode_and_images() {
+    let parts = parse_text(
+        "😀",
+        &[json!({"_":"MessageEntityBold","offset":0,"length":2})],
+    );
+    assert_eq!(parts.len(), 1);
+    assert_eq!(parts[0].text, "😀");
+    assert_eq!(parts[0].kind, TextType::Bold);
+    assert_eq!(
+        parse_text(
+            "😀a",
+            &[json!({"_":"MessageEntityBold","offset":2,"length":3})]
+        ),
+        [TextPart::plain("😀a")]
+    );
+    let image = kiaro_secret_chat::export::model_document::parse_max_image(
+        &json!({"_":"Photo","id":1,"dc_id":2,"sizes":[{"_":"PhotoCachedSize","type":"s","w":2,"h":2,"bytes":[1,2,3]},{"_":"PhotoSizeProgressive","type":"x","w":10,"h":10,"sizes":[]}]}),
+        "photo.jpg",
+    );
+    assert_eq!((image.width, image.height, image.file.size), (2, 2, 3));
+    assert_eq!(image.file.content, [1, 2, 3]);
+    assert_eq!(image.file.location.data["thumb_size"], "s");
+}
 pub fn peers() {
     let empty = parse_user(&json!({"_":"UserEmpty","id":42}));
     assert_eq!(empty.id(), peer_from_user(42));

@@ -28,6 +28,7 @@ use tokio::{
 use tracing::{debug, info, warn};
 
 use crate::configuration::{ConnectionParams, RetryContext};
+use crate::durable_ingress::DurableWorker;
 use crate::durable_ingress::{Boundary, SharedBoundary};
 use crate::errors::{InvocationError, ReadError};
 use crate::{DurableIngressHook, IngressRefused};
@@ -138,17 +139,17 @@ impl SenderPoolHandle {
         hook: Arc<dyn DurableIngressHook>,
     ) -> Result<(), IngressRefused> {
         let mut boundary = self.1.lock().map_err(|_| IngressRefused)?;
-        if boundary.started || boundary.receiver || boundary.hook.is_some() {
+        if boundary.started || boundary.dispatched || boundary.receiver || boundary.hook.is_some() {
             return Err(IngressRefused);
         }
         hook.prepare_attachment()?;
         boundary.hook = Some(hook);
         Ok(())
     }
-    pub(crate) fn durable_hook(
+    pub(crate) fn durable_worker(
         &self,
-    ) -> Result<Option<Arc<dyn DurableIngressHook>>, IngressRefused> {
-        Ok(self.1.lock().map_err(|_| IngressRefused)?.hook.clone())
+    ) -> Result<Option<crate::durable_ingress::DurableWorker>, IngressRefused> {
+        Ok(self.1.lock().map_err(|_| IngressRefused)?.worker())
     }
     pub(crate) fn claim_durable_receiver(&self, expects_hook: bool) -> Result<(), IngressRefused> {
         let mut boundary = self.1.lock().map_err(|_| IngressRefused)?;
@@ -182,17 +183,36 @@ impl SenderPoolHandle {
         dc_id: i32,
         body: Vec<u8>,
     ) -> Result<InvokeResponse, InvocationError> {
-        if body.len() > MAX_REQUEST_SIZE {
-            return Err(InvocationError::Dropped("request body is too large"));
+        if !(4..=MAX_REQUEST_SIZE).contains(&body.len()) {
+            return Err(InvocationError::Dropped("request body length is invalid"));
         }
-        let permit = match self.durable_hook()? {
-            Some(hook) => {
-                let permit = hook.guard_request(dc_id, &body)?;
-                Some(crate::durable_ingress::InvocationPermit { hook, permit })
+        let worker = {
+            let mut boundary = self.1.lock().map_err(|_| IngressRefused)?;
+            boundary.dispatched = true;
+            boundary.worker()
+        };
+        let guarded = match worker {
+            Some(worker) => {
+                let request = body.clone();
+                let owner = worker.clone();
+                Some(
+                    worker
+                        .run(move |hook| {
+                            let permit = hook.guard_request(dc_id, &request)?;
+                            Ok((
+                                crate::durable_ingress::InvocationPermit {
+                                    worker: owner,
+                                    permit,
+                                    armed: true,
+                                },
+                                request,
+                            ))
+                        })
+                        .await?,
+                )
             }
             None => None,
         };
-        let request_body = permit.as_ref().map(|_| body.clone());
 
         let (tx, rx) = oneshot::channel();
         self.0
@@ -201,10 +221,16 @@ impl SenderPoolHandle {
         let response = rx.await.map_err(|_| {
             InvocationError::Dropped("SenderPoolRunner was dropped during receive")
         })??;
-        if let (Some(permit), Some(request)) = (&permit, request_body) {
-            permit
-                .hook
-                .guard_result(permit.permit, dc_id, &request, &response)?;
+        if let Some((mut permit, request)) = guarded {
+            let worker = permit.worker.clone();
+            return worker
+                .run(move |hook| {
+                    hook.guard_result(permit.permit, dc_id, &request, &response)?;
+                    permit.disarm();
+                    Ok(response)
+                })
+                .await
+                .map_err(Into::into);
         }
         Ok(response)
     }
@@ -381,21 +407,21 @@ impl SenderPoolRunner {
     async fn process_request(&mut self, request: Request) -> ControlFlow<()> {
         match request {
             Request::Invoke { dc_id, body, tx } => {
-                let connection = match self
+                let existing = self
                     .connections
                     .iter()
-                    .find(|connection| connection.dc_id == dc_id)
-                {
-                    Some(connection) => connection,
+                    .position(|connection| connection.dc_id == dc_id);
+                let rpc_tx = match existing {
+                    Some(index) => self.connections[index].rpc_tx.clone(),
                     None => match self.create_connection(dc_id).await {
-                        Ok(x) => x,
+                        Ok(connection) => connection.rpc_tx.clone(),
                         Err(e) => {
                             let _ = tx.send(Err(e));
                             return ControlFlow::Continue(());
                         }
                     },
                 };
-                let _ = connection.rpc_tx.send(Rpc { body, tx });
+                let _ = rpc_tx.send(Rpc { body, tx });
                 ControlFlow::Continue(())
             }
             Request::CheckRetry {
@@ -436,15 +462,15 @@ impl SenderPoolRunner {
     }
 
     async fn create_connection(&mut self, dc_id: i32) -> Result<&ConnectionInfo, InvocationError> {
-        let mut dc_option = match self.session.dc_option(dc_id)? {
+        let dc_option = match self.session.dc_option(dc_id)? {
             Some(x) => x,
             None => return Err(InvocationError::InvalidDc),
         };
 
         let sender = self.connect_sender(&dc_option).await?;
 
-        dc_option.auth_key = Some(sender.auth_key());
-        self.session.set_dc_option(&dc_option).await?;
+        self.store_authorization_key(dc_id, sender.auth_key())
+            .await?;
 
         let (rpc_tx, rpc_rx) = mpsc::unbounded_channel();
         let abort_handle = self.connection_pool.spawn(run_sender(
@@ -453,11 +479,7 @@ impl SenderPoolRunner {
             self.updates_tx.clone(),
             dc_option.id == self.session.home_dc_id()?,
             dc_id,
-            self.boundary
-                .lock()
-                .map_err(|_| IngressRefused)?
-                .hook
-                .clone(),
+            self.boundary.lock().map_err(|_| IngressRefused)?.worker(),
         ));
         self.connections.push(ConnectionInfo {
             dc_id,
@@ -467,10 +489,27 @@ impl SenderPoolRunner {
         Ok(self.connections.last().unwrap())
     }
 
+    fn store_authorization_key(
+        &self,
+        dc_id: i32,
+        auth_key: [u8; 256],
+    ) -> grammers_session::BoxFuture<'static, Result<(), InvocationError>> {
+        let session = Arc::clone(&self.session);
+        Box::pin(async move {
+            // Connection setup can refresh addresses before its key is saved.
+            let mut current = session
+                .dc_option(dc_id)?
+                .ok_or(InvocationError::InvalidDc)?;
+            current.auth_key = Some(auth_key);
+            session.set_dc_option(&current).await?;
+            Ok(())
+        })
+    }
+
     async fn connect_sender(
         &mut self,
         dc_option: &DcOption,
-    ) -> Result<Sender<Box<dyn transport::Transport + Send>, mtp::Encrypted>, InvocationError> {
+    ) -> Result<ConnectedSender, InvocationError> {
         let transport = &self.connection_params.transport;
 
         let address = if self.connection_params.use_ipv6 {
@@ -514,39 +553,54 @@ impl SenderPoolRunner {
             connect(transport(), addr()).await?
         };
 
-        let enums::Config::Config(remote_config) = match sender.invoke(&init_connection).await {
+        let durable = self.boundary.lock().map_err(|_| IngressRefused)?.worker();
+        sender.retain_original_updates(durable.is_some());
+        let enums::Config::Config(remote_config) = match invoke_initialization(
+            &mut sender,
+            &init_connection,
+            dc_option.id,
+            durable.clone(),
+            &self.updates_tx,
+        )
+        .await
+        {
             Ok(config) => config,
             Err(InvocationError::Transport(transport::Error::BadStatus { status: 404 })) => {
                 sender = connect(transport(), addr()).await?;
-                sender.invoke(&init_connection).await?
+                sender.retain_original_updates(durable.is_some());
+                invoke_initialization(
+                    &mut sender,
+                    &init_connection,
+                    dc_option.id,
+                    durable,
+                    &self.updates_tx,
+                )
+                .await?
             }
             Err(e) => return Err(e),
         };
 
-        self.update_config(remote_config).await?;
+        Self::update_config(Arc::clone(&self.session), remote_config).await?;
 
         Ok(sender)
     }
 
     async fn update_config(
-        &self,
+        session: Arc<ErasedSession>,
         config: tl::types::Config,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         for option in config
             .dc_options
-            .iter()
+            .into_iter()
             .map(|tl::enums::DcOption::Option(option)| option)
             .filter(|option| !option.media_only && !option.tcpo_only && option.r#static)
         {
-            let mut dc_option = self
-                .session
-                .dc_option(option.id)?
-                .unwrap_or_else(|| DcOption {
-                    id: option.id,
-                    ipv4: SocketAddrV4::new(Ipv4Addr::from_bits(0), 0),
-                    ipv6: SocketAddrV6::new(Ipv6Addr::from_bits(0), 0, 0, 0),
-                    auth_key: None,
-                });
+            let mut dc_option = session.dc_option(option.id)?.unwrap_or_else(|| DcOption {
+                id: option.id,
+                ipv4: SocketAddrV4::new(Ipv4Addr::from_bits(0), 0),
+                ipv6: SocketAddrV6::new(Ipv6Addr::from_bits(0), 0, 0, 0),
+                auth_key: None,
+            });
             if option.ipv6 {
                 dc_option.ipv6 = SocketAddrV6::new(
                     option
@@ -574,10 +628,68 @@ impl SenderPoolRunner {
                     )
                 }
             }
-            self.session.set_dc_option(&dc_option).await?;
+            session.set_dc_option(&dc_option).await?;
         }
         Ok(())
     }
+}
+
+type ConnectedSender = Sender<Box<dyn transport::Transport + Send>, mtp::Encrypted>;
+
+trait InitializationStep: Send {
+    fn initialization_step(
+        &mut self,
+    ) -> grammers_session::BoxFuture<'_, Result<Vec<UpdatesLike>, ReadError>>;
+}
+impl InitializationStep for ConnectedSender {
+    fn initialization_step(
+        &mut self,
+    ) -> grammers_session::BoxFuture<'_, Result<Vec<UpdatesLike>, ReadError>> {
+        Box::pin(self.step())
+    }
+}
+
+/// Process every update before another step can flush its acknowledgement, even
+/// if an InitConnection result arrives in the same transport read.
+async fn receive_initialization<D: InitializationStep>(
+    driver: &mut D,
+    mut response: oneshot::Receiver<Result<InvokeResponse, InvocationError>>,
+    dc_id: i32,
+    durable: Option<DurableWorker>,
+    updates: &mpsc::Sender<UpdatesLike>,
+) -> Result<InvokeResponse, InvocationError> {
+    loop {
+        for input in driver.initialization_step().await? {
+            if let Some(worker) = &durable {
+                worker
+                    .run(move |hook| hook.stage_live(dc_id, &input))
+                    .await?;
+            } else {
+                let _ = updates.try_send(input);
+            }
+        }
+        match response.try_recv() {
+            Ok(result) => return result,
+            Err(oneshot::error::TryRecvError::Empty) => {}
+            Err(oneshot::error::TryRecvError::Closed) => {
+                return Err(InvocationError::Dropped(
+                    "initialization response channel closed",
+                ));
+            }
+        }
+    }
+}
+async fn invoke_initialization<R: tl::RemoteCall>(
+    sender: &mut ConnectedSender,
+    request: &R,
+    dc_id: i32,
+    durable: Option<DurableWorker>,
+    updates: &mpsc::Sender<UpdatesLike>,
+) -> Result<R::Return, InvocationError> {
+    let (send, response) = oneshot::channel();
+    sender.enqueue_body(request.to_bytes(), send);
+    let body = receive_initialization(sender, response, dc_id, durable, updates).await?;
+    R::Return::from_bytes(&body).map_err(Into::into)
 }
 
 async fn run_sender(
@@ -586,7 +698,7 @@ async fn run_sender(
     updates: mpsc::Sender<UpdatesLike>,
     home_sender: bool,
     dc_id: i32,
-    durable: Option<Arc<dyn DurableIngressHook>>,
+    durable: Option<DurableWorker>,
 ) -> Result<(), ReadError> {
     sender.retain_original_updates(durable.is_some());
     let mut dropped: usize = 0;
@@ -602,7 +714,7 @@ async fn run_sender(
                     }
                     for new_updates in all_new_updates {
                         if let Some(hook)=&durable {
-                            hook.stage_live(dc_id,&new_updates).map_err(|_|std::io::Error::other("durable input could not be committed"))?;
+                            hook.run(move |hook| hook.stage_live(dc_id,&new_updates)).await.map_err(|_|std::io::Error::other("durable input could not be committed"))?;
                             continue;
                         }
                         if let Err(e) = updates.try_send(new_updates) {
@@ -631,7 +743,7 @@ async fn run_sender(
                 },
                 Err(err) => {
                     if home_sender {
-                        if let Some(hook)=&durable {hook.stage_live(dc_id,&UpdatesLike::ConnectionClosed).map_err(|_|std::io::Error::other("durable reconnect state could not be committed"))?;}else{let _ = updates.try_send(UpdatesLike::ConnectionClosed);}
+                        if let Some(hook)=&durable {hook.run(move |hook| hook.stage_live(dc_id,&UpdatesLike::ConnectionClosed)).await.map_err(|_|std::io::Error::other("durable reconnect state could not be committed"))?;}else{let _ = updates.try_send(UpdatesLike::ConnectionClosed);}
                     }
                     break Err(err)
                 },

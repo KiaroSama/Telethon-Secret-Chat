@@ -157,6 +157,57 @@ impl Database {
         Ok(())
     }
 
+    async fn lookup_peer(&self, peer: PeerId) -> Result<Option<PeerInfo>, SqliteSessionError> {
+        let map_row = |row: libsql::Row| {
+            let subtype = row.get::<Option<i64>>(2)?.map(|s| s as u8);
+            Ok(match peer.kind() {
+                PeerKind::User => PeerInfo::User {
+                    id: PeerId::user_unchecked(row.get::<i64>(0)?).bare_id_unchecked(),
+                    auth: row.get::<Option<i64>>(1)?.map(PeerAuth::from_hash),
+                    bot: subtype.map(|s| s & PeerSubtype::UserBot as u8 != 0),
+                    is_self: subtype.map(|s| s & PeerSubtype::UserSelf as u8 != 0),
+                },
+                PeerKind::Chat => PeerInfo::Chat {
+                    id: peer.bare_id_unchecked(),
+                },
+                PeerKind::Channel => PeerInfo::Channel {
+                    id: peer.bare_id_unchecked(),
+                    auth: row.get::<Option<i64>>(1)?.map(PeerAuth::from_hash),
+                    kind: subtype.and_then(|s| {
+                        if s & PeerSubtype::Community as u8 != 0 {
+                            Some(ChannelKind::Community)
+                        } else if (s & PeerSubtype::Gigagroup as u8) == PeerSubtype::Gigagroup as u8
+                        {
+                            Some(ChannelKind::Gigagroup)
+                        } else if s & PeerSubtype::Broadcast as u8 != 0 {
+                            Some(ChannelKind::Broadcast)
+                        } else if s & PeerSubtype::Megagroup as u8 != 0 {
+                            Some(ChannelKind::Megagroup)
+                        } else {
+                            None
+                        }
+                    }),
+                },
+            })
+        };
+
+        Ok(if let Some(peer_id) = peer.bot_api_dialog_id() {
+            self.fetch_one(
+                "SELECT * FROM peer_info WHERE peer_id = :peer_id LIMIT 1",
+                named_params! {":peer_id": peer_id},
+                map_row,
+            )
+            .await?
+        } else {
+            self.fetch_one(
+                "SELECT * FROM peer_info WHERE subtype & :type LIMIT 1",
+                named_params! {":type": PeerSubtype::UserSelf as i64},
+                map_row,
+            )
+            .await?
+        })
+    }
+
     async fn begin_transaction(&self) -> libsql::Result<libsql::Transaction> {
         self.0.transaction().await
     }
@@ -256,17 +307,9 @@ impl Session for SqliteSession {
     }
 
     fn set_home_dc_id(&self, dc_id: i32) -> BoxFuture<'_, Result<(), SqliteSessionError>> {
-        let ok = match self.cache.lock() {
-            Err(_) => Err(SqliteSessionError::Poisoned),
-            Ok(mut x) => {
-                x.home_dc = dc_id;
-                Ok(())
-            }
-        };
         Box::pin(async move {
-            ok?;
-
-            let transaction = self.database.lock().await.begin_transaction().await?;
+            let db = self.database.lock().await;
+            let transaction = db.begin_transaction().await?;
             transaction
                 .execute("DELETE FROM dc_home", params![])
                 .await?;
@@ -275,6 +318,10 @@ impl Session for SqliteSession {
                 .await?;
             stmt.execute(named_params! {":dc_id": dc_id}).await?;
             transaction.commit().await?;
+            self.cache
+                .lock()
+                .map_err(|_| SqliteSessionError::Poisoned)?
+                .home_dc = dc_id;
             Ok(())
         })
     }
@@ -296,18 +343,8 @@ impl Session for SqliteSession {
     }
 
     fn set_dc_option(&self, dc_option: &DcOption) -> BoxFuture<'_, Result<(), SqliteSessionError>> {
-        let ok = match self.cache.lock() {
-            Err(_) => Err(SqliteSessionError::Poisoned),
-            Ok(mut x) => {
-                x.dc_options.insert(dc_option.id, dc_option.clone());
-                Ok(())
-            }
-        };
-
         let dc_option = dc_option.clone();
         Box::pin(async move {
-            ok?;
-
             let db = self.database.lock().await;
             db.0.execute(
                 "INSERT OR REPLACE INTO dc_option VALUES (:dc_id, :ipv4, :ipv6, :auth_key)",
@@ -319,129 +356,38 @@ impl Session for SqliteSession {
                 },
             )
             .await?;
+            self.cache
+                .lock()
+                .map_err(|_| SqliteSessionError::Poisoned)?
+                .dc_options
+                .insert(dc_option.id, dc_option);
             Ok(())
         })
     }
 
     fn peer(&self, peer: PeerId) -> BoxFuture<'_, Result<Option<PeerInfo>, SqliteSessionError>> {
-        Box::pin(async move {
-            let db = self.database.lock().await;
-            let map_row = |row: libsql::Row| {
-                let subtype = row.get::<Option<i64>>(2)?.map(|s| s as u8);
-                Ok(match peer.kind() {
-                    PeerKind::User => PeerInfo::User {
-                        id: PeerId::user_unchecked(row.get::<i64>(0)?).bare_id_unchecked(),
-                        auth: row.get::<Option<i64>>(1)?.map(PeerAuth::from_hash),
-                        bot: subtype.map(|s| s & PeerSubtype::UserBot as u8 != 0),
-                        is_self: subtype.map(|s| s & PeerSubtype::UserSelf as u8 != 0),
-                    },
-                    PeerKind::Chat => PeerInfo::Chat {
-                        id: peer.bare_id_unchecked(),
-                    },
-                    PeerKind::Channel => PeerInfo::Channel {
-                        id: peer.bare_id_unchecked(),
-                        auth: row.get::<Option<i64>>(1)?.map(PeerAuth::from_hash),
-                        kind: subtype.and_then(|s| {
-                            if s & PeerSubtype::Community as u8 != 0 {
-                                Some(ChannelKind::Community)
-                            } else if (s & PeerSubtype::Gigagroup as u8)
-                                == PeerSubtype::Gigagroup as u8
-                            {
-                                Some(ChannelKind::Gigagroup)
-                            } else if s & PeerSubtype::Broadcast as u8 != 0 {
-                                Some(ChannelKind::Broadcast)
-                            } else if s & PeerSubtype::Megagroup as u8 != 0 {
-                                Some(ChannelKind::Megagroup)
-                            } else {
-                                None
-                            }
-                        }),
-                    },
-                })
-            };
-
-            Ok(if let Some(peer_id) = peer.bot_api_dialog_id() {
-                db.fetch_one(
-                    "SELECT * FROM peer_info WHERE peer_id = :peer_id LIMIT 1",
-                    named_params! {":peer_id": peer_id},
-                    map_row,
-                )
-                .await?
-            } else {
-                db.fetch_one(
-                    "SELECT * FROM peer_info WHERE subtype & :type LIMIT 1",
-                    named_params! {":type": PeerSubtype::UserSelf as i64},
-                    map_row,
-                )
-                .await?
-            })
-        })
+        Box::pin(async move { self.database.lock().await.lookup_peer(peer).await })
     }
 
     fn cache_peer(&self, peer: PeerInfo) -> BoxFuture<'_, Result<(), SqliteSessionError>> {
-        Box::pin(async move {
-            let peer = if let Some(mut existing_peer) = self.peer(peer.id()).await? {
-                existing_peer.extend_info(&peer);
-                existing_peer
-            } else {
-                peer
-            };
-
-            let db = self.database.lock().await;
-            let stmt =
-                db.0.prepare("INSERT OR REPLACE INTO peer_info VALUES (:peer_id, :hash, :subtype)")
-                    .await?;
-            let subtype = match peer {
-                PeerInfo::User { bot, is_self, .. } => {
-                    match (bot.unwrap_or_default(), is_self.unwrap_or_default()) {
-                        (true, true) => Some(PeerSubtype::UserSelfBot),
-                        (true, false) => Some(PeerSubtype::UserBot),
-                        (false, true) => Some(PeerSubtype::UserSelf),
-                        (false, false) => None,
-                    }
-                }
-                PeerInfo::Chat { .. } => None,
-                PeerInfo::Channel { kind, .. } => kind.map(|kind| match kind {
-                    ChannelKind::Megagroup => PeerSubtype::Megagroup,
-                    ChannelKind::Broadcast => PeerSubtype::Broadcast,
-                    ChannelKind::Gigagroup => PeerSubtype::Gigagroup,
-                    ChannelKind::Community => PeerSubtype::Community,
-                }),
-            };
-            let mut params = vec![];
-            let peer_id = peer.id().bot_api_dialog_id_unchecked();
-            params.push((":peer_id".to_owned(), peer_id));
-            let hash = peer.auth().unwrap_or_default().hash();
-            if peer.auth().is_some() {
-                params.push((":hash".to_owned(), hash));
-            }
-            if let Some(subtype) = subtype.map(|s| s as i64) {
-                params.push((":subtype".to_owned(), subtype));
-            }
-            stmt.execute(params).await?;
-            Ok(())
-        })
+        self.cache_peers(vec![peer])
     }
 
     fn cache_peers(&self, peers: Vec<PeerInfo>) -> BoxFuture<'_, Result<(), SqliteSessionError>> {
         Box::pin(async move {
-            let mut extended_peers = Vec::with_capacity(peers.len());
-            for peer in peers {
-                extended_peers.push(match self.peer(peer.id()).await? {
-                    Some(mut existing_peer) => {
-                        existing_peer.extend_info(&peer);
-                        existing_peer
-                    }
-                    None => peer,
-                });
-            }
-
             let db = self.database.lock().await;
             let tx = db.0.transaction().await?;
             let stmt = tx
                 .prepare("INSERT OR REPLACE INTO peer_info VALUES (:peer_id, :hash, :subtype)")
                 .await?;
-            for peer in extended_peers {
+            for peer in peers {
+                let peer = match db.lookup_peer(peer.id()).await? {
+                    Some(mut existing) => {
+                        existing.extend_info(&peer);
+                        existing
+                    }
+                    None => peer,
+                };
                 let subtype = match peer {
                     PeerInfo::User { bot, is_self, .. } => {
                         match (bot.unwrap_or_default(), is_self.unwrap_or_default()) {
@@ -638,6 +584,7 @@ mod tests {
     }
 
     async fn do_exercise_sqlite_session() {
+        mutation_regressions().await;
         let session = SqliteSession::open(":memory:").await.unwrap();
 
         assert_eq!(session.home_dc_id().unwrap(), DEFAULT_DC);
@@ -794,5 +741,173 @@ mod tests {
                 ],
             }
         );
+    }
+
+    async fn mutation_regressions() {
+        use std::{
+            future::Future,
+            sync::Arc,
+            task::{Context, Poll, Waker},
+        };
+        let session = Arc::new(SqliteSession::open(":memory:").await.unwrap());
+        let before = session.home_dc_id().unwrap();
+        drop(session.set_home_dc_id(9));
+        assert_eq!(
+            session.home_dc_id().unwrap(),
+            before,
+            "an unpolled future changed the cache"
+        );
+        let mut option = KNOWN_DC_OPTIONS[0].clone();
+        option.auth_key = Some([9; 256]);
+        let old_option = session.dc_option(option.id).unwrap();
+        drop(session.set_dc_option(&option));
+        assert_eq!(session.dc_option(option.id).unwrap(), old_option);
+        {
+            let _locked = session.database.lock().await;
+            let mut future = session.set_home_dc_id(8);
+            let mut cx = Context::from_waker(Waker::noop());
+            assert!(matches!(
+                Future::poll(future.as_mut(), &mut cx),
+                Poll::Pending
+            ));
+            drop(future);
+            assert_eq!(session.home_dc_id().unwrap(), before);
+        }
+        let connection = session.database.lock().await.0.clone();
+        connection.execute("CREATE TRIGGER fail_home BEFORE INSERT ON dc_home BEGIN SELECT RAISE(ABORT,'public home failure'); END",params![]).await.unwrap();
+        assert!(session.set_home_dc_id(9).await.is_err());
+        assert_eq!(session.home_dc_id().unwrap(), before);
+        connection
+            .execute("DROP TRIGGER fail_home", params![])
+            .await
+            .unwrap();
+        connection.execute("CREATE TRIGGER fail_option BEFORE INSERT ON dc_option BEGIN SELECT RAISE(ABORT,'public option failure'); END",params![]).await.unwrap();
+        assert!(session.set_dc_option(&option).await.is_err());
+        assert_eq!(session.dc_option(option.id).unwrap(), old_option);
+        connection
+            .execute("DROP TRIGGER fail_option", params![])
+            .await
+            .unwrap();
+        let a = session.set_home_dc_id(8);
+        let b = session.set_home_dc_id(9);
+        b.await.unwrap();
+        a.await.unwrap();
+        assert_eq!(session.home_dc_id().unwrap(), 8);
+        assert_eq!(
+            connection
+                .query("SELECT dc_id FROM dc_home", params![])
+                .await
+                .unwrap()
+                .next()
+                .await
+                .unwrap()
+                .unwrap()
+                .get::<i32>(0)
+                .unwrap(),
+            8
+        );
+        let auth = PeerInfo::User {
+            id: 42,
+            auth: Some(PeerAuth::from_hash(7)),
+            bot: None,
+            is_self: None,
+        };
+        let bot = PeerInfo::User {
+            id: 42,
+            auth: None,
+            bot: Some(true),
+            is_self: None,
+        };
+        session.cache_peers(vec![auth, bot]).await.unwrap();
+        let Some(PeerInfo::User { auth, bot, .. }) =
+            session.peer(PeerId::user_unchecked(42)).await.unwrap()
+        else {
+            panic!("peer missing")
+        };
+        assert_eq!(auth, Some(PeerAuth::from_hash(7)));
+        assert_eq!(bot, Some(true));
+
+        // Pause a real SQLite statement while the home-DC transaction is open.
+        // The async database guard must still belong to that complete transaction.
+        let (entered, waiting) = std::sync::mpsc::sync_channel(1);
+        let (release, resume) = std::sync::mpsc::sync_channel(1);
+        let resume = std::sync::Mutex::new(resume);
+        connection
+            .authorizer(Some(Arc::new(move |context| {
+                if matches!(
+                    context.action,
+                    libsql::AuthAction::Delete {
+                        table_name: "dc_home"
+                    }
+                ) {
+                    entered.send(()).unwrap();
+                    resume.lock().unwrap().recv().unwrap();
+                }
+                libsql::Authorization::Allow
+            })))
+            .unwrap();
+        let worker_session = session.clone();
+        let worker = std::thread::spawn(move || {
+            tokio::runtime::Builder::new_current_thread()
+                .build()
+                .unwrap()
+                .block_on(worker_session.set_home_dc_id(7))
+        });
+        waiting
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+        let transaction_locked = session.database.try_lock().is_err();
+        release.send(()).unwrap();
+        worker.join().unwrap().unwrap();
+        connection.authorizer(None).unwrap();
+        assert!(
+            transaction_locked,
+            "home transaction released its database guard early"
+        );
+        session
+            .set_update_state(UpdateState::Secondary { qts: 7 })
+            .await
+            .unwrap();
+        assert_eq!(session.updates_state().await.unwrap().qts, 7);
+
+        // Two independent runtime threads merge disjoint information into each row.
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        let workers = (0..2)
+            .map(|side| {
+                let session = session.clone();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    tokio::runtime::Builder::new_current_thread()
+                        .build()
+                        .unwrap()
+                        .block_on(async move {
+                            for id in 100..356 {
+                                barrier.wait();
+                                session
+                                    .cache_peer(PeerInfo::User {
+                                        id,
+                                        auth: (side == 0).then(|| PeerAuth::from_hash(id)),
+                                        bot: (side == 1).then_some(true),
+                                        is_self: None,
+                                    })
+                                    .await
+                                    .unwrap();
+                            }
+                        })
+                })
+            })
+            .collect::<Vec<_>>();
+        for worker in workers {
+            worker.join().unwrap();
+        }
+        for id in 100..356 {
+            let Some(PeerInfo::User { auth, bot, .. }) =
+                session.peer(PeerId::user_unchecked(id)).await.unwrap()
+            else {
+                panic!("peer missing")
+            };
+            assert_eq!(auth, Some(PeerAuth::from_hash(id)));
+            assert_eq!(bot, Some(true));
+        }
     }
 }

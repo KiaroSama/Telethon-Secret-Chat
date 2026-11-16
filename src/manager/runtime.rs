@@ -290,6 +290,11 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
         }
     }
     pub(crate) fn fence_runtime(&self) {
+        let _publication = self
+            .inner
+            .runtime_state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         self.inner.startup_complete.store(false, Ordering::Release);
         self.inner.stopping.store(true, Ordering::Release);
         self.inner.generation.fetch_add(1, Ordering::AcqRel);

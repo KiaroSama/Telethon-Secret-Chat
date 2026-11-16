@@ -2,8 +2,76 @@
 #![allow(clippy::unwrap_used)]
 use grammers_client::parsers::*;
 use grammers_tl_types::{enums::MessageEntity as E, types as t};
+#[path = "../../vendor/grammers/grammers-client/src/utils/clock.rs"]
+mod sdk_utils;
 pub fn run() {
+    let epoch = std::time::SystemTime::UNIX_EPOCH;
+    assert_eq!(
+        sdk_utils::random_id_seed(epoch - std::time::Duration::from_secs(1)),
+        1
+    );
+    assert_eq!(sdk_utils::random_id_seed(epoch), 1);
+    assert_eq!(
+        sdk_utils::random_id_seed(epoch + std::time::Duration::from_nanos(123)),
+        123
+    );
     let probes: &[(&str, fn())] = &[
+        ("markdown_link_destination", || {
+            for url in [
+                "https://example.com/a)b",
+                "https://example.com/a(b",
+                "https://example.com/a b",
+                "https://example.com/a\\b",
+            ] {
+                let entity = t::MessageEntityTextUrl {
+                    offset: 0,
+                    length: 1,
+                    url: url.into(),
+                }
+                .into();
+                let parsed = parse_markdown_message(&generate_markdown_message("x", &[entity]));
+                assert_eq!(parsed.0, "x");
+                assert!(
+                    matches!(&parsed.1[0],E::TextUrl(link) if link.url==url),
+                    "{url}: {parsed:?}"
+                );
+            }
+        }),
+        ("markdown_intraword_italic", || {
+            let expected: E = t::MessageEntityItalic {
+                offset: 1,
+                length: 1,
+            }
+            .into();
+            assert_eq!(
+                parse_markdown_message(&generate_markdown_message(
+                    "axb",
+                    std::slice::from_ref(&expected)
+                )),
+                ("axb".into(), vec![expected])
+            );
+        }),
+        ("markdown_pre_mid_line", || {
+            let entity = t::MessageEntityPre {
+                offset: 1,
+                length: 1,
+                language: "rust".into(),
+            }
+            .into();
+            let generated = generate_markdown_message("aXb", &[entity]);
+            assert!(
+                generated.starts_with("a\n\n```rust\nX\n```\n"),
+                "{generated:?}"
+            );
+            let parsed = parse_markdown_message(&generated);
+            assert!(
+                parsed
+                    .1
+                    .iter()
+                    .any(|entity| matches!(entity,E::Pre(pre) if pre.language=="rust")),
+                "{parsed:?}"
+            );
+        }),
         ("markdown_invalid_mention", || {
             let (text, entities) = parse_markdown_message("[x](tg://user?id=abc)");
             assert_eq!(text, "x");

@@ -217,9 +217,12 @@ pub fn service_text(
         ),
         A::SetMessagesTTL(d) => {
             let period = match d.period {
-                604800 => "7 days",
-                86400 => "24 hours",
-                _ => "",
+                604800 => "7 days".into(),
+                86400 => "24 hours".into(),
+                value if value > 0 => {
+                    format!("{value} {}", if value == 1 { "second" } else { "seconds" })
+                }
+                _ => String::new(),
             };
             if channel {
                 if d.period != 0 {

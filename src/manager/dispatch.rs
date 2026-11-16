@@ -7,6 +7,7 @@ use super::{
 use crate::error::{Error, Result};
 use std::{
     collections::{BTreeMap, HashSet},
+    future::Future,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -236,6 +237,8 @@ impl Dispatcher {
             tracing::warn!("Secret-chat callback budget is exhausted");
             return false;
         };
+        let reserve_payload = self.payload.lock().ok().and_then(|payload| payload.clone());
+        let mut dispatches = Vec::with_capacity(callbacks.len());
         for (label, callback) in callbacks {
             let copies = match &callback {
                 Callback::Async { cleanup, .. } | Callback::Task { cleanup, .. }
@@ -245,7 +248,7 @@ impl Dispatcher {
                 }
                 _ => 1,
             };
-            let payload = match self.payload.lock().ok().and_then(|p| p.clone()) {
+            let payload = match &reserve_payload {
                 Some(reserve) => {
                     match reserve(event.chat_id(), event.payload_size().saturating_mul(copies)) {
                         Ok(reservation) => reservation,
@@ -257,6 +260,9 @@ impl Dispatcher {
             let Some(permit) = permits.take_one() else {
                 return false;
             };
+            dispatches.push((label, callback, payload, permit));
+        }
+        for (label, callback, payload, permit) in dispatches {
             match callback {
                 Callback::Sync(handler) => {
                     if handler(event.clone()).is_err() {
@@ -330,6 +336,7 @@ impl Dispatcher {
         let monitor = tokio::spawn(async move {
             let _permit = permit;
             let _payload = payload;
+            let _registration=CallbackRecord{tasks:Arc::clone(&tasks),changed:Arc::clone(&changed),id};
             let _marker = DrainMarker {
                 set: draining,
                 id: tokio::task::id(),
@@ -363,7 +370,11 @@ impl Dispatcher {
                 failure(chat_id, generation);
             }
             if cancelled && let Some((cleanup, event)) = cleanup {
-                let cleanup = runtime::scope(identity, async move { cleanup(event).await });
+                let mut cleanup=Box::pin(runtime::scope(identity,async move {cleanup(event).await}));
+                let cleanup=std::future::poll_fn(move|cx| {
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(||cleanup.as_mut().poll(cx)))
+                        .unwrap_or(std::task::Poll::Ready(Err(Error::ChatState)))
+                });
                 let result = if let Some(policy) = policy {
                     tokio::time::timeout(Duration::from_secs_f64(policy.cleanup_seconds), cleanup)
                         .await
@@ -379,10 +390,7 @@ impl Dispatcher {
                     }
                 }
             }
-            if let Ok(mut tasks) = tasks.lock() {
-                tasks.retain(|entry| entry.id != id);
-            }
-            changed.notify_waiters();
+
         }.with_current_subscriber());
         if stopping && let Ok(mut draining) = self.draining.lock() {
             draining.insert(monitor.id());
@@ -535,6 +543,19 @@ impl Dispatcher {
                     .count()
             })
             .unwrap_or(0)
+    }
+}
+struct CallbackRecord {
+    tasks: Arc<Mutex<Vec<Entry>>>,
+    changed: Arc<Notify>,
+    id: Id,
+}
+impl Drop for CallbackRecord {
+    fn drop(&mut self) {
+        if let Ok(mut tasks) = self.tasks.lock() {
+            tasks.retain(|entry| entry.id != self.id);
+        }
+        self.changed.notify_waiters();
     }
 }
 struct DrainMarker {

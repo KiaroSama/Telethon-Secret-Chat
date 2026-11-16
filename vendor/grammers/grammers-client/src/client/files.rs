@@ -56,9 +56,14 @@ impl DownloadIter {
     /// # Panics
     ///
     /// Panics if `size` is not divisible by `MIN_CHUNK_SIZE`, or if `size` is not in contained in
-    /// the range `MIN_CHUNK_SIZE..=MAX_CHUNK_SIZE`.
+    /// the range `MIN_CHUNK_SIZE..=MAX_CHUNK_SIZE`, or does not divide 1 MiB.
+    /// Accepted sizes are 4, 8, 16, 32, 64, 128, 256 and 512 KiB.
     pub fn chunk_size(mut self, size: i32) -> Self {
-        assert!((MIN_CHUNK_SIZE..=MAX_CHUNK_SIZE).contains(&size) && size % MIN_CHUNK_SIZE == 0);
+        assert!(
+            (MIN_CHUNK_SIZE..=MAX_CHUNK_SIZE).contains(&size)
+                && size % MIN_CHUNK_SIZE == 0
+                && (1024 * 1024) % size == 0
+        );
         if let DownloadIterVariant::Request(request) = &mut self.variant {
             request.limit = size;
         }
@@ -102,6 +107,22 @@ impl DownloadIter {
 
         use tl::enums::upload::File;
 
+        if request.offset < 0 {
+            return Err(InvocationError::Io(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "download offset cannot be negative",
+            )));
+        }
+        let configured_limit = request.limit;
+        let configured_precise = request.precise;
+        // Telegram forbids crossing a 1 MiB range even for precise requests.
+        // A small prior skip can leave the cursor off the configured grid.
+        let remaining = 1024 * 1024 - request.offset % (1024 * 1024);
+        request.limit = i64::from(configured_limit).min(remaining) as i32;
+        if request.limit != configured_limit {
+            request.precise = true;
+        }
+
         // TODO handle maybe FILEREF_UPGRADE_NEEDED
         let mut dc = self
             .dc_id
@@ -124,7 +145,19 @@ impl DownloadIter {
                         }
                     }
 
-                    request.offset += request.limit as i64;
+                    request.offset = request
+                        .offset
+                        .checked_add(i64::from(request.limit))
+                        .ok_or_else(|| {
+                            InvocationError::Io(io::Error::new(
+                                io::ErrorKind::InvalidInput,
+                                "download offset overflowed",
+                            ))
+                        })?;
+                    // Restore caller configuration after this bounded request;
+                    // only its cursor advances by the actual requested length.
+                    request.limit = configured_limit;
+                    request.precise = configured_precise;
                     self.variant = DownloadIterVariant::Request(request);
                     self.dc_id = Some(dc);
                     Ok(Some(f.bytes))
@@ -260,7 +293,7 @@ impl Client {
         while let Some(chunk) = download.next().await.map_err(io::Error::other)? {
             file.write_all(&chunk).await?;
         }
-
+        file.flush().await?;
         Ok(())
     }
 
@@ -383,6 +416,7 @@ impl Client {
         while let Some(task) = tasks.join_next().await {
             task.map_err(io::Error::other)??;
         }
+        file.flush().await?;
         Ok(())
     }
 

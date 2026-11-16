@@ -24,6 +24,20 @@ fn initialized(mode: StoreMode) -> CustodyStorage<MemoryStorage> {
     store
 }
 pub(crate) fn verify_refusal_ownership() {
+    let mut aged = initialized(StoreMode::Bounded);
+    for age in aged.controls.get_mut(&7).unwrap().ages.values_mut() {
+        *age = now().unwrap() - 5000;
+    }
+    aged.state.private_records.insert(
+        CONTROL.into(),
+        crate::secret_record::SecretRecord::new(serde_json::to_vec(&aged.controls).unwrap()),
+    );
+    aged.backend.commit(&aged.state).unwrap();
+    let mut stopped = Protocol::open(aged, "11".repeat(32)).unwrap();
+    stopped.start().unwrap();
+    assert_eq!(stopped.stop(), Err(Error::Paused));
+    assert!(stopped.snapshot(7).unwrap().paused);
+    stopped.stop().unwrap();
     for mode in [StoreMode::Bounded, StoreMode::Ingress] {
         let mut store = initialized(mode);
         store.admit(Some(7), Operation::Receive, 0).unwrap();

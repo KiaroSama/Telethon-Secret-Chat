@@ -485,6 +485,7 @@ dependencies = [
  "mime_guess",
  "pin-project-lite",
  "pulldown-cmark",
+ "sha2",
  "tokio",
  "tracing",
 ]

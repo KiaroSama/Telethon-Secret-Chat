@@ -94,3 +94,52 @@ pub fn concurrent_archive_transactions() {
         48
     );
 }
+
+pub fn incomplete_tail_does_not_eat_next_record() {
+    use std::io::Write;
+    let dir = tempfile::tempdir().unwrap();
+    let (archive, _) = AutoSave::enabled(dir.path()).unwrap();
+    archive
+        .append(7, &serde_json::json!({"id":1,"text":"kept"}))
+        .unwrap();
+    let path = dir.path().join("7/messages.jsonl");
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .unwrap();
+    file.write_all(b"{\"id\":2").unwrap();
+    drop(file);
+    archive
+        .append(
+            7,
+            &serde_json::json!({"id":3,"text":"successful later record"}),
+        )
+        .unwrap();
+    assert_eq!(
+        archive
+            .read(7)
+            .unwrap()
+            .iter()
+            .map(|row| row["id"].as_i64().unwrap())
+            .collect::<Vec<_>>(),
+        vec![1, 3],
+        "an interrupted old tail cannot swallow a later successful append"
+    );
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .unwrap();
+    file.write_all(b"{\"id\":4}").unwrap();
+    drop(file);
+    archive.append(7, &serde_json::json!({"id":5})).unwrap();
+    assert_eq!(
+        archive
+            .read(7)
+            .unwrap()
+            .iter()
+            .map(|row| row["id"].as_i64().unwrap())
+            .collect::<Vec<_>>(),
+        vec![1, 3, 4, 5],
+        "a valid complete final JSON value must survive newline recovery"
+    );
+}

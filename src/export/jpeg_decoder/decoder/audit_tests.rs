@@ -60,8 +60,12 @@ pub(crate) fn run() {
                     [129, 129, 128, 128]
                 );
             }
+            let mut bytes = lossless(8, 2, 2, 0, true, &[0xaf, 255, 0xd0, 0x3f]);
+            bytes[7..9].copy_from_slice(&2u16.to_be_bytes());
+            assert_eq!(decode(bytes), [129, 129, 128, 128]);
         }),
         ("lossless_point_transform", || {
+            assert_eq!(decode(lossless(8, 1, 1, 7, false, &[0x7f])), [128]);
             for predictor in [1, 2] {
                 assert_eq!(
                     decode(lossless(8, 2, predictor, 1, false, &[0x3f])),
@@ -82,6 +86,11 @@ pub(crate) fn run() {
             assert_eq!(decode(bytes), [129, 128, 127]);
         }),
         ("lossless_output_byte_limit", || {
+            let mut high_precision = header(0xc3, 16, 2, 3);
+            segment(&mut high_precision, 0xda, &[3, 1, 0, 2, 0, 3, 0, 1, 0, 0]);
+            high_precision.extend([0x03, 255, 217]);
+            let mut decoder = Decoder::new(Cursor::new(high_precision));
+            assert!(decoder.read_info().is_err());
             let mut decoder = Decoder::new(Cursor::new(lossless(16, 1, 1, 0, false, &[0x7f])));
             decoder.set_max_decoding_buffer_size(1);
             assert!(decoder.decode().is_err());
@@ -107,6 +116,36 @@ pub(crate) fn run() {
                 )
                 .is_ok()
             );
+        }),
+        ("tall_grayscale_final_row", || {
+            let mut bytes = header(0xc0, 8, 8, 1);
+            bytes[7..9].copy_from_slice(&65535u16.to_be_bytes());
+            let mut quant = vec![0];
+            quant.extend([1; 64]);
+            segment(&mut bytes, 0xdb, &quant);
+            let mut ac = vec![0x10, 1];
+            ac.extend([0; 15]);
+            ac.push(0);
+            segment(&mut bytes, 0xc4, &ac);
+            segment(&mut bytes, 0xda, &[1, 1, 0, 0, 63, 0]);
+            bytes.extend(vec![0; 2048]);
+            bytes.extend([255, 217]);
+            let decoded = decode(bytes);
+            assert_eq!(decoded.len(), 8 * 65535);
+            assert!(decoded.iter().all(|byte| *byte == 128));
+        }),
+        ("one_eighth_idct_rounding", || {
+            let mut coefficients = [0; 64];
+            coefficients[0] = 4;
+            let mut pixel = [0];
+            super::super::idct::dequantize_and_idct_block(
+                1,
+                &coefficients,
+                &[1; 64],
+                1,
+                &mut pixel,
+            );
+            assert_eq!(pixel, [129]);
         }),
     ];
     let failures = checks

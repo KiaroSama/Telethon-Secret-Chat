@@ -422,7 +422,7 @@ fn partial_gap_drain_commits_once_and_retains_later_gap() {
     let mut state = queued();
     let chat = state.chats.get_mut(&1).unwrap();
     chat.gaps.clear();
-    for raw in 2..40 {
+    for raw in (1..40).filter(|raw| *raw != 20) {
         chat.gaps.insert(raw, incoming(raw));
     }
     f.commit(&state);
@@ -465,6 +465,6 @@ fn partial_gap_drain_commits_once_and_retains_later_gap() {
     f.store = Backend::File(FileStorage::open(f.dir.path().join("state.json")).unwrap());
     assert_eq!(
         f.state().chats[&1].gaps.keys().copied().collect::<Vec<_>>(),
-        (2..40).collect::<Vec<_>>()
+        (21..40).collect::<Vec<_>>()
     );
 }

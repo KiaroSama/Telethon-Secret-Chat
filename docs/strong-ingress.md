@@ -9,7 +9,8 @@ performed. Use the crate's canonical SDK re-exports.
 
 1. The application constructs its original `SenderPool` and `Client` from its
    existing authorization. Keep the runner unstarted and the update receiver
-   unclaimed. A pool already running or attached to another owner is refused.
+   unclaimed, with no invocation dispatched by any handle clone. A pool already
+   running, with an earlier queued invocation, or attached to another owner is refused.
 2. Derive `AuthorizationBinding::from_session_parts` from the known self user,
    home DC and authorization key ID; never persist the raw authorization key as
    the binding. Open `EncryptedIngressStorage` with a caller-owned 32-byte AEAD
@@ -45,6 +46,15 @@ and next checkpoint, then replaces the observed machine. Checkpoints include
 account/channel counters, date/seq, held gaps, deadlines and difference ownership.
 Caller-issued account/channel difference responses are captured whole before the
 RPC result is returned, including qts-less secret messages and slices.
+
+Operational SDK callbacks run on one ordered blocking worker per original pool.
+The worker owns its serial permit until the synchronous callback actually ends,
+including after cancellation of its async waiter. The receiver's checkpoint read,
+state transition and commit share one operation, so a caller-issued difference
+cannot replace the checkpoint between those steps. Initialization also stages
+updates received alongside the connection result before another network step can
+flush acknowledgements. Constructors, direct synchronous protocol/storage calls
+and exclusive pre-start attachment remain synchronous interfaces.
 
 Every original handle clone shares request guards. Explicit receivedQueue and
 implicit difference acknowledgement cannot exceed committed qts. Known wrappers

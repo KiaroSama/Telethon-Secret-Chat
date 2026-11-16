@@ -107,7 +107,29 @@ fn run(name: &str) {
         let result = match function {
             "html_rich.render_rich_message" => {
                 let mut context: HtmlContext = decode(&args[0]);
-                let message = decode(&args[1]);
+                let message: kiaro_secret_chat::export::model_rich::RichMessage = decode(&args[1]);
+                if name == "a130b09b815b4ef1.json" {
+                    let mut extreme = message.clone();
+                    for (photo, (width, height)) in extreme
+                        .photos
+                        .values_mut()
+                        .zip([(u32::MAX, 1), (1, u32::MAX)])
+                    {
+                        photo.image.width = width;
+                        photo.image.height = height;
+                    }
+                    let html = render_rich_message(
+                        &mut HtmlContext::default(),
+                        &extreme,
+                        5,
+                        "https://t.me/",
+                        "",
+                        &mut Stubs,
+                        &dates,
+                    )
+                    .unwrap();
+                    assert!(html.contains("aspect-ratio: 4294967295 / 1"));
+                }
                 let mut stubs = Stubs;
                 let mut native =
                     NativeRichMedia::new(trace["base"].as_str().unwrap(), folder.path());

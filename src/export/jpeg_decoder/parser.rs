@@ -197,7 +197,7 @@ pub fn parse_sof<R: Read>(reader: &mut R, marker: Marker) -> Result<FrameInfo> {
             }
         }
         _ => {
-            if coding_process != CodingProcess::Lossless || precision > 16 {
+            if coding_process != CodingProcess::Lossless || !(2..=16).contains(&precision) {
                 return Err(Error::Format(format!(
                     "invalid precision {} in frame header",
                     precision
@@ -221,6 +221,11 @@ pub fn parse_sof<R: Read>(reader: &mut R, marker: Marker) -> Result<FrameInfo> {
     }
 
     let component_count = read_u8(reader)?;
+    if precision > 8 && component_count > 1 {
+        return Err(Error::Format(
+            "high-precision multicomponent output is unsupported".into(),
+        ));
+    }
 
     if component_count == 0 {
         return Err(Error::Format(

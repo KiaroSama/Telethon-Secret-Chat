@@ -324,7 +324,9 @@ pub fn hex_prime() -> Vec<u8> {
     ));
     text.trim()
         .as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|p| u8::from_str_radix(std::str::from_utf8(p).unwrap(), 16).unwrap())
         .collect()
 }

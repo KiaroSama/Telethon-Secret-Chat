@@ -575,7 +575,9 @@ impl InputVideo {
     /// Sets whether the video is displayed as an animated GIF.
     pub fn animated(mut self, animated: bool) -> Self {
         self.animated = animated;
-        self.nosound_video = false;
+        if animated {
+            self.nosound_video = false;
+        }
         self
     }
 

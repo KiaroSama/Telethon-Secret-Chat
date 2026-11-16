@@ -4,7 +4,13 @@ use super::{
     qt_jpeg,
 };
 use image::{DynamicImage, GenericImageView, ImageFormat};
-use std::{fs, io::Cursor, path::Path};
+use std::{
+    fs,
+    io::{Cursor, Read},
+    path::Path,
+};
+/// Encoded images are bounded independently of decoded geometry and scaler budgets.
+pub const MAX_ENCODED_IMAGE_BYTES: u64 = 64 * 1024 * 1024;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ThumbnailEncoder {
     #[default]
@@ -43,9 +49,25 @@ where
     if !safe_relative_path(large_path) {
         return empty;
     }
-    let Ok(source) = fs::read(base.join(large_path)) else {
+    let Ok(file) = fs::File::open(base.join(large_path)) else {
         return empty;
     };
+    if file
+        .metadata()
+        .map_or(true, |metadata| metadata.len() > MAX_ENCODED_IMAGE_BYTES)
+    {
+        return empty;
+    }
+    // The streaming cap also covers a source that grows after the metadata check.
+    let mut source = Vec::new();
+    if file
+        .take(MAX_ENCODED_IMAGE_BYTES + 1)
+        .read_to_end(&mut source)
+        .is_err()
+        || source.len() as u64 > MAX_ENCODED_IMAGE_BYTES
+    {
+        return empty;
+    }
     let Ok(source_format) = image::guess_format(&source) else {
         return empty;
     };

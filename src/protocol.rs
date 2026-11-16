@@ -92,10 +92,20 @@ impl<S: Storage> Protocol<S> {
                 chat.service_deliveries.clear();
             }
             crate::custody::transient::suspend_requests(&mut state);
-            self.storage.commit(&state)?;
+            if let Err(error) = self.storage.commit(&state) {
+                if let Some(view) = self.storage.committed_view() {
+                    self.state = view;
+                }
+                return Err(error);
+            }
             self.state = self.storage.committed_view().unwrap_or(state);
         } else {
-            self.storage.commit(&self.state)?;
+            if let Err(error) = self.storage.commit(&self.state) {
+                if let Some(view) = self.storage.committed_view() {
+                    self.state = view;
+                }
+                return Err(error);
+            }
         }
         self.storage.suspend_storage()?;
         self.running = false;
@@ -471,6 +481,9 @@ impl<S: Storage> Protocol<S> {
         self.close_with_reason(id, crate::error::CloseReason::Application)
     }
     pub fn close_with_reason(&mut self, id: i32, reason: crate::error::CloseReason) -> Result<()> {
+        if !self.running {
+            return Err(Error::NotRunning);
+        }
         if matches!(
             self.mode(),
             crate::storage::StoreMode::Bounded | crate::storage::StoreMode::Ingress

@@ -213,8 +213,21 @@ pub fn generate_markdown_message(message: &str, entities: &[tl::enums::MessageEn
                 insertions.push((after(i, 0, e.offset + e.length), Segment::Fixed("**")));
             }
             ME::Italic(e) => {
-                insertions.push((before(i, 0, e.offset), Segment::Fixed("_")));
-                insertions.push((after(i, 0, e.offset + e.length), Segment::Fixed("_")));
+                let before_text = entity_text(message, 0, e.offset);
+                let after_text =
+                    entity_text(message, e.offset + e.length, i32::MAX - e.offset - e.length);
+                let delimiter = if before_text
+                    .chars()
+                    .last()
+                    .is_some_and(char::is_alphanumeric)
+                    || after_text.chars().next().is_some_and(char::is_alphanumeric)
+                {
+                    "*"
+                } else {
+                    "_"
+                };
+                insertions.push((before(i, 0, e.offset), Segment::Fixed(delimiter)));
+                insertions.push((after(i, 0, e.offset + e.length), Segment::Fixed(delimiter)));
             }
             ME::Code(e) => {
                 let content = entity_text(message, e.offset, e.length);
@@ -236,9 +249,15 @@ pub fn generate_markdown_message(message: &str, entities: &[tl::enums::MessageEn
                     .to_string()
                     .repeat((longest_run(&content, delimiter) + 1).max(3));
                 let language = e.language.split(['\r', '\n']).next().unwrap_or("");
+                let before_text = entity_text(message, 0, e.offset);
+                let boundary = if before_text.is_empty() || before_text.ends_with('\n') {
+                    ""
+                } else {
+                    "\n\n"
+                };
                 insertions.push((
                     before(i, 0, e.offset),
-                    Segment::Owned(format!("{fence}{language}\n")),
+                    Segment::Owned(format!("{boundary}{fence}{language}\n")),
                 ));
                 insertions.push((
                     after(i, 0, e.offset + e.length),
@@ -251,7 +270,20 @@ pub fn generate_markdown_message(message: &str, entities: &[tl::enums::MessageEn
             ME::TextUrl(e) => {
                 insertions.push((before(i, 0, e.offset), Segment::Fixed("[")));
                 insertions.push((after(i, 0, e.offset + e.length), Segment::Fixed("](")));
-                insertions.push((after(i, 1, e.offset + e.length), Segment::String(&e.url)));
+                let mut destination = String::new();
+                for c in e.url.chars() {
+                    if matches!(c, '\\' | '(' | ')' | '<' | '>') {
+                        destination.push('\\');
+                    }
+                    destination.push(c);
+                }
+                if e.url.chars().any(char::is_whitespace) {
+                    destination = format!("<{destination}>");
+                }
+                insertions.push((
+                    after(i, 1, e.offset + e.length),
+                    Segment::Owned(destination),
+                ));
                 insertions.push((after(i, 2, e.offset + e.length), Segment::Fixed(")")));
             }
             ME::MentionName(e) => {
@@ -462,6 +494,7 @@ mod tests {
         let markdown = "_a_[**b**](https://example.com)`c`";
         let (text, entities) = parse_markdown_message(markdown);
         let generated = generate_markdown_message(&text, &entities);
-        assert_eq!(generated, markdown);
+        assert_eq!(generated, "*a*[**b**](https://example.com)`c`");
+        assert_eq!(parse_markdown_message(&generated), (text, entities));
     }
 }

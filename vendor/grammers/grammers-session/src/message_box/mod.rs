@@ -270,7 +270,12 @@ impl MessageBoxes {
             // if the deadline was met but there's no state to fetch,
             // advance the deadline.
             if self.getting_diff_for.is_empty() {
-                self.next_deadline = next_updates_deadline();
+                self.next_deadline = self
+                    .entries
+                    .iter()
+                    .map(LiveEntry::effective_deadline)
+                    .min()
+                    .unwrap_or_else(next_updates_deadline);
             }
         }
 
@@ -400,13 +405,13 @@ impl MessageBoxes {
     ///
     /// [updates' documentation]: https://core.telegram.org/api/updates
     pub fn process_updates(&mut self, updates: UpdatesLike) -> Result<UpdateAndPeers, Gap> {
-        self.process_updates_inner(updates, false)
+        self.process_updates_inner(updates, None)
     }
 
     fn process_updates_inner(
         &mut self,
         updates: UpdatesLike,
-        authoritative: bool,
+        authoritative: Option<Key>,
     ) -> Result<UpdateAndPeers, Gap> {
         trace!("processing updates");
 
@@ -505,6 +510,18 @@ impl MessageBoxes {
                 }
             };
 
+            let authoritative_update = match authoritative {
+                Some(Key::Common | Key::Secondary) => {
+                    matches!(info.key, Key::Common | Key::Secondary)
+                }
+                Some(channel @ Key::Channel(_)) => info.key == channel,
+                None => false,
+            };
+            if authoritative_update {
+                self.reset_deadline(info.key, next_updates_deadline());
+                result.push((update, mk_state(Some(info.into()))));
+                continue;
+            }
             if self.getting_diff_for.contains(&info.key) {
                 debug!(
                     key = ?info.key,
@@ -512,13 +529,6 @@ impl MessageBoxes {
                     remote = ?info.pts,
                     "deferring update to the authoritative difference",
                 );
-                // Socket data waits for the authoritative difference. Its own
-                // other_updates still need delivery even though the response's
-                // final counter was already installed above.
-                if authoritative {
-                    self.reset_deadline(info.key, next_updates_deadline());
-                    result.push((update, mk_state(Some(info.into()))));
-                }
                 continue;
             }
 
@@ -621,7 +631,7 @@ impl MessageBoxes {
                 let pts = self
                     .entry(Key::Common)
                     .map(|entry| entry.pts)
-                    .expect("common entry to exist when getting difference for it");
+                    .unwrap_or(NO_PTS);
 
                 let gd = tl::functions::updates::GetDifference {
                     pts,
@@ -755,7 +765,7 @@ impl MessageBoxes {
         // It is possible that the result from `GetDifference` includes users with `min = true`.
         // TODO in that case, we will have to resort to getUsers.
         let (mut result_updates, users, chats) = self
-            .process_updates_inner(us, true)
+            .process_updates_inner(us, Some(Key::Common))
             .expect("gap is detected while applying difference");
 
         result_updates.extend(
@@ -866,7 +876,7 @@ impl MessageBoxes {
             seq: NO_SEQ,
         }));
         let (mut result_updates, users, chats) = self
-            .process_updates_inner(us, true)
+            .process_updates_inner(us, Some(key))
             .expect("gap is detected while applying channel difference");
 
         result_updates.extend(new_messages.into_iter().map(|message| {
@@ -891,9 +901,18 @@ impl MessageBoxes {
     }
 
     pub fn end_channel_difference(&mut self, reason: PrematureEndReason) {
-        let (key, channel_id) = self
-            .channel_in_diff()
-            .expect("ending channel difference to have a channel in getting_diff_for");
+        if let Some((_, channel_id)) = self.channel_in_diff() {
+            self.end_channel_difference_for(channel_id, reason);
+        }
+    }
+
+    /// End only the requested channel recovery. A stale completion for an
+    /// already-finished channel cannot alter another channel's active recovery.
+    pub fn end_channel_difference_for(&mut self, channel_id: i64, reason: PrematureEndReason) {
+        let key = Key::Channel(channel_id);
+        if !self.getting_diff_for.contains(&key) {
+            return;
+        }
 
         trace!(channel_id, ?reason, "ending channel difference");
         match reason {

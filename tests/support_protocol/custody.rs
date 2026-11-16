@@ -212,6 +212,10 @@ pub fn bounded_close_is_preserving_and_nonresumable() {
     .unwrap();
     let mut p = Protocol::open(backend, auth()).unwrap();
     install(&mut p);
+    p.stop().unwrap();
+    assert_eq!(p.close(1), Err(kiaro_secret_chat::error::Error::NotRunning));
+    assert!(p.custody_status(1).unwrap().resumable);
+    p.start().unwrap();
     let count = p.chat_record(1).unwrap().outbox.len();
     p.terminate_local(1).unwrap();
     let chat = p.chat_record(1).unwrap();

@@ -6,7 +6,7 @@ use kiaro_secret_chat::{
     },
     grammers_client::{
         Client,
-        peer::{Role, User},
+        peer::{PeerMap, Role, User},
         update::Update,
     },
     grammers_mtsender::{InvocationError, SenderPool, UpdatesConfiguration},
@@ -14,11 +14,13 @@ use kiaro_secret_chat::{
         SessionData,
         storages::MemorySession,
         types::{PeerAuth, PeerId, PeerRef},
-        updates::UpdatesLike,
+        updates::{State, UpdatesLike},
     },
     grammers_tl_types::{self as tl, Identifiable, Serializable},
 };
 use std::sync::{Arc, Mutex};
+#[path = "review_models.rs"]
+mod review_models;
 #[derive(Default)]
 struct Model {
     missing: bool,
@@ -168,6 +170,10 @@ impl Model {
     }
 }
 pub async fn run() {
+    let (state, peers) = Box::pin(export_checks()).await;
+    Box::pin(review_models::run(state, peers)).await;
+}
+async fn export_checks() -> (State, PeerMap) {
     let mut data = SessionData {
         home_dc: 2,
         ..Default::default()
@@ -211,6 +217,43 @@ pub async fn run() {
     .await
     .unwrap();
     let (raw, state, peers) = updates.next_raw().await.unwrap();
+    Box::pin(callback_checks(
+        client.clone(),
+        model.clone(),
+        state.clone(),
+        peers.clone(),
+        raw,
+    ))
+    .await;
+    Box::pin(peer_checks(
+        client.clone(),
+        model.clone(),
+        state.clone(),
+        peers.clone(),
+    ))
+    .await;
+    model.lock().unwrap().transport = true;
+    let error = GrammersExportClient::new(client)
+        .request(
+            Default::default(),
+            serde_json::json!({"_":"users.GetUsers","id":[{"_":"InputUserSelf"}]}),
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(error, FetchError::Transport));
+    assert!(!format!("{error:?}").contains("burned"));
+    handle.quit();
+    runner.await.unwrap();
+    (state, peers)
+}
+
+async fn callback_checks(
+    client: Client,
+    model: Arc<Mutex<Model>>,
+    state: State,
+    peers: PeerMap,
+    raw: tl::enums::Update,
+) {
     let Update::CallbackQuery(query) = Update::from_raw(&client, raw, state.clone(), peers.clone())
     else {
         panic!("callback")
@@ -260,6 +303,8 @@ pub async fn run() {
             tl::functions::messages::EditInlineBotMessage::CONSTRUCTOR_ID
         ]
     );
+}
+async fn peer_checks(client: Client, model: Arc<Mutex<Model>>, state: State, peers: PeerMap) {
     let dialog = client.iter_dialogs().next().await.unwrap().unwrap();
     assert_eq!(dialog.peer_id(), PeerId::user_unchecked(456));
     assert!(dialog.peer_ref().is_none());
@@ -317,16 +362,4 @@ pub async fn run() {
             Update::Raw(_)
         ));
     }
-    model.lock().unwrap().transport = true;
-    let error = GrammersExportClient::new(client)
-        .request(
-            Default::default(),
-            serde_json::json!({"_":"users.GetUsers","id":[{"_":"InputUserSelf"}]}),
-        )
-        .await
-        .unwrap_err();
-    assert!(matches!(error, FetchError::Transport));
-    assert!(!format!("{error:?}").contains("burned"));
-    handle.quit();
-    runner.await.unwrap();
 }

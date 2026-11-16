@@ -3,6 +3,7 @@ use std::{
     fs::File,
     io::{Cursor, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
+    sync::{Arc, Mutex},
 };
 pub trait ReadSeek: Read + Seek + Send {}
 impl<T: Read + Seek + Send> ReadSeek for T {}
@@ -24,7 +25,7 @@ pub struct SourceReader {
     pub name: String,
     pub size: u64,
     pub start: u64,
-    pub(crate) reader: Box<dyn ReadSeek>,
+    pub(crate) reader: SharedReader,
 }
 impl FileSource {
     pub fn path(path: impl AsRef<Path>) -> Self {
@@ -71,7 +72,7 @@ impl FileSource {
             name,
             size,
             start,
-            reader,
+            reader: SharedReader(Arc::new(Mutex::new(reader))),
         })
     }
 }
@@ -98,6 +99,27 @@ impl SourceReader {
         Ok(())
     }
     pub fn reader(&mut self) -> &mut dyn ReadSeek {
-        &mut *self.reader
+        &mut self.reader
+    }
+}
+
+/// Shared cursor custody lets an owned blocking read outlive its canceled awaiter.
+/// Reads already performed advance this same cursor; callers may explicitly rewind.
+#[derive(Clone)]
+pub(crate) struct SharedReader(Arc<Mutex<Box<dyn ReadSeek>>>);
+impl Read for SharedReader {
+    fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
+        self.0
+            .lock()
+            .map_err(|_| std::io::Error::other("source is unavailable"))?
+            .read(bytes)
+    }
+}
+impl Seek for SharedReader {
+    fn seek(&mut self, position: SeekFrom) -> std::io::Result<u64> {
+        self.0
+            .lock()
+            .map_err(|_| std::io::Error::other("source is unavailable"))?
+            .seek(position)
     }
 }

@@ -169,6 +169,30 @@ fn thumb_is_mozjpeg_progressive_444_with_desktop_tables() {
 }
 #[test]
 fn thumb_carries_source_density_and_icc() {
+    for (fixture_name, color, size) in [
+        ("cmyk", *b"CMYK", (8, 8)),
+        ("gray", *b"GRAY", (8, 8)),
+        ("rgb", *b"RGB ", (8, 8)),
+    ] {
+        let mut unsupported = vec![0; 200];
+        unsupported[16..20].copy_from_slice(&color);
+        let original = fixture(fixture_name);
+        let mut source = original[..2].to_vec();
+        source.extend([255, 226]);
+        source.extend(((unsupported.len() + 16) as u16).to_be_bytes());
+        source.extend_from_slice(b"ICC_PROFILE\0\x01\x01");
+        source.extend_from_slice(&unsupported);
+        source.extend_from_slice(&original[2..]);
+        let output = desktop(&source, size);
+        assert_eq!(
+            qt_jpeg::source_metadata(&output).1,
+            if color == *b"RGB " {
+                unsupported
+            } else {
+                vec![]
+            }
+        );
+    }
     let source = fixture("density");
     let bytes = desktop(&source, (25, 20));
     let parts = segments(&bytes);
@@ -193,6 +217,29 @@ fn unscaled_grayscale_stays_one_component() {
 }
 #[test]
 fn without_mozjpeg_baseline_still_writes_a_thumb() {
+    let folder = tempfile::tempdir().unwrap();
+    fs::write(folder.path().join("oversized.jpg"), fixture("small")).unwrap();
+    let source = fs::OpenOptions::new()
+        .write(true)
+        .open(folder.path().join("oversized.jpg"))
+        .unwrap();
+    source.set_len(64 * 1024 * 1024 + 1).unwrap();
+    assert_eq!(
+        image::ImageReader::open(folder.path().join("oversized.jpg"))
+            .unwrap()
+            .into_dimensions()
+            .unwrap(),
+        (16, 16)
+    );
+    assert_eq!(
+        write_image_thumb(
+            folder.path(),
+            "oversized.jpg",
+            |_| panic!("oversized input reached geometry callback"),
+            &ThumbnailOptions::default()
+        ),
+        (String::new(), (0, 0))
+    );
     let options = ThumbnailOptions {
         jpeg_encoder: ThumbnailEncoder::Baseline,
         ..Default::default()

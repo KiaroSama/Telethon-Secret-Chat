@@ -66,6 +66,9 @@ pub fn parse_max_image(photo: &Value, suggested: &str) -> Image {
         if area <= max_area {
             continue;
         }
+        if is(size, "PhotoSizeProgressive") && array(size, "sizes").is_empty() {
+            continue;
+        }
         result.width = w;
         result.height = h;
         result.file.location = FileLocation {

@@ -108,6 +108,12 @@ impl<R: Read> Decoder<R> {
                 let at = y * width + x;
                 let restart = self.restart_interval > 0
                     && at.is_multiple_of(usize::from(self.restart_interval));
+                let prediction_row = if self.restart_interval > 0 {
+                    let interval = usize::from(self.restart_interval);
+                    y - (at - at % interval) / width
+                } else {
+                    y
+                };
                 for i in 0..ncomp {
                     let ra = if x > 0 {
                         i32::from(results[i][at - 1])
@@ -132,7 +138,7 @@ impl<R: Read> Decoder<R> {
                         scan.point_transform,
                         frame.precision,
                         x,
-                        y,
+                        prediction_row,
                         restart,
                     );
                     results[i][at] = ((prediction + differences[i][at]) & 0xffff) as u16;
@@ -168,7 +174,7 @@ fn predict(
 ) -> i32 {
     if (ix == 0 && iy == 0) || restart {
         // start of first line or restart
-        if input_precision > 1 + point_transform {
+        if input_precision > point_transform {
             1 << (input_precision - point_transform - 1)
         } else {
             0

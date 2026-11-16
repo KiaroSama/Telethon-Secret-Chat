@@ -1,5 +1,7 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
+#[path = "tests885.rs"]
+mod review885;
 use crate::test_support::support;
 use crate::{
     custody::{TransientLimits, TransientStorage},
@@ -7,6 +9,10 @@ use crate::{
 };
 #[tokio::test]
 async fn nested_reservations_reuse_task_and_release_each_payload() {
+    review885::acknowledged_ids_are_budgeted();
+    review885::callback_admission_is_all_or_nothing();
+    review885::cleanup_panic_releases_registry().await;
+    review885::fencing_waits_for_runtime_publication().await;
     bounded_headroom_tracks_nested_and_concurrent_owners().await;
     interrupted_creations_keep_uncertain_identity_quarantined().await;
     let (transport, _) = support::Fake::pair();

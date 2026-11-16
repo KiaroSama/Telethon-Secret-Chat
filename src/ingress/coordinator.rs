@@ -44,7 +44,9 @@ impl Core {
             return Err(Error::IngressUnavailable);
         }
         self.check_session()?;
-        self.ledger.check_size(&self.limits)
+        // Loading and every successful mutation validate the installed ledger.
+        // Unrelated RPC admission must not reserialize retained payloads.
+        Ok(())
     }
     pub fn check_session(&self) -> Result<()> {
         let session = self.session.as_ref().ok_or(Error::IngressUnavailable)?;

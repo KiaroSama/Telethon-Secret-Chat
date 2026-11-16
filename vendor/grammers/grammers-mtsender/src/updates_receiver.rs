@@ -19,7 +19,8 @@ use tokio::sync::mpsc;
 use tokio::time::timeout_at;
 use tracing::{info, trace, warn};
 
-use crate::{DurableIngressHook, IngressReceiptKind, IngressRefused};
+use crate::durable_ingress::DurableWorker;
+use crate::{IngressReceiptKind, IngressRefused};
 use crate::{InvocationError, SenderPoolHandle, UpdatesConfiguration};
 
 // See https://core.telegram.org/method/updates.getChannelDifference.
@@ -27,8 +28,7 @@ const BOT_CHANNEL_DIFF_LIMIT: i32 = 100000;
 const USER_CHANNEL_DIFF_LIMIT: i32 = 100;
 
 pub struct UpdatesReceiver {
-    durable: Option<Arc<dyn DurableIngressHook>>,
-    checkpoint: Option<Vec<u8>>,
+    durable: Option<DurableWorker>,
     seen_receipts: BTreeSet<u64>,
     handle: SenderPoolHandle,
     session: Arc<ErasedSession>,
@@ -84,6 +84,14 @@ async fn prepare_channel_difference(
     }
 }
 
+fn requested_channel_id(channel: &tl::enums::InputChannel) -> Result<i64, IngressRefused> {
+    match channel {
+        tl::enums::InputChannel::Channel(channel) => Ok(channel.channel_id),
+        tl::enums::InputChannel::FromMessage(channel) => Ok(channel.channel_id),
+        _ => Err(IngressRefused),
+    }
+}
+
 impl UpdatesReceiver {
     pub async fn create(
         handle: SenderPoolHandle,
@@ -91,23 +99,24 @@ impl UpdatesReceiver {
         updates: mpsc::Receiver<UpdatesLike>,
         configuration: UpdatesConfiguration,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let durable = handle.durable_hook()?;
-        let checkpoint = match &durable {
-            Some(hook) => Some(hook.restore()?),
-            None => None,
+        let durable = handle.durable_worker()?;
+        let (checkpoint, replay) = match &durable {
+            Some(worker) => {
+                let (checkpoint, replay) = worker
+                    .run(|hook| Ok((hook.restore()?, hook.replay()?)))
+                    .await?;
+                (Some(checkpoint), replay)
+            }
+            None => (None, Vec::new()),
         };
         let mut seen_receipts = BTreeSet::new();
-        let buffer = match &durable {
-            Some(hook) => hook
-                .replay()?
-                .into_iter()
-                .map(|(id, output)| {
-                    seen_receipts.insert(id);
-                    output
-                })
-                .collect(),
-            None => VecDeque::new(),
-        };
+        let buffer = replay
+            .into_iter()
+            .map(|(id, output)| {
+                seen_receipts.insert(id);
+                output
+            })
+            .collect();
         let message_box = if let Some(checkpoint) = &checkpoint {
             MessageBoxes::from_durable_checkpoint(checkpoint)?
         } else if configuration.catch_up {
@@ -125,7 +134,6 @@ impl UpdatesReceiver {
 
         Ok(UpdatesReceiver {
             durable,
-            checkpoint,
             seen_receipts,
             handle,
             session,
@@ -175,8 +183,13 @@ impl UpdatesReceiver {
         loop {
             if self.buffer.is_empty() {
                 if let Some(hook) = &self.durable {
-                    if let Some(input) = hook.pending_live()?.into_iter().next() {
-                        self.process_staged_updates(input)?;
+                    if let Some(input) = hook
+                        .run(|hook| hook.pending_live())
+                        .await?
+                        .into_iter()
+                        .next()
+                    {
+                        self.process_staged_updates(input).await?;
                         continue;
                     }
                 }
@@ -186,16 +199,23 @@ impl UpdatesReceiver {
                     return Ok(update);
                 }
                 (
-                    self.check_deadlines()?, // persist difference ownership before using its request
+                    self.check_deadlines().await?, // persist difference ownership before using its request
                     self.message_box.get_difference(),
                     match self.message_box.get_channel_difference() {
-                        Some(gd) => match prepare_channel_difference(gd, session.clone()).await? {
-                            Some(request) => Some(request),
-                            None => {
-                                self.end_channel_difference(PrematureEndReason::Banned)?;
-                                None
+                        Some(gd) => {
+                            let channel_id = requested_channel_id(&gd.channel)?;
+                            match prepare_channel_difference(gd, session.clone()).await? {
+                                Some(request) => Some(request),
+                                None => {
+                                    self.end_channel_difference(
+                                        channel_id,
+                                        PrematureEndReason::Banned,
+                                    )
+                                    .await?;
+                                    None
+                                }
                             }
-                        },
+                        }
                         None => None,
                     },
                 )
@@ -207,17 +227,19 @@ impl UpdatesReceiver {
             if let Some(request) = get_diff {
                 let response = self.invoke(&request).await?;
                 if self.durable.is_some() {
-                    self.refresh_durable()?;
+                    self.refresh_durable().await?;
                     continue;
                 }
                 let envelope = response.to_bytes();
-                self.transition(IngressReceiptKind::Difference, &envelope, |machine| {
-                    Some(machine.apply_difference(response))
-                })?;
+                self.transition(IngressReceiptKind::Difference, envelope, move |machine| {
+                    ((), Some(machine.apply_difference(response)))
+                })
+                .await?;
                 continue;
             }
 
             if let Some(request) = get_channel_diff {
+                let channel_id = requested_channel_id(&request.channel)?;
                 let maybe_response = self.invoke(&request).await;
 
                 let response = match maybe_response {
@@ -238,52 +260,62 @@ impl UpdatesReceiver {
                             "Getting difference for channel updates caused PersistentTimestampOutdated; ending getting difference prematurely until server issues are resolved"
                         );
                         {
-                            self.end_channel_difference(PrematureEndReason::TemporaryServerIssues)?;
+                            self.end_channel_difference(
+                                channel_id,
+                                PrematureEndReason::TemporaryServerIssues,
+                            )
+                            .await?;
                         }
                         continue;
                     }
                     Err(e) if e.is("CHANNEL_PRIVATE") => {
                         info!("Account is now banned from channel difference");
                         {
-                            self.end_channel_difference(PrematureEndReason::Banned)?;
+                            self.end_channel_difference(channel_id, PrematureEndReason::Banned)
+                                .await?;
                         }
                         continue;
                     }
                     Err(InvocationError::Rpc(rpc_error)) if rpc_error.code == 500 => {
                         warn!("Telegram reported an internal channel-difference error");
                         {
-                            self.end_channel_difference(PrematureEndReason::TemporaryServerIssues)?;
+                            self.end_channel_difference(
+                                channel_id,
+                                PrematureEndReason::TemporaryServerIssues,
+                            )
+                            .await?;
                         }
                         continue;
                     }
                     Err(e) => return Err(e),
                 };
                 if self.durable.is_some() {
-                    self.refresh_durable()?;
+                    self.refresh_durable().await?;
                     continue;
                 }
 
                 let envelope = response.to_bytes();
                 self.transition(
                     IngressReceiptKind::ChannelDifference,
-                    &envelope,
-                    |machine| Some(machine.apply_channel_difference(response)),
-                )?;
+                    envelope,
+                    move |machine| ((), Some(machine.apply_channel_difference(response))),
+                )
+                .await?;
                 continue;
             }
 
             let received = if let Some(hook) = &self.durable {
-                let notification = hook.receipt_notification();
+                let notification = hook.hook.receipt_notification();
                 tokio::select! {
                     biased;
-                    _=notification.notified()=>{self.refresh_durable()?;continue;},
+                    _=notification.notified()=>{self.refresh_durable().await?;continue;},
                     received=timeout_at(deadline.into(),self.updates.recv())=>received,
                 }
             } else {
                 timeout_at(deadline.into(), self.updates.recv()).await
             };
             match received {
-                Ok(Some(updates)) => self.process_socket_updates(updates)?,
+                Ok(Some(updates)) => self.process_socket_updates(updates).await?,
                 Ok(None) => break Err(InvocationError::Dropped("updates channel was closed")),
                 Err(_) => {}
             }
@@ -294,19 +326,31 @@ impl UpdatesReceiver {
     ///
     /// This is **not** automatically done on drop.
     pub async fn sync_update_state(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if self.durable.is_none() && !self.buffer.is_empty() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "cannot synchronize while received updates remain buffered",
-            )
-            .into());
-        }
-        if self.message_box.is_empty() {
-            return Ok(());
-        }
+        let state = if let Some(worker) = &self.durable {
+            worker
+                .run(|hook| {
+                    let checkpoint = hook.restore()?;
+                    Ok(MessageBoxes::from_durable_checkpoint(&checkpoint)
+                        .map_err(|_| IngressRefused)?
+                        .session_state())
+                })
+                .await?
+        } else {
+            if !self.buffer.is_empty() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "cannot synchronize while received updates remain buffered",
+                )
+                .into());
+            }
+            if self.message_box.is_empty() {
+                return Ok(());
+            }
+            self.message_box.session_state()
+        };
         self.session
             .clone()
-            .set_update_state(UpdateState::All(self.message_box.session_state()))
+            .set_update_state(UpdateState::All(state))
             .await?;
         Ok(())
     }
@@ -319,81 +363,99 @@ impl UpdatesReceiver {
             .and_then(|body| R::Return::from_bytes(&body).map_err(|e| e.into()))
     }
 
-    fn process_socket_updates(&mut self, updates: UpdatesLike) -> Result<(), InvocationError> {
-        if let Some(hook) = &self.durable {
-            hook.stage_live(self.session.home_dc_id()?, &updates)?;
+    async fn process_socket_updates(
+        &mut self,
+        updates: UpdatesLike,
+    ) -> Result<(), InvocationError> {
+        if let Some(worker) = &self.durable {
+            let dc_id = self.session.home_dc_id()?;
+            worker
+                .run(move |hook| hook.stage_live(dc_id, &updates))
+                .await?;
             return Ok(());
         }
-        self.process_staged_updates(updates)
+        self.process_staged_updates(updates).await
     }
-    fn process_staged_updates(&mut self, updates: UpdatesLike) -> Result<(), InvocationError> {
+    async fn process_staged_updates(
+        &mut self,
+        updates: UpdatesLike,
+    ) -> Result<(), InvocationError> {
         let envelope = if self.durable.is_some() {
             grammers_session::updates::durable::encode_live(&updates).map_err(|_| IngressRefused)?
         } else {
             Vec::new()
         };
-        self.transition(IngressReceiptKind::Live, &envelope, |machine| {
-            machine.process_updates(updates).ok()
+        self.transition(IngressReceiptKind::Live, envelope, move |machine| {
+            ((), machine.process_updates(updates).ok())
         })
+        .await
     }
-    fn check_deadlines(&mut self) -> Result<std::time::Instant, InvocationError> {
-        let mut deadline = std::time::Instant::now();
-        self.transition(IngressReceiptKind::Machine, &[], |machine| {
-            deadline = machine.check_deadlines();
-            None
-        })?;
-        Ok(deadline)
+    async fn check_deadlines(&mut self) -> Result<std::time::Instant, InvocationError> {
+        self.transition(IngressReceiptKind::Machine, Vec::new(), |machine| {
+            (machine.check_deadlines(), None)
+        })
+        .await
     }
-    fn end_channel_difference(
+    async fn end_channel_difference(
         &mut self,
+        channel_id: i64,
         reason: PrematureEndReason,
     ) -> Result<(), InvocationError> {
-        self.transition(IngressReceiptKind::Machine, &[], |machine| {
-            machine.end_channel_difference(reason);
-            None
+        self.transition(IngressReceiptKind::Machine, Vec::new(), move |machine| {
+            machine.end_channel_difference_for(channel_id, reason);
+            ((), None)
         })
+        .await
     }
-    fn transition(
+    async fn transition<T: Send + 'static>(
         &mut self,
         kind: IngressReceiptKind,
-        envelope: &[u8],
-        f: impl FnOnce(&mut MessageBoxes) -> Option<UpdateAndPeers>,
-    ) -> Result<(), InvocationError> {
-        self.refresh_durable()?;
-        let output = if let Some(hook) = &self.durable {
-            let before = self.checkpoint.as_ref().ok_or(IngressRefused)?;
-            let mut staged =
-                MessageBoxes::from_durable_checkpoint(before).map_err(|_| IngressRefused)?;
-            let output = f(&mut staged);
-            let after = staged.durable_checkpoint().map_err(|_| IngressRefused)?;
-            if let Some(id) = hook.commit(
-                before,
-                &after,
-                kind,
-                envelope,
-                output
-                    .as_ref()
-                    .unwrap_or(&(Vec::new(), Vec::new(), Vec::new())),
-            )? {
+        envelope: Vec<u8>,
+        transform: impl FnOnce(&mut MessageBoxes) -> (T, Option<UpdateAndPeers>) + Send + 'static,
+    ) -> Result<T, InvocationError> {
+        self.refresh_durable().await?;
+        let (result, output) = if let Some(worker) = &self.durable {
+            // One worker permit covers the entire read/apply/commit operation.
+            // Caller-issued differences cannot replace its checkpoint midway.
+            let (result, staged, receipt, output) = worker
+                .run(move |hook| {
+                    let before = hook.restore()?;
+                    let mut staged = MessageBoxes::from_durable_checkpoint(&before)
+                        .map_err(|_| IngressRefused)?;
+                    let (result, output) = transform(&mut staged);
+                    let after = staged.durable_checkpoint().map_err(|_| IngressRefused)?;
+                    let receipt = hook.commit(
+                        &before,
+                        &after,
+                        kind,
+                        &envelope,
+                        output
+                            .as_ref()
+                            .unwrap_or(&(Vec::new(), Vec::new(), Vec::new())),
+                    )?;
+                    Ok((result, staged, receipt, output))
+                })
+                .await?;
+            if let Some(id) = receipt {
                 self.seen_receipts.insert(id);
             }
             self.message_box = staged;
-            self.checkpoint = Some(after);
-            output
+            (result, output)
         } else {
-            f(&mut self.message_box)
+            transform(&mut self.message_box)
         };
         if let Some((updates, users, chats)) = output {
             self.extend_update_queue(updates, users, chats);
         }
-        Ok(())
+        Ok(result)
     }
-    fn refresh_durable(&mut self) -> Result<(), InvocationError> {
-        if let Some(hook) = &self.durable {
-            let checkpoint = hook.restore()?;
+    async fn refresh_durable(&mut self) -> Result<(), InvocationError> {
+        if let Some(worker) = &self.durable {
+            let (checkpoint, pending) = worker
+                .run(|hook| Ok((hook.restore()?, hook.replay()?)))
+                .await?;
             let staged =
                 MessageBoxes::from_durable_checkpoint(&checkpoint).map_err(|_| IngressRefused)?;
-            let pending = hook.replay()?;
             let held = pending.iter().map(|(id, _)| *id).collect::<BTreeSet<_>>();
             self.seen_receipts.retain(|id| held.contains(id));
             for (id, output) in pending {
@@ -402,7 +464,6 @@ impl UpdatesReceiver {
                 }
             }
             self.message_box = staged;
-            self.checkpoint = Some(checkpoint);
         }
         Ok(())
     }
