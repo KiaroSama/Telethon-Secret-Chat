@@ -32,6 +32,58 @@ impl Seek for SlowCopy {
         self.bytes.seek(position)
     }
 }
+pub async fn deletion_invalidates_sent_copy() {
+    struct Release(Option<mpsc::Sender<()>>);
+    impl Drop for Release {
+        fn drop(&mut self) {
+            if let Some(release) = self.0.take() {
+                let _ = release.send(());
+            }
+        }
+    }
+    let (manager, peer, _, id, folder) = saving().await;
+    let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+    let (worker_tx, _worker_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let release = Release(Some(release_tx));
+    let source = SlowCopy {
+        bytes: Cursor::new(b"public deleted sent attachment".to_vec()),
+        read: false,
+        entered: Some(entered_tx),
+        worker_entered: worker_tx,
+        release: release_rx,
+    };
+    let sending = manager.clone();
+    let task = tokio::spawn(async move {
+        sending
+            .send_file(
+                id,
+                FileSource::stream(Box::new(source), "deleted.bin").unwrap(),
+                SendFileOptions::default(),
+            )
+            .await
+    });
+    tokio::time::timeout(Duration::from_secs(3), entered_rx)
+        .await
+        .unwrap()
+        .unwrap();
+    let deleted = manager.delete_saved_messages(id);
+    let absent_after_delete = !folder.path().join(id.to_string()).exists();
+    drop(release);
+    tokio::time::timeout(Duration::from_secs(3), task)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    deleted.unwrap();
+    assert!(
+        absent_after_delete && !folder.path().join(id.to_string()).exists(),
+        "a retained sent-file worker must not recreate a deleted archive"
+    );
+    assert!(manager.read_saved_messages(id).unwrap().is_empty());
+    manager.stop().await.unwrap();
+    peer.stop().await.unwrap();
+}
 pub async fn slow_copy_is_owned_without_blocking_executor() {
     let (manager, peer, _, id, _folder) = saving().await;
     let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();

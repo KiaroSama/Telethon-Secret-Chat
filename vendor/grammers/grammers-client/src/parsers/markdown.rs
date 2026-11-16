@@ -10,6 +10,7 @@
 
 use grammers_tl_types as tl;
 use pulldown_cmark::{CodeBlockKind, Event, Parser, Tag, TagEnd};
+use unicode_general_category::{GeneralCategory, get_general_category};
 
 use super::common::{
     MENTION_URL_PREFIX, Segment, after, before, inject_into_message, telegram_string_len,
@@ -196,6 +197,51 @@ fn emphasis_range(message: &str, offset: i32, length: i32) -> Option<(i32, i32)>
     Some((start, start.checked_add(telegram_string_len(trimmed))?))
 }
 
+fn emphasis_delimiters(message: &str, start: i32, end: i32) -> (bool, bool) {
+    fn punctuation(c: char) -> bool {
+        use GeneralCategory::*;
+        c.is_ascii_punctuation()
+            || matches!(
+                get_general_category(c),
+                ClosePunctuation
+                    | ConnectorPunctuation
+                    | DashPunctuation
+                    | FinalPunctuation
+                    | InitialPunctuation
+                    | OpenPunctuation
+                    | OtherPunctuation
+                    | CurrencySymbol
+                    | MathSymbol
+                    | ModifierSymbol
+                    | OtherSymbol
+            )
+    }
+    let left = |before: char, after: char| {
+        !after.is_whitespace()
+            && (!punctuation(after) || before.is_whitespace() || punctuation(before))
+    };
+    let right = |before: char, after: char| {
+        !before.is_whitespace()
+            && (!punctuation(before) || after.is_whitespace() || punctuation(after))
+    };
+    let before = entity_text(message, 0, start)
+        .chars()
+        .next_back()
+        .unwrap_or('\n');
+    let after = entity_text(message, end, i32::MAX - end)
+        .chars()
+        .next()
+        .unwrap_or('\n');
+    let content = entity_text(message, start, end - start);
+    let first = content.chars().next().unwrap_or('\n');
+    let last = content.chars().next_back().unwrap_or('\n');
+    let asterisk = left(before, first) && right(last, after);
+    let underscore = asterisk
+        && (!right(before, first) || punctuation(before))
+        && (!left(last, after) || punctuation(after));
+    (asterisk, underscore)
+}
+
 fn merge_adjacent_code(entities: &[tl::enums::MessageEntity]) -> Vec<tl::enums::MessageEntity> {
     use tl::enums::MessageEntity as ME;
     let mut normalized = entities.to_vec();
@@ -250,9 +296,33 @@ fn line_end_spaces(message: &str) -> std::collections::BTreeSet<usize> {
     positions
 }
 
+fn pre_boundaries(
+    message: &str,
+    entities: &[tl::enums::MessageEntity],
+) -> std::collections::BTreeSet<usize> {
+    let mut positions = std::collections::BTreeSet::new();
+    for entity in entities {
+        if let tl::enums::MessageEntity::Pre(pre) = entity {
+            let prefix = entity_text(message, 0, pre.offset);
+            let mut offset = prefix.encode_utf16().count();
+            for c in prefix
+                .chars()
+                .rev()
+                .take_while(|c| matches!(c, '\r' | '\n'))
+            {
+                offset -= c.len_utf16();
+                positions.insert(offset);
+            }
+        }
+    }
+    positions
+}
+
 /// Combine plain text and the list of formatting entities understood by Telegram into CommonMark-compliant markdown.
-/// Adjacent inline-code ranges are merged. Emphasis excludes boundary whitespace,
-/// which CommonMark cannot represent inside emphasis delimiters; the text is preserved.
+/// Adjacent inline-code ranges are merged. Boundary whitespace stays outside
+/// emphasis; emphasis with invalid CommonMark punctuation flanking is omitted.
+/// Plain text line endings are encoded, while fenced blocks retain CommonMark's
+/// paragraph separators.
 pub fn generate_markdown_message(message: &str, entities: &[tl::enums::MessageEntity]) -> String {
     let entities = merge_adjacent_code(entities);
     // Getting this wrong isn't the end of the world so the wildcard pattern is used
@@ -289,7 +359,9 @@ pub fn generate_markdown_message(message: &str, entities: &[tl::enums::MessageEn
             ME::Url(_) => {}
             ME::Email(_) => {}
             ME::Bold(e) => {
-                if let Some((start, end)) = emphasis_range(message, e.offset, e.length) {
+                if let Some((start, end)) = emphasis_range(message, e.offset, e.length)
+                    .filter(|(start, end)| emphasis_delimiters(message, *start, *end).0)
+                {
                     insertions.push((before(i, 0, start), Segment::Fixed("**")));
                     insertions.push((after(i, 0, end), Segment::Fixed("**")));
                 }
@@ -298,17 +370,13 @@ pub fn generate_markdown_message(message: &str, entities: &[tl::enums::MessageEn
                 let Some((start, end)) = emphasis_range(message, e.offset, e.length) else {
                     return;
                 };
-                let before_text = entity_text(message, 0, start);
-                let after_text = entity_text(message, end, i32::MAX - end);
-                let delimiter = if before_text
-                    .chars()
-                    .last()
-                    .is_some_and(char::is_alphanumeric)
-                    || after_text.chars().next().is_some_and(char::is_alphanumeric)
-                {
+                let (asterisk, underscore) = emphasis_delimiters(message, start, end);
+                let delimiter = if underscore {
+                    "_"
+                } else if asterisk {
                     "*"
                 } else {
-                    "_"
+                    return;
                 };
                 insertions.push((before(i, 0, start), Segment::Fixed(delimiter)));
                 insertions.push((after(i, 0, end), Segment::Fixed(delimiter)));
@@ -409,16 +477,20 @@ pub fn generate_markdown_message(message: &str, entities: &[tl::enums::MessageEn
 
     let mut line_start = true;
     let line_end_spaces = line_end_spaces(message);
+    // Fenced Pre blocks need their existing physical paragraph separators.
+    let pre_boundaries = pre_boundaries(message, &entities);
     inject_into_message(message, insertions, |result, c, position| {
         if matches!(c, '\r' | '\n')
-            && entities.iter().any(|entity| {
-                matches!(entity, ME::Code(e) if position as i64 >= i64::from(e.offset)
+            && !pre_boundaries.contains(&position)
+            && !entities.iter().any(|entity| {
+                matches!(entity, ME::Pre(e) if position as i64 >= i64::from(e.offset)
                 && (position as i64) < i64::from(e.offset) + i64::from(e.length))
             })
         {
-            // Numeric references keep leading/trailing and repeated line
-            // endings as text, outside the separately delimited code spans.
+            // Keep structural line endings as text, including plain messages.
+            // Fenced Pre content retains its original line-ending handling.
             result.push_str(if c == '\r' { "&#13;" } else { "&#10;" });
+            line_start = true;
             return;
         }
         let code = entities.iter().any(|entity| {

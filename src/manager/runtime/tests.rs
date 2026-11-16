@@ -1,5 +1,7 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
+#[path = "../../../tests/support_manager/callback_permit_0537.rs"]
+mod callback_permit_review;
 #[path = "../../../tests/support_manager/runtime_review.rs"]
 mod review885;
 use crate::test_support::support;
@@ -9,6 +11,8 @@ use crate::{
 };
 #[tokio::test]
 async fn nested_reservations_reuse_task_and_release_each_payload() {
+    callback_permit_review::run().await;
+    review885::queued_settlement_refuses_stopped_runner().await;
     stale_operation_drop_waits_for_generation_fence();
     crate::media::SourceReader::verify_refill_ownership().await;
     review885::ea3_regressions().await;
@@ -333,19 +337,55 @@ async fn blocking_workers_retain_operation_leases(
     manager: &SecretChatManager<TransientStorage<support::TestStorage>, support::Fake>,
     used: usize,
 ) {
+    struct CleanupHold {
+        entered: Option<tokio::sync::oneshot::Sender<()>>,
+        release: Mutex<std::sync::mpsc::Receiver<()>>,
+    }
+    impl Drop for CleanupHold {
+        fn drop(&mut self) {
+            if let Some(entered) = self.entered.take() {
+                let _ = entered.send(());
+            }
+            let _ = self.release.get_mut().unwrap().recv();
+        }
+    }
+    struct ReleaseOnDrop(Option<std::sync::mpsc::Sender<()>>);
+    impl Drop for ReleaseOnDrop {
+        fn drop(&mut self) {
+            if let Some(release) = self.0.take() {
+                let _ = release.send(());
+            }
+        }
+    }
+    let (cleanup_entered_tx, cleanup_entered_rx) = tokio::sync::oneshot::channel();
+    let (cleanup_release_tx, cleanup_release_rx) = std::sync::mpsc::channel();
+    let cleanup_release = ReleaseOnDrop(Some(cleanup_release_tx));
+    let cleanup_hold = Arc::new(CleanupHold {
+        entered: Some(cleanup_entered_tx),
+        release: Mutex::new(cleanup_release_rx),
+    });
     let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
     let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let io = Arc::new(crate::media::blocking::IoTracker::default());
+    let worker_io = io.clone();
     let worker_manager = manager.clone();
     let operation = tokio::spawn(async move {
         worker_manager
             .with_payload_operation(None, WorkKind::Ordinary, 1024, async {
+                // Drop this hold after the task permit but before the nested
+                // payload, exposing why permit count is not a cleanup barrier.
+                crate::media::blocking::retain(&cleanup_hold);
                 let _extra = worker_manager.reserve_payload(None, 2048)?;
-                crate::media::blocking::spawn(move |_| {
-                    let _ = entered_tx.send(());
-                    release_rx.recv().unwrap();
-                })?
-                .await
-                .map_err(|_| Error::Storage)?;
+                worker_io
+                    .scope(async {
+                        crate::media::blocking::spawn(move |_| {
+                            let _ = entered_tx.send(());
+                            release_rx.recv().unwrap();
+                        })?
+                        .await
+                        .map_err(|_| Error::Storage)
+                    })
+                    .await?;
                 Ok(())
             })
             .await
@@ -370,13 +410,26 @@ async fn blocking_workers_retain_operation_leases(
     );
     drop(spare);
     release_tx.send(()).unwrap();
-    tokio::time::timeout(Duration::from_secs(2), async {
-        while manager.inner.work.active.load(Ordering::Acquire) != 0 {
-            tokio::task::yield_now().await;
-        }
+    tokio::time::timeout(Duration::from_secs(2), cleanup_entered_rx)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(manager.inner.work.active.load(Ordering::Acquire), 0);
+    let mut completed = Box::pin(io.drain());
+    std::future::poll_fn(|cx| {
+        assert!(
+            std::future::Future::poll(completed.as_mut(), cx).is_pending(),
+            "the actual cleanup witness must wait beyond the zero permit count"
+        );
+        std::task::Poll::Ready(())
     })
-    .await
-    .unwrap();
+    .await;
+    drop(cleanup_release);
+    tokio::time::timeout(Duration::from_secs(2), completed)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(manager.inner.work.active.load(Ordering::Acquire), 0);
     let all = manager.reserve_payload(None, 65536 - used).unwrap();
     drop(all);
 }

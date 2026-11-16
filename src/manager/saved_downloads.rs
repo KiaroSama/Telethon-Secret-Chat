@@ -187,8 +187,12 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
             {
                 state.runner = None;
             }
-            if state.tasks.is_empty() && state.runner.is_none() && state.queued.is_empty() {
-                return Ok(());
+            if state.tasks.is_empty() && state.runner.is_none() {
+                return if state.queued.is_empty() {
+                    Ok(())
+                } else {
+                    Err(Error::ManagerStopping)
+                };
             }
         }
     }

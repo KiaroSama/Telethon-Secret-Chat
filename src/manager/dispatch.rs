@@ -56,7 +56,7 @@ struct OwnedCallback {
     stopping: bool,
     generation: u64,
     chat_id: i32,
-    permit: WorkPermit,
+    permit: Arc<WorkPermit>,
     payload: PayloadReservation,
 }
 #[derive(Clone)]
@@ -283,7 +283,7 @@ impl Dispatcher {
             } else {
                 None
             };
-            dispatches.push((label, callback, payload, permit, waiter));
+            dispatches.push((label, callback, payload, Arc::new(permit), waiter));
         }
         for (label, callback, payload, permit, waiter) in dispatches {
             if self.admissions.closed() && !stopping {
@@ -305,7 +305,11 @@ impl Dispatcher {
                         let identity = self.identity.load(Ordering::Acquire);
                         let future = run(data);
                         let task = tokio::spawn(
-                            runtime::scope(identity, future).with_current_subscriber(),
+                            crate::media::blocking::resources(
+                                vec![permit.clone()],
+                                runtime::scope(identity, future),
+                            )
+                            .with_current_subscriber(),
                         );
                         self.own(
                             task,
@@ -394,6 +398,7 @@ impl Dispatcher {
             };
             let (joined, timed_out) = tokio::select! {result=&mut child=>(result,false),_=cancellation.notified()=>{monitor_abort.abort();(child.await,false)},_=deadline=>{monitor_abort.abort();(child.await,true)}};
             let Ok(Joined{result,permit,payload,registry})=joined else {return;};
+            let cleanup_permit = permit.clone();
             let _resources=(permit,payload,registry);
             let cancelled = result.as_ref().is_err_and(|e| e.is_cancelled());
             let failed = timed_out
@@ -415,7 +420,9 @@ impl Dispatcher {
                 failure(chat_id, generation);
             }
             if cancelled && let Some((cleanup, event)) = cleanup {
-                let mut cleanup=Box::pin(runtime::scope(identity,async move {cleanup(event).await}));
+                let mut cleanup=Box::pin(crate::media::blocking::resources(
+                    vec![cleanup_permit], runtime::scope(identity,async move {cleanup(event).await}),
+                ));
                 let cleanup=std::future::poll_fn(move|cx| {
                     std::panic::catch_unwind(std::panic::AssertUnwindSafe(||cleanup.as_mut().poll(cx)))
                         .unwrap_or(std::task::Poll::Ready(Err(Error::ChatState)))
