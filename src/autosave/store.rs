@@ -21,13 +21,7 @@ static CHAT_LOCKS: LazyLock<Mutex<ChatLocks>> = LazyLock::new(Mutex::default);
 // Independently loaded settings and cloned archive workers must share the same
 // transaction lock for the same physical conversation directory.
 fn chat_lock(root: &Path, id: i32) -> Result<Arc<Mutex<ArchiveChat>>> {
-    let root = match fs::canonicalize(root) {
-        Ok(root) => root,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            std::path::absolute(root).map_err(|_| Error::Storage)?
-        }
-        Err(_) => return Err(Error::Storage),
-    };
+    let root = canonical_archive_root(root)?;
     let mut locks = CHAT_LOCKS.lock().map_err(|_| Error::Storage)?;
     locks.retain(|_, lock| lock.strong_count() != 0);
     let slot = locks.entry(root.join(id.to_string())).or_default();
@@ -37,6 +31,48 @@ fn chat_lock(root: &Path, id: i32) -> Result<Arc<Mutex<ArchiveChat>>> {
     let lock = Arc::new(Mutex::new(ArchiveChat::default()));
     *slot = Arc::downgrade(&lock);
     Ok(lock)
+}
+// Resolve the existing physical ancestor before appending absent components.
+// Creating the archive must not switch its registry identity (including trusted
+// symlink aliases, Windows verbatim prefixes and lexical parent components).
+fn canonical_archive_root(root: &Path) -> Result<PathBuf> {
+    let mut ancestor = std::path::absolute(root).map_err(|_| Error::Storage)?;
+    let mut missing = Vec::new();
+    let mut physical = loop {
+        match fs::canonicalize(&ancestor) {
+            Ok(path) => break path,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let component = ancestor
+                    .components()
+                    .next_back()
+                    .ok_or(Error::Storage)?
+                    .as_os_str()
+                    .to_owned();
+                missing.push(component);
+                if !ancestor.pop() {
+                    return Err(Error::Storage);
+                }
+            }
+            Err(_) => return Err(Error::Storage),
+        }
+    };
+    for component in missing.into_iter().rev() {
+        if component == ".." {
+            if !physical.pop() {
+                return Err(Error::Storage);
+            }
+        } else if component != "." {
+            physical.push(component);
+        }
+        // A lexical parent may reveal an existing alias beyond the original
+        // missing ancestor. Resolve it before appending the remaining tail.
+        match fs::canonicalize(&physical) {
+            Ok(path) => physical = path,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return Err(Error::Storage),
+        }
+    }
+    Ok(physical)
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

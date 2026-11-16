@@ -141,15 +141,15 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
                     }),
                 )?;
                 self.check_witness(id, witness)?;
+                self.protocol(|p| p.admit(Some(id), Operation::File, 0))?;
+                self.retry_pending_locked(id).await?;
+                self.rekey_if_due(id, witness.0).await?;
                 let chat = self.sendable(id)?;
                 let media = forwarded_media(
                     reference,
                     crate::framing::outgoing_layer(chat.capability_layer),
                     caption,
                 )?;
-                self.protocol(|p| p.admit(Some(id), Operation::File, 0))?;
-                self.retry_pending_locked(id).await?;
-                self.rekey_if_due(id, witness.0).await?;
                 let random_id = crate::crypto::random_id()?;
                 let message = types::DecryptedMessage {
                     no_webpage: false,

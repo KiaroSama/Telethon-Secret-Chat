@@ -83,6 +83,7 @@ pub struct World {
     pub upload_gate: Option<Arc<Gate>>,
     pub download_gate: Option<Arc<Gate>>,
     pub send_gate: Option<Arc<Gate>>,
+    pub resume_hook: Option<Box<dyn FnOnce() + Send>>,
     pub fail_store_after_send: Option<TestStorage>,
 }
 #[derive(Default)]
@@ -149,6 +150,14 @@ fn ready(
     .into()
 }
 impl Transport for Fake {
+    fn resume_io(&self) -> Result<()> {
+        let hook = self.world.lock().unwrap().resume_hook.take();
+        if let Some(hook) = hook {
+            hook();
+        }
+        Ok(())
+    }
+
     fn authorization_digest(&self) -> BoxFuture<'_, Result<Option<String>>> {
         Box::pin(async { Ok(self.world.lock().unwrap().authorization.clone()) })
     }

@@ -5,6 +5,28 @@ use kiaro_secret_chat::export::{
     model_peers::*, parse_actions::parse_service_action,
 };
 use serde_json::json;
+pub fn thumbnail_dimensions() {
+    use kiaro_secret_chat::export::model_document::{parse_document_thumb, parse_max_image};
+    for (width, height) in [
+        (1_i64 << 62, 4),
+        (i64::MAX, i64::MAX),
+        (-1, -1),
+        (i64::from(i32::MAX) + 1, 2),
+        (0, 100),
+    ] {
+        let valid = json!({"_":"PhotoSize","type":"m","w":90,"h":90,"size":10});
+        let invalid = json!({"_":"PhotoSize","type":"x","w":width,"h":height,"size":20});
+        let document = json!({"id":1,"dc_id":2,"thumbs":[valid,invalid]});
+        let thumb = parse_document_thumb(&document, "doc");
+        assert_eq!((thumb.width, thumb.height, thumb.file.size), (90, 90, 10));
+        assert_eq!(thumb.file.location.data["thumb_size"], "m");
+        let photo = json!({"id":1,"dc_id":2,"sizes":document["thumbs"]});
+        let image = parse_max_image(&photo, "photo.jpg");
+        assert_eq!((image.width, image.height), (90, 90));
+        let only_invalid = json!({"thumbs":[document["thumbs"][1]]});
+        assert_eq!(parse_document_thumb(&only_invalid, "doc").width, 0);
+    }
+}
 pub fn unicode_and_images() {
     let parts = parse_text(
         "😀",

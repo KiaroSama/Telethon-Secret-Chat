@@ -26,7 +26,7 @@ async fn map_random_ids_to_messages(
     fetched_in: PeerRef,
     random_ids: &[i64],
     updates: tl::enums::Updates,
-) -> Result<Vec<Option<Message>>, Box<dyn std::error::Error + Send + Sync>> {
+) -> Vec<Option<Message>> {
     match updates {
         tl::enums::Updates::Updates(tl::types::Updates {
             updates,
@@ -71,7 +71,7 @@ async fn map_random_ids_to_messages(
                 .map(|message| (message.id(), message))
                 .collect::<HashMap<_, _>>();
 
-            Ok(random_ids
+            random_ids
                 .iter()
                 .map(|rnd| {
                     rnd_to_id
@@ -88,9 +88,11 @@ async fn map_random_ids_to_messages(
                             }
                         })
                 })
-                .collect())
+                .collect()
         }
-        _ => Err(std::io::Error::other("unsupported send response container").into()),
+        // The RPC already succeeded. Missing message bodies must not turn an
+        // accepted send into an error that encourages a duplicate retry.
+        _ => random_ids.iter().map(|_| None).collect(),
     }
 }
 
@@ -615,6 +617,9 @@ impl Client {
     ///
     /// See also: [`Message::respond`], [`Message::reply`].
     ///
+    /// A successful RPC that omits the sent message body returns an empty message
+    /// with ID zero. The send was accepted; a missing body is not a reason to retry.
+    ///
     /// # Examples
     ///
     /// ```
@@ -708,7 +713,7 @@ impl Client {
                 };
 
                 match map_random_ids_to_messages(self, peer, &[random_id], updates)
-                    .await?
+                    .await
                     .pop()
                     .flatten()
                 {
@@ -724,7 +729,9 @@ impl Client {
                             self,
                             tl::enums::Message::Empty(tl::types::MessageEmpty {
                                 id: 0,
-                                peer_id: Some(peer.id.into()),
+                                // PeerSelf has no concrete TL peer ID; fetched_in
+                                // retains its usable input reference below.
+                                peer_id: peer.id.bare_id().map(|_| peer.id.into()),
                             }),
                             Some(peer),
                             self.empty_peer_map(),
@@ -841,7 +848,7 @@ impl Client {
             })
             .await?;
 
-        Ok(map_random_ids_to_messages(self, peer, &random_ids, updates).await?)
+        Ok(map_random_ids_to_messages(self, peer, &random_ids, updates).await)
     }
 
     /// Edits an existing message.
@@ -1018,7 +1025,7 @@ impl Client {
             from_ephemeral: false,
         };
         let result = self.invoke(&request).await?;
-        Ok(map_random_ids_to_messages(self, peer, &request.random_id, result).await?)
+        Ok(map_random_ids_to_messages(self, peer, &request.random_id, result).await)
     }
 
     /// Gets the [`Message`] to which the input message is replying to.

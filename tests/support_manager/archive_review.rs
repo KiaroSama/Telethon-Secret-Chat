@@ -143,3 +143,78 @@ pub fn incomplete_tail_does_not_eat_next_record() {
         "a valid complete final JSON value must survive newline recovery"
     );
 }
+
+pub fn missing_alias_root_keeps_worker_generation() {
+    use std::io::{Cursor, Read, Seek, SeekFrom};
+    use std::sync::mpsc;
+    struct Gated {
+        source: Cursor<Vec<u8>>,
+        entered: Option<mpsc::Sender<()>>,
+        release: mpsc::Receiver<()>,
+    }
+    impl Read for Gated {
+        fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
+            if let Some(entered) = self.entered.take() {
+                entered.send(()).unwrap();
+                self.release.recv().unwrap();
+            }
+            self.source.read(bytes)
+        }
+    }
+    impl Seek for Gated {
+        fn seek(&mut self, position: SeekFrom) -> std::io::Result<u64> {
+            self.source.seek(position)
+        }
+    }
+    let folder = tempfile::tempdir().unwrap();
+    std::fs::create_dir(folder.path().join("alias_component")).unwrap();
+    let root = folder
+        .path()
+        .join("alias_component")
+        .join("..")
+        .join("missing_archive");
+    let roots = vec![root];
+    #[cfg(unix)]
+    let roots = {
+        let mut roots = roots;
+        let base = folder.path().join("compound");
+        let target = folder.path().join("physical-target");
+        std::fs::create_dir(&base).unwrap();
+        std::fs::create_dir(&target).unwrap();
+        std::os::unix::fs::symlink(&target, base.join("alias")).unwrap();
+        assert!(!base.join("absent").exists());
+        roots.push(base.join("absent/../alias/archive"));
+        roots
+    };
+    for root in roots {
+        let (archive, _) = AutoSave::enabled(&root).unwrap();
+        let worker = archive.clone();
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let copy = std::thread::spawn(move || {
+            let mut source = kiaro_secret_chat::media::FileSource::stream(
+                Box::new(Gated {
+                    source: Cursor::new(b"private copy".to_vec()),
+                    entered: Some(entered_tx),
+                    release: release_rx,
+                }),
+                "kept.bin",
+            )
+            .unwrap()
+            .open()
+            .unwrap();
+            worker.copy_source(7, 77, &mut source)
+        });
+        entered_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap();
+        archive.delete(7).unwrap();
+        release_tx.send(()).unwrap();
+        let result = copy.join().unwrap();
+        assert!(
+            result.is_err() && !root.join("7").exists(),
+            "creation must not change an archive worker's physical lock identity: {}",
+            root.display()
+        );
+    }
+}

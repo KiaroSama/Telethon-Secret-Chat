@@ -9,6 +9,8 @@ use crate::{
 };
 #[tokio::test]
 async fn nested_reservations_reuse_task_and_release_each_payload() {
+    crate::media::SourceReader::verify_refill_ownership().await;
+    review885::ea3_regressions().await;
     review885::acknowledged_ids_are_budgeted();
     review885::callback_admission_is_all_or_nothing();
     review885::cleanup_panic_releases_registry().await;

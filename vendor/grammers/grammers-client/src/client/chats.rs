@@ -167,21 +167,25 @@ impl ParticipantIter {
                 // was an admin bot account, not sure why it's not included.
                 //
                 // In any case we pick whichever size is highest to avoid weird cases like this.
-                iter.last_chunk =
+                let last_chunk =
                     usize::max(participants.len(), users.len()) < iter.request.limit as usize;
-                iter.request.offset += participants.len() as i32;
+                let next_offset = iter.request.offset + participants.len() as i32;
 
                 // Don't actually care for the chats, just the users.
                 let mut peers = iter.client.build_peer_map(users, chats).await;
 
-                for participant in participants {
-                    iter.buffer.push_back(
+                let fetched = participants
+                    .into_iter()
+                    .map(|participant| {
                         Participant::from_raw_channel(&mut peers, participant).ok_or(
                             InvocationError::Dropped("participant peer missing from response"),
-                        )?,
-                    );
-                }
-
+                        )
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                // Publish the page and cursor together after the last suspension.
+                iter.buffer.extend(fetched);
+                iter.last_chunk = last_chunk;
+                iter.request.offset = next_offset;
                 iter.total = Some(count as usize);
                 Ok(count as usize)
             }
@@ -715,10 +719,16 @@ impl Client {
                 })
                 .await?;
             let tl::enums::messages::ChatFull::Full(chat) = chat;
-            if let tl::enums::ChatFull::Full(chat) = chat.full_chat
-                && let tl::enums::ChatParticipants::Participants(participants) = chat.participants
-            {
-                for participant in participants.participants {
+            if let tl::enums::ChatFull::Full(chat) = chat.full_chat {
+                let participants = match chat.participants {
+                    tl::enums::ChatParticipants::Participants(participants) => {
+                        participants.participants
+                    }
+                    tl::enums::ChatParticipants::Forbidden(participants) => {
+                        participants.self_participant.into_iter().collect()
+                    }
+                };
+                for participant in participants {
                     if participant.user_id() == user_id {
                         return Ok(ParticipantPermissions(ParticipantPermissionsInner::Chat(
                             participant,

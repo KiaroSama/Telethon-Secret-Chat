@@ -132,3 +132,16 @@ pub(super) async fn fencing_waits_for_runtime_publication() {
     assert!(manager.inner.stopping.load(Ordering::Acquire));
     assert_eq!(manager.inner.generation.load(Ordering::Acquire), before + 1);
 }
+
+#[path = "review_ea3.rs"]
+mod review_ea3;
+pub(super) async fn ea3_regressions() {
+    review_ea3::factory_admission_is_part_of_drain().await;
+    review_ea3::returning_child_can_stop_without_self_abort().await;
+    review_ea3::refused_service_callback_retains_delivery().await;
+    review_ea3::blocked_child_keeps_ownership().await;
+    review_ea3::runtime_loss_keeps_blocking_child_budgeted().await;
+    review_ea3::unfinished_callback_retains_store_writer().await;
+    review_ea3::late_token_cannot_outlive_fence().await;
+    review_ea3::startup_cannot_recapture_a_new_fence().await;
+}

@@ -168,6 +168,8 @@
       },
       "timezone": "UTC",
       "result": "You allowed this bot to message you when you logged in on x.org",
+      "current_result": "You allowed this bot to message you when you opened App",
+      "current_result_reason": "Native correction: a nonempty app takes the app sentence; the immutable baseline result above used the domain branch.",
       "after": [
         {
           "id": 1,

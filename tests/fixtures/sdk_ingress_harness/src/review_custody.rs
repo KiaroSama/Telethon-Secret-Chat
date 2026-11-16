@@ -439,7 +439,90 @@ async fn refreshed_addresses() {
     assert_eq!(saved.auth_key, Some([9; 256]));
     assert_ne!(saved.ipv4, original.ipv4);
 }
+fn runtime_independent_permits() {
+    let directory = tempfile::tempdir().unwrap();
+    let key = [7; 256];
+    let digest = Sha1::digest(key);
+    let auth = i64::from_le_bytes(digest[12..20].try_into().unwrap());
+    let binding =
+        AuthorizationBinding::from_session_parts(123, auth, 2, "short-lived-rpc-runtime".into())
+            .unwrap();
+    let backend = EncryptedIngressStorage::open(
+        directory.path().join("custody"),
+        [9; 32],
+        binding,
+        1024 * 1024,
+    )
+    .unwrap();
+    let ingress = DurableIngress::new(
+        backend,
+        IngressLimits::new(32, 1024 * 1024, 3600.0).unwrap(),
+    )
+    .unwrap();
+    let mut data = SessionData {
+        home_dc: 2,
+        ..Default::default()
+    };
+    data.dc_options.get_mut(&2).unwrap().auth_key = Some(key);
+    let mut pool = SenderPool::new(Arc::new(MemorySession::from(data)), 123);
+    let mut machine = MessageBoxes::new();
+    machine.set_state(super::super::state(40));
+    let runtime = || {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+    };
+    runtime()
+        .block_on(ingress.prepare(&pool.handle, Some(machine.durable_checkpoint().unwrap())))
+        .unwrap();
+    for index in 0..66 {
+        let body = tl::functions::Ping { ping_id: index }.to_bytes();
+        let success = index == 65;
+        let response = if success {
+            Ok(tl::types::Pong {
+                msg_id: 0,
+                ping_id: index,
+            }
+            .to_bytes())
+        } else {
+            Err(grammers_mtsender::InvocationError::Rpc(
+                tl::types::RpcError {
+                    error_code: 400,
+                    error_message: "DATA_INVALID".into(),
+                }
+                .into(),
+            ))
+        };
+        // The final poll returns the RPC error, then the runtime is destroyed
+        // before any newly spawned asynchronous cleanup could be polled.
+        let short_lived = runtime();
+        short_lived.block_on(async {
+            let (result, (dc, request)) = tokio::time::timeout(Duration::from_secs(2), async {
+                tokio::join!(
+                    pool.handle.raw_invoke_in_dc(2, body.clone()),
+                    pool.runner.offline_fixture_reply_once(response),
+                )
+            })
+            .await
+            .unwrap_or_else(|_| panic!("original request admission leaked at {index}"));
+            assert_eq!((dc, request), (2, body));
+            if success {
+                assert!(result.is_ok(), "{result:?}");
+            } else {
+                assert!(
+                    matches!(result, Err(grammers_mtsender::InvocationError::Rpc(_))),
+                    "{result:?}"
+                );
+            }
+        });
+        drop(short_lived);
+    }
+}
 pub async fn run() {
+    tokio::task::spawn_blocking(runtime_independent_permits)
+        .await
+        .unwrap();
     Box::pin(initialization()).await;
     Box::pin(concurrent_checkpoint()).await;
     Box::pin(refreshed_addresses()).await;

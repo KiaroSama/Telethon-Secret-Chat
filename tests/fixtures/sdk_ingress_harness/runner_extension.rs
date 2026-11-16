@@ -11,7 +11,10 @@ impl SenderPoolRunner {
         let mut boundary = self.boundary.lock().unwrap();
         assert!(!boundary.started && !boundary.dispatched && !boundary.receiver);
         let original = boundary.hook.take().unwrap();
-        boundary.hook = Some(wrap(original));
+        let hook = wrap(original);
+        boundary.executor =
+            Some(crate::durable_ingress::DurableWorker::new(std::sync::Arc::clone(&hook)).unwrap());
+        boundary.hook = Some(hook);
     }
     pub async fn offline_fixture_store_key(
         &self,
@@ -76,6 +79,19 @@ impl SenderPoolRunner {
     }
     pub fn offline_fixture_updates(&self) -> mpsc::Sender<UpdatesLike> {
         self.updates_tx.clone()
+    }
+    pub async fn offline_fixture_reply_once(
+        &mut self,
+        response: Result<Vec<u8>, InvocationError>,
+    ) -> (i32, Vec<u8>) {
+        self.boundary.lock().unwrap().started = true;
+        match self.request_rx.recv().await.unwrap() {
+            Request::Invoke { dc_id, body, tx } => {
+                tx.send(response).unwrap();
+                (dc_id, body)
+            }
+            _ => panic!("expected one original-handle invocation"),
+        }
     }
     pub async fn run_offline_fixture<F, Fut>(mut self, mut server: F)
     where

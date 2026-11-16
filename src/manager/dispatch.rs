@@ -19,6 +19,9 @@ use tokio::{
     task::{AbortHandle, Id, JoinHandle},
 };
 use tracing::instrument::WithSubscriber;
+mod admission;
+mod ownership;
+use ownership::{Joined, Registry, Waiter};
 type SyncHandler = Arc<dyn Fn(Event) -> Result<()> + Send + Sync>;
 type AsyncHandler = Arc<dyn Fn(Event) -> BoxFuture<'static, Result<()>> + Send + Sync>;
 type TaskHandler = Arc<dyn Fn(Event) -> JoinHandle<Result<()>> + Send + Sync>;
@@ -42,6 +45,9 @@ struct Entry {
     abort: AbortHandle,
     cancel: Arc<Notify>,
     monitor: Option<JoinHandle<()>>,
+    monitor_id: Id,
+    finished: Arc<AtomicBool>,
+    child_done: Arc<AtomicBool>,
 }
 type HandlerRegistry = BTreeMap<String, Vec<(&'static str, Callback)>>;
 struct OwnedCallback {
@@ -64,6 +70,8 @@ pub struct Dispatcher {
     failure: Arc<Mutex<Option<FailureHandler>>>,
     payload: Arc<Mutex<Option<PayloadFactory>>>,
     changed: Arc<Notify>,
+    admissions: Arc<admission::Admissions>,
+    closing_exempt: Arc<Mutex<HashSet<Id>>>,
 }
 fn name(value: &str) -> Result<&str> {
     let value = if value == "ChatClosed" {
@@ -99,6 +107,8 @@ impl Dispatcher {
             failure: Arc::default(),
             payload: Arc::default(),
             changed: Arc::default(),
+            admissions: Arc::default(),
+            closing_exempt: Arc::default(),
         }
     }
     pub fn configure(
@@ -225,6 +235,9 @@ impl Dispatcher {
         )
     }
     pub fn emit(&self, event: Event, stopping: bool, generation: u64) -> bool {
+        let Ok(_admission) = self.admissions.enter(stopping) else {
+            return false;
+        };
         if stopping && self.protected.load(Ordering::Acquire) {
             return true;
         }
@@ -260,9 +273,22 @@ impl Dispatcher {
             let Some(permit) = permits.take_one() else {
                 return false;
             };
-            dispatches.push((label, callback, payload, permit));
+            let waiter = if matches!(&callback, Callback::Task { .. })
+                || (!stopping && matches!(&callback, Callback::Async { .. }))
+            {
+                match Waiter::prepare() {
+                    Ok(waiter) => Some(waiter),
+                    Err(_) => return false,
+                }
+            } else {
+                None
+            };
+            dispatches.push((label, callback, payload, permit, waiter));
         }
-        for (label, callback, payload, permit) in dispatches {
+        for (label, callback, payload, permit, waiter) in dispatches {
+            if self.admissions.closed() && !stopping {
+                return false;
+            }
             match callback {
                 Callback::Sync(handler) => {
                     if handler(event.clone()).is_err() {
@@ -272,6 +298,9 @@ impl Dispatcher {
                 }
                 Callback::Async { run, cleanup } => {
                     if !stopping {
+                        let Some(waiter) = waiter else {
+                            return false;
+                        };
                         let data = event.clone();
                         let identity = self.identity.load(Ordering::Acquire);
                         let future = run(data);
@@ -280,6 +309,7 @@ impl Dispatcher {
                         );
                         self.own(
                             task,
+                            waiter,
                             OwnedCallback {
                                 label,
                                 cleanup: cleanup.map(|f| (f, event.clone())),
@@ -292,23 +322,29 @@ impl Dispatcher {
                         );
                     }
                 }
-                Callback::Task { run, cleanup } => self.own(
-                    run(event.clone()),
-                    OwnedCallback {
-                        label,
-                        cleanup: cleanup.map(|f| (f, event.clone())),
-                        stopping,
-                        generation,
-                        chat_id: event.chat_id(),
-                        permit,
-                        payload,
-                    },
-                ),
+                Callback::Task { run, cleanup } => {
+                    let Some(waiter) = waiter else {
+                        return false;
+                    };
+                    self.own(
+                        run(event.clone()),
+                        waiter,
+                        OwnedCallback {
+                            label,
+                            cleanup: cleanup.map(|f| (f, event.clone())),
+                            stopping,
+                            generation,
+                            chat_id: event.chat_id(),
+                            permit,
+                            payload,
+                        },
+                    );
+                }
             }
         }
         true
     }
-    fn own(&self, mut task: JoinHandle<Result<()>>, work: OwnedCallback) {
+    fn own(&self, task: JoinHandle<Result<()>>, waiter: Waiter, work: OwnedCallback) {
         let OwnedCallback {
             label,
             cleanup,
@@ -323,7 +359,16 @@ impl Dispatcher {
         if stopping {
             abort.abort();
         }
-        let tasks = Arc::clone(&self.tasks);
+        let finished = Arc::new(AtomicBool::new(false));
+        let child_done = Arc::new(AtomicBool::new(false));
+        let registry = Arc::new(Registry {
+            tasks: self.tasks.clone(),
+            changed: self.changed.clone(),
+            id,
+            finished: finished.clone(),
+        });
+        let receiver = waiter.handoff(task, permit, payload, registry.clone(), child_done.clone());
+        let mut child = Box::pin(async move { receiver.await.map_err(|_| Error::Storage) });
         let cancel = Arc::new(Notify::new());
         let cancellation = Arc::clone(&cancel);
         let draining = Arc::clone(&self.draining);
@@ -332,11 +377,9 @@ impl Dispatcher {
         let policy = self.budget.policy;
         let identity = self.identity.load(Ordering::Acquire);
         let (start, started) = oneshot::channel();
-        let changed = Arc::clone(&self.changed);
+        let monitor_abort = abort.clone();
         let monitor = tokio::spawn(async move {
-            let _permit = permit;
-            let _payload = payload;
-            let _registration=CallbackRecord{tasks:Arc::clone(&tasks),changed:Arc::clone(&changed),id};
+            let _registration=registry;
             let _marker = DrainMarker {
                 set: draining,
                 id: tokio::task::id(),
@@ -349,7 +392,9 @@ impl Dispatcher {
                     std::future::pending::<()>().await;
                 }
             };
-            let (result, timed_out) = tokio::select! {result=&mut task=>(result,false),_=cancellation.notified()=>{task.abort();(task.await,false)},_=deadline=>{task.abort();(task.await,true)}};
+            let (joined, timed_out) = tokio::select! {result=&mut child=>(result,false),_=cancellation.notified()=>{monitor_abort.abort();(child.await,false)},_=deadline=>{monitor_abort.abort();(child.await,true)}};
+            let Ok(Joined{result,permit,payload,registry})=joined else {return;};
+            let _resources=(permit,payload,registry);
             let cancelled = result.as_ref().is_err_and(|e| e.is_cancelled());
             let failed = timed_out
                 || result.as_ref().is_err_and(|e| !e.is_cancelled())
@@ -392,20 +437,35 @@ impl Dispatcher {
             }
 
         }.with_current_subscriber());
+        let monitor_id = monitor.id();
         if stopping && let Ok(mut draining) = self.draining.lock() {
-            draining.insert(monitor.id());
+            draining.insert(monitor_id);
         }
         if let Ok(mut tasks) = self.tasks.lock() {
-            tasks.retain(|entry| entry.monitor.as_ref().is_some_and(|m| !m.is_finished()));
+            tasks.retain(|entry| !entry.finished.load(Ordering::Acquire));
             tasks.push(Entry {
                 id,
                 chat_id,
-                abort,
+                abort: abort.clone(),
                 cancel: Arc::clone(&cancel),
                 monitor: Some(monitor),
+                monitor_id,
+                finished,
+                child_done,
             });
+            tasks.retain(|entry| !entry.finished.load(Ordering::Acquire));
         }
-        if stopping {
+        if stopping
+            || (self.admissions.closed()
+                && !self
+                    .closing_exempt
+                    .lock()
+                    .is_ok_and(|ids| ids.contains(&id)))
+        {
+            abort.abort();
+            if let Ok(mut draining) = self.draining.lock() {
+                draining.insert(monitor_id);
+            }
             cancel.notify_one();
         }
         let _ = start.send(());
@@ -414,12 +474,7 @@ impl Dispatcher {
         let caller = tokio::task::try_id();
         if let Ok(tasks) = self.tasks.lock() {
             for entry in tasks.iter().filter(|e| e.chat_id == id) {
-                if caller != Some(entry.id)
-                    && !entry
-                        .monitor
-                        .as_ref()
-                        .is_some_and(|m| caller == Some(m.id()))
-                {
+                if caller != Some(entry.id) && caller != Some(entry.monitor_id) {
                     entry.cancel.notify_one();
                     entry.abort.abort();
                 }
@@ -429,73 +484,114 @@ impl Dispatcher {
     pub fn is_draining(&self, id: Id) -> bool {
         self.draining.lock().is_ok_and(|set| set.contains(&id))
     }
-    pub async fn drain(&self, exempt: &HashSet<Id>, cleanup_timeout: Duration) {
-        self.drain_selected(
-            |entry| {
-                !exempt.contains(&entry.id)
-                    && !entry
-                        .monitor
-                        .as_ref()
-                        .is_some_and(|m| exempt.contains(&m.id()))
-            },
-            cleanup_timeout,
-        )
-        .await;
+    pub fn fence(&self) {
+        self.admissions.fence();
     }
-    async fn drain_selected(&self, select: impl Fn(&Entry) -> bool, cleanup_timeout: Duration) {
-        let entries = if let Ok(mut tasks) = self.tasks.lock() {
-            let (mut drain, mut kept) = (Vec::new(), Vec::new());
-            for entry in tasks.drain(..) {
-                if select(&entry) {
-                    drain.push(entry);
-                } else {
-                    kept.push(entry);
-                }
-            }
-            *tasks = kept;
-            drain
-        } else {
-            Vec::new()
-        };
-        if let Ok(mut draining) = self.draining.lock() {
-            for entry in &entries {
-                if let Some(monitor) = &entry.monitor {
-                    draining.insert(monitor.id());
-                }
-            }
+    pub fn fence_except(&self, exempt: &HashSet<Id>) {
+        *self
+            .closing_exempt
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner()) = exempt.clone();
+        self.fence();
+    }
+    pub fn resume(&self) -> Result<()> {
+        if self.active() != 0 {
+            return Err(Error::ManagerStopping);
         }
-        for entry in &entries {
-            entry.cancel.notify_one();
-            entry.abort.abort();
+        self.closing_exempt
+            .lock()
+            .map_err(|_| Error::Storage)?
+            .clear();
+        self.admissions.reopen()
+    }
+    pub async fn drain(&self, exempt: &HashSet<Id>, cleanup_timeout: Duration) -> Result<()> {
+        self.fence_except(exempt);
+        let deadline = tokio::time::Instant::now() + cleanup_timeout;
+        let through = self.admissions.checkpoint()?;
+        tokio::time::timeout_at(deadline, self.admissions.wait(through))
+            .await
+            .map_err(|_| Error::ManagerStopping)??;
+        self.drain_selected(
+            |entry| !exempt.contains(&entry.id) && !exempt.contains(&entry.monitor_id),
+            deadline.saturating_duration_since(tokio::time::Instant::now()),
+        )
+        .await
+    }
+    async fn drain_selected(
+        &self,
+        select: impl Fn(&Entry) -> bool,
+        cleanup_timeout: Duration,
+    ) -> Result<()> {
+        let (mut entries, mut unfinished) = (Vec::new(), false);
+        {
+            let mut tasks = self.tasks.lock().map_err(|_| Error::Storage)?;
+            for entry in tasks.iter_mut().filter(|entry| select(entry)) {
+                if let Ok(mut draining) = self.draining.lock() {
+                    draining.insert(entry.monitor_id);
+                }
+                entry.cancel.notify_one();
+                entry.abort.abort();
+                if let Some(monitor) = entry.monitor.take() {
+                    entries.push((entry.id, monitor, entry.child_done.clone()));
+                } else if !entry.finished.load(Ordering::Acquire) {
+                    unfinished = true;
+                }
+            }
         }
         let deadline = tokio::time::Instant::now() + cleanup_timeout;
-        for mut entry in entries {
-            if let Some(mut monitor) = entry.monitor.take()
-                && tokio::time::timeout_at(deadline, &mut monitor)
-                    .await
-                    .is_err()
+        for (id, mut monitor, child_done) in entries {
+            if tokio::time::timeout_at(deadline, &mut monitor)
+                .await
+                .is_err()
             {
-                monitor.abort();
-                let _ = monitor.await;
-                tracing::warn!("Secret-chat handler cleanup exceeded its deadline");
+                if child_done.load(Ordering::Acquire) {
+                    monitor.abort();
+                    let _ = monitor.await;
+                    tracing::warn!("Secret-chat handler cleanup exceeded its deadline");
+                } else {
+                    unfinished = true;
+                    if let Some(entry) = self
+                        .tasks
+                        .lock()
+                        .map_err(|_| Error::Storage)?
+                        .iter_mut()
+                        .find(|entry| entry.id == id)
+                    {
+                        entry.monitor = Some(monitor);
+                    }
+                }
+            } else if !child_done.load(Ordering::Acquire) {
+                // Runtime loss may end the monitor while the independent owner
+                // still waits for a non-cancellable blocking callback.
+                unfinished = true;
             }
         }
         self.changed.notify_waiters();
+        if unfinished {
+            Err(Error::ManagerStopping)
+        } else {
+            Ok(())
+        }
     }
     pub async fn settle(&self) -> Result<()> {
         let caller = tokio::task::try_id();
+        let through = self.admissions.checkpoint()?;
+        if let Some(policy) = self.budget.policy {
+            tokio::time::timeout(
+                Duration::from_secs_f64(policy.operation_seconds),
+                self.admissions.wait(through),
+            )
+            .await
+            .map_err(|_| Error::Paused)??;
+        } else {
+            self.admissions.wait(through).await?;
+        }
         let pending: HashSet<_> = self
             .tasks
             .lock()
             .map_err(|_| Error::Storage)?
             .iter()
-            .filter(|entry| {
-                caller != Some(entry.id)
-                    && !entry
-                        .monitor
-                        .as_ref()
-                        .is_some_and(|monitor| caller == Some(monitor.id()))
-            })
+            .filter(|entry| caller != Some(entry.id) && caller != Some(entry.monitor_id))
             .map(|entry| entry.id)
             .collect();
         let wait = async {
@@ -521,11 +617,12 @@ impl Dispatcher {
             {
                 Ok(result) => result,
                 Err(_) => {
-                    self.drain_selected(
-                        |entry| pending.contains(&entry.id),
-                        Duration::from_secs_f64(policy.cleanup_seconds),
-                    )
-                    .await;
+                    let _ = self
+                        .drain_selected(
+                            |entry| pending.contains(&entry.id),
+                            Duration::from_secs_f64(policy.cleanup_seconds),
+                        )
+                        .await;
                     Err(Error::Paused)
                 }
             }
@@ -539,23 +636,10 @@ impl Dispatcher {
             .map(|tasks| {
                 tasks
                     .iter()
-                    .filter(|e| e.monitor.as_ref().is_some_and(|m| !m.is_finished()))
+                    .filter(|e| !e.finished.load(Ordering::Acquire))
                     .count()
             })
             .unwrap_or(0)
-    }
-}
-struct CallbackRecord {
-    tasks: Arc<Mutex<Vec<Entry>>>,
-    changed: Arc<Notify>,
-    id: Id,
-}
-impl Drop for CallbackRecord {
-    fn drop(&mut self) {
-        if let Ok(mut tasks) = self.tasks.lock() {
-            tasks.retain(|entry| entry.id != self.id);
-        }
-        self.changed.notify_waiters();
     }
 }
 struct DrainMarker {

@@ -17,6 +17,131 @@ pub fn run() {
         1_000
     );
     let probes: &[(&str, fn())] = &[
+        ("markdown_block_boundaries", || {
+            for (input, expected) in [
+                ("# Heading\n\nBody", "Heading\n\nBody"),
+                ("Heading\n=======\n\nBody", "Heading\n\nBody"),
+                ("Heading\n-------\n\nBody", "Heading\n\nBody"),
+                ("- one\n- two", "one\n\ntwo"),
+                ("> Quote\n\nBody", "Quote\n\nBody"),
+                ("One\n\n---\n\nTwo", "One\n\nTwo"),
+            ] {
+                assert_eq!(parse_markdown_message(input), (expected.into(), vec![]));
+            }
+        }),
+        ("markdown_emphasis_whitespace", || {
+            for italic in [false, true] {
+                let entity: E = if italic {
+                    t::MessageEntityItalic {
+                        offset: 0,
+                        length: 9,
+                    }
+                    .into()
+                } else {
+                    t::MessageEntityBold {
+                        offset: 0,
+                        length: 9,
+                    }
+                    .into()
+                };
+                let expected: E = if italic {
+                    t::MessageEntityItalic {
+                        offset: 1,
+                        length: 7,
+                    }
+                    .into()
+                } else {
+                    t::MessageEntityBold {
+                        offset: 1,
+                        length: 7,
+                    }
+                    .into()
+                };
+                let generated = generate_markdown_message(" hello😀 ", &[entity]);
+                assert_eq!(
+                    parse_markdown_message(&generated),
+                    (" hello😀 ".into(), vec![expected])
+                );
+                let all_space: E = if italic {
+                    t::MessageEntityItalic {
+                        offset: 0,
+                        length: 4,
+                    }
+                    .into()
+                } else {
+                    t::MessageEntityBold {
+                        offset: 0,
+                        length: 4,
+                    }
+                    .into()
+                };
+                assert_eq!(
+                    parse_markdown_message(&generate_markdown_message("    ", &[all_space])),
+                    ("    ".into(), vec![])
+                );
+            }
+        }),
+        ("markdown_adjacent_code", || {
+            for (text, first, second) in [("ab", 1, 1), ("😀b", 2, 1), ("a`b", 1, 2)] {
+                let entities = [
+                    t::MessageEntityCode {
+                        offset: 0,
+                        length: first,
+                    }
+                    .into(),
+                    t::MessageEntityCode {
+                        offset: first,
+                        length: second,
+                    }
+                    .into(),
+                ];
+                let generated = generate_markdown_message(text, &entities);
+                assert_eq!(
+                    parse_markdown_message(&generated),
+                    (
+                        text.into(),
+                        vec![
+                            t::MessageEntityCode {
+                                offset: 0,
+                                length: first + second
+                            }
+                            .into()
+                        ]
+                    )
+                );
+            }
+            let separate = [
+                t::MessageEntityCode {
+                    offset: 0,
+                    length: 1,
+                }
+                .into(),
+                t::MessageEntityCode {
+                    offset: 2,
+                    length: 1,
+                }
+                .into(),
+            ];
+            assert_eq!(
+                parse_markdown_message(&generate_markdown_message("a b", &separate)),
+                ("a b".into(), separate.to_vec())
+            );
+        }),
+        ("markdown_leading_whitespace", || {
+            for text in [
+                "    hello",
+                "\thello",
+                "a\n    hello",
+                " \t hello",
+                "    ",
+                "hello  \nworld\t ",
+            ] {
+                assert_eq!(
+                    parse_markdown_message(&generate_markdown_message(text, &[])),
+                    (text.into(), vec![])
+                );
+            }
+        }),
         ("markdown_link_destination", || {
             for url in [
                 "https://example.com/a)b",

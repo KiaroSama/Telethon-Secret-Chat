@@ -164,6 +164,33 @@ fn service_c3bcee5f95c50426() {
 }
 #[test]
 fn service_2c66edf42e416cd9() {
+    let case: Value = serde_json::from_str(include_str!(
+        "fixtures/tdexport_service/2c66edf42e416cd9.json"
+    ))
+    .unwrap();
+    let args = case["traces"][0]["args"].as_array().unwrap();
+    let mut message: Message = decode(&args[0]);
+    let Some(kiaro_secret_chat::export::model_actions::Action::BotAllowed(bot)) =
+        &mut message.action.content
+    else {
+        panic!("bot-allowed fixture")
+    };
+    bot.app.clear();
+    bot.domain = "example<site>".into();
+    let domain = html_service::service_text(
+        &message,
+        &decode(&args[1]),
+        &decode(&args[2]),
+        "",
+        "",
+        str::to_owned,
+        &DateContext::utc(),
+    )
+    .unwrap();
+    assert_eq!(
+        domain,
+        b"You allowed this bot to message you when you logged in on example&lt;site&gt;"
+    );
     run("2c66edf42e416cd9.json");
 }
 #[test]
