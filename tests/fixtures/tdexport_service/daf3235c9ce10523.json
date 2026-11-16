@@ -1,0 +1,324 @@
+{
+  "legacy_case": "tests/test_tdexport_html_service.py::test_group_service_text[content75-Ann Lee disabled sharing in this chat]",
+  "traces": [
+    {
+      "function": "html_service.service_text",
+      "args": [
+        {
+          "id": 1,
+          "date": 31536000,
+          "edited": 0,
+          "from_id": 5,
+          "peer_id": 0,
+          "self_id": 0,
+          "forwarded_from_id": 0,
+          "forwarded_from_name": "",
+          "forwarded_date": 0,
+          "forwarded": false,
+          "show_forwarded_as_original": false,
+          "saved_from_chat_id": 0,
+          "signature": "",
+          "via_bot_id": 0,
+          "reply_to_msg_id": 8,
+          "reply_to_peer_id": 0,
+          "text": [],
+          "reactions": [],
+          "media": {
+            "content": null,
+            "ttl": 0
+          },
+          "action": {
+            "content": {
+              "NoForwardsToggle": {
+                "new_value": true
+              }
+            }
+          },
+          "out": false,
+          "inline_button_rows": [],
+          "rich_message": null
+        },
+        {
+          "type": "PrivateGroup",
+          "name": "G",
+          "last_name": "",
+          "input": {
+            "_": "InputPeerEmpty"
+          },
+          "top_message_id": 0,
+          "top_message_date": 0,
+          "peer_id": 5,
+          "color_index": 0,
+          "migrated_from_input": {
+            "_": "InputPeerEmpty"
+          },
+          "migrated_to_channel_id": 0,
+          "monoforum_broadcast_input": {
+            "_": "InputPeerEmpty"
+          },
+          "splits": [],
+          "only_my_messages": false,
+          "is_left_channel": false,
+          "is_monoforum": false,
+          "relative_path": "",
+          "messages_count_per_split": []
+        },
+        {
+          "data": {
+            "5": {
+              "User": {
+                "bare_id": 5,
+                "info": {
+                  "user_id": 5,
+                  "first_name": "Ann",
+                  "last_name": "Lee",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "",
+                "color_index": 0,
+                "is_bot": false,
+                "is_self": false,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "9": {
+              "User": {
+                "bare_id": 9,
+                "info": {
+                  "user_id": 9,
+                  "first_name": "Me",
+                  "last_name": "",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "",
+                "color_index": 0,
+                "is_bot": false,
+                "is_self": true,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "7": {
+              "User": {
+                "bare_id": 7,
+                "info": {
+                  "user_id": 7,
+                  "first_name": "Bot",
+                  "last_name": "",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "robot",
+                "color_index": 0,
+                "is_bot": true,
+                "is_self": false,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "562949953421315": {
+              "Chat": {
+                "bare_id": 3,
+                "migrated_to_channel_id": 0,
+                "title": "News",
+                "username": "",
+                "color_index": 0,
+                "is_monoforum": false,
+                "is_broadcast": true,
+                "is_supergroup": false,
+                "is_monoforum_admin": false,
+                "has_monoforum_admin_rights": false,
+                "is_monoforum_of_public_broadcast": false,
+                "monoforum_link_id": 0,
+                "input": {
+                  "_": "InputPeerEmpty"
+                },
+                "monoforum_broadcast_input": {
+                  "_": "InputPeerEmpty"
+                }
+              }
+            }
+          }
+        },
+        "https://t.me/",
+        ""
+      ],
+      "kwargs": {
+        "link_prefix": "<a href=\"#go_to_message8\" onclick=\"return GoToMessage(8)\">",
+        "link_suffix": "</a>"
+      },
+      "timezone": "UTC",
+      "result": "Ann Lee disabled sharing in this chat",
+      "after": [
+        {
+          "id": 1,
+          "date": 31536000,
+          "edited": 0,
+          "from_id": 5,
+          "peer_id": 0,
+          "self_id": 0,
+          "forwarded_from_id": 0,
+          "forwarded_from_name": "",
+          "forwarded_date": 0,
+          "forwarded": false,
+          "show_forwarded_as_original": false,
+          "saved_from_chat_id": 0,
+          "signature": "",
+          "via_bot_id": 0,
+          "reply_to_msg_id": 8,
+          "reply_to_peer_id": 0,
+          "text": [],
+          "reactions": [],
+          "media": {
+            "content": null,
+            "ttl": 0
+          },
+          "action": {
+            "content": {
+              "NoForwardsToggle": {
+                "new_value": true
+              }
+            }
+          },
+          "out": false,
+          "inline_button_rows": [],
+          "rich_message": null
+        },
+        {
+          "type": "PrivateGroup",
+          "name": "G",
+          "last_name": "",
+          "input": {
+            "_": "InputPeerEmpty"
+          },
+          "top_message_id": 0,
+          "top_message_date": 0,
+          "peer_id": 5,
+          "color_index": 0,
+          "migrated_from_input": {
+            "_": "InputPeerEmpty"
+          },
+          "migrated_to_channel_id": 0,
+          "monoforum_broadcast_input": {
+            "_": "InputPeerEmpty"
+          },
+          "splits": [],
+          "only_my_messages": false,
+          "is_left_channel": false,
+          "is_monoforum": false,
+          "relative_path": "",
+          "messages_count_per_split": []
+        },
+        {
+          "data": {
+            "5": {
+              "User": {
+                "bare_id": 5,
+                "info": {
+                  "user_id": 5,
+                  "first_name": "Ann",
+                  "last_name": "Lee",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "",
+                "color_index": 0,
+                "is_bot": false,
+                "is_self": false,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "9": {
+              "User": {
+                "bare_id": 9,
+                "info": {
+                  "user_id": 9,
+                  "first_name": "Me",
+                  "last_name": "",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "",
+                "color_index": 0,
+                "is_bot": false,
+                "is_self": true,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "7": {
+              "User": {
+                "bare_id": 7,
+                "info": {
+                  "user_id": 7,
+                  "first_name": "Bot",
+                  "last_name": "",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "robot",
+                "color_index": 0,
+                "is_bot": true,
+                "is_self": false,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "562949953421315": {
+              "Chat": {
+                "bare_id": 3,
+                "migrated_to_channel_id": 0,
+                "title": "News",
+                "username": "",
+                "color_index": 0,
+                "is_monoforum": false,
+                "is_broadcast": true,
+                "is_supergroup": false,
+                "is_monoforum_admin": false,
+                "has_monoforum_admin_rights": false,
+                "is_monoforum_of_public_broadcast": false,
+                "monoforum_link_id": 0,
+                "input": {
+                  "_": "InputPeerEmpty"
+                },
+                "monoforum_broadcast_input": {
+                  "_": "InputPeerEmpty"
+                }
+              }
+            }
+          }
+        },
+        "https://t.me/",
+        ""
+      ]
+    }
+  ]
+}

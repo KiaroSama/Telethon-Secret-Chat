@@ -124,3 +124,30 @@ pub fn convert(entities: Vec<Source>, layer: i32) -> Vec<Target> {
         })
         .collect()
 }
+
+/// Accept both API entities and existing secret-schema entities. Secret entities
+/// retain their wire values, subject to the same negotiated-layer restrictions.
+pub enum EntityInput {
+    Api(Source),
+    Secret(Target),
+}
+pub fn convert_inputs(entities: Vec<EntityInput>, layer: i32) -> Vec<Target> {
+    entities
+        .into_iter()
+        .flat_map(|entity| match entity {
+            EntityInput::Api(value) => convert(vec![value], layer),
+            EntityInput::Secret(value) => {
+                let minimum = match value {
+                    Target::Underline(_) | Target::Strike(_) | Target::Blockquote(_) => 101,
+                    Target::Spoiler(_) | Target::CustomEmoji(_) => 144,
+                    _ => 46,
+                };
+                if layer >= minimum {
+                    vec![value]
+                } else {
+                    Vec::new()
+                }
+            }
+        })
+        .collect()
+}

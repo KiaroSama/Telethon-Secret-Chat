@@ -1,0 +1,269 @@
+{
+  "legacy_case": "tests/test_tdexport_model.py::test_voice_mp3_and_counters_are_shared",
+  "traces": [
+    {
+      "function": "model.parse_document",
+      "args": [
+        {
+          "self_peer_id": 0,
+          "photos": 0,
+          "audios": 0,
+          "videos": 0,
+          "files": 0,
+          "contacts": 0,
+          "bot_id": 0
+        },
+        {
+          "_": "Document",
+          "id": 9,
+          "access_hash": 3,
+          "file_reference": [
+            114
+          ],
+          "date": 1705053605,
+          "mime_type": "audio/mp3",
+          "size": 1000,
+          "dc_id": 4,
+          "attributes": [
+            {
+              "_": "DocumentAttributeAudio",
+              "duration": 1,
+              "voice": true,
+              "title": null,
+              "performer": null,
+              "waveform": null
+            }
+          ],
+          "thumbs": null,
+          "video_thumbs": null
+        },
+        "",
+        0
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": {
+        "id": 9,
+        "date": 1705053605,
+        "file": {
+          "location": {
+            "dc_id": 4,
+            "data": {
+              "_": "InputDocumentFileLocation",
+              "id": 9,
+              "access_hash": 3,
+              "file_reference": [
+                114
+              ],
+              "thumb_size": ""
+            }
+          },
+          "size": 1000,
+          "content": [],
+          "suggested_path": "voice_messages/audio_1.mp3",
+          "relative_path": "",
+          "skip_reason": "None"
+        },
+        "thumb": {
+          "width": 0,
+          "height": 0,
+          "file": {
+            "location": {
+              "dc_id": 0,
+              "data": null
+            },
+            "size": 0,
+            "content": [],
+            "suggested_path": "",
+            "relative_path": "",
+            "skip_reason": "None"
+          }
+        },
+        "name": "",
+        "mime": "audio/mp3",
+        "width": 0,
+        "height": 0,
+        "sticker_emoji": "",
+        "song_performer": "",
+        "song_title": "",
+        "duration": 1,
+        "is_sticker": false,
+        "is_animated": false,
+        "is_video_message": false,
+        "is_voice_message": true,
+        "is_video_file": false,
+        "is_audio_file": false,
+        "spoilered": false
+      },
+      "after": [
+        {
+          "self_peer_id": 0,
+          "photos": 0,
+          "audios": 1,
+          "videos": 0,
+          "files": 0,
+          "contacts": 0,
+          "bot_id": 0
+        },
+        {
+          "_": "Document",
+          "id": 9,
+          "access_hash": 3,
+          "file_reference": [
+            114
+          ],
+          "date": 1705053605,
+          "mime_type": "audio/mp3",
+          "size": 1000,
+          "dc_id": 4,
+          "attributes": [
+            {
+              "_": "DocumentAttributeAudio",
+              "duration": 1,
+              "voice": true,
+              "title": null,
+              "performer": null,
+              "waveform": null
+            }
+          ],
+          "thumbs": null,
+          "video_thumbs": null
+        },
+        "",
+        0
+      ]
+    },
+    {
+      "function": "model.parse_document",
+      "args": [
+        {
+          "self_peer_id": 0,
+          "photos": 0,
+          "audios": 1,
+          "videos": 0,
+          "files": 0,
+          "contacts": 0,
+          "bot_id": 0
+        },
+        {
+          "_": "Document",
+          "id": 9,
+          "access_hash": 3,
+          "file_reference": [
+            114
+          ],
+          "date": 1705053605,
+          "mime_type": "audio/ogg",
+          "size": 1000,
+          "dc_id": 4,
+          "attributes": [
+            {
+              "_": "DocumentAttributeAudio",
+              "duration": 1,
+              "voice": true,
+              "title": null,
+              "performer": null,
+              "waveform": null
+            }
+          ],
+          "thumbs": null,
+          "video_thumbs": null
+        },
+        "",
+        0
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": {
+        "id": 9,
+        "date": 1705053605,
+        "file": {
+          "location": {
+            "dc_id": 4,
+            "data": {
+              "_": "InputDocumentFileLocation",
+              "id": 9,
+              "access_hash": 3,
+              "file_reference": [
+                114
+              ],
+              "thumb_size": ""
+            }
+          },
+          "size": 1000,
+          "content": [],
+          "suggested_path": "voice_messages/audio_2.ogg",
+          "relative_path": "",
+          "skip_reason": "None"
+        },
+        "thumb": {
+          "width": 0,
+          "height": 0,
+          "file": {
+            "location": {
+              "dc_id": 0,
+              "data": null
+            },
+            "size": 0,
+            "content": [],
+            "suggested_path": "",
+            "relative_path": "",
+            "skip_reason": "None"
+          }
+        },
+        "name": "",
+        "mime": "audio/ogg",
+        "width": 0,
+        "height": 0,
+        "sticker_emoji": "",
+        "song_performer": "",
+        "song_title": "",
+        "duration": 1,
+        "is_sticker": false,
+        "is_animated": false,
+        "is_video_message": false,
+        "is_voice_message": true,
+        "is_video_file": false,
+        "is_audio_file": false,
+        "spoilered": false
+      },
+      "after": [
+        {
+          "self_peer_id": 0,
+          "photos": 0,
+          "audios": 2,
+          "videos": 0,
+          "files": 0,
+          "contacts": 0,
+          "bot_id": 0
+        },
+        {
+          "_": "Document",
+          "id": 9,
+          "access_hash": 3,
+          "file_reference": [
+            114
+          ],
+          "date": 1705053605,
+          "mime_type": "audio/ogg",
+          "size": 1000,
+          "dc_id": 4,
+          "attributes": [
+            {
+              "_": "DocumentAttributeAudio",
+              "duration": 1,
+              "voice": true,
+              "title": null,
+              "performer": null,
+              "waveform": null
+            }
+          ],
+          "thumbs": null,
+          "video_thumbs": null
+        },
+        "",
+        0
+      ]
+    }
+  ]
+}

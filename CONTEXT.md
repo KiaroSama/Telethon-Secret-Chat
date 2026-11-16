@@ -1,6 +1,6 @@
-# Telethon Secret Chat
+# Kiaro Secret Chat · terminology
 
-Telegram's end-to-end encrypted "secret chats" (MTProto 2.0) for Telethon: two devices
+Telegram's end-to-end encrypted "secret chats" (MTProto 2.0) for a caller-owned grammers client: two devices
 agree a key the server never sees, and every message between them is sealed with it.
 
 ## Keys

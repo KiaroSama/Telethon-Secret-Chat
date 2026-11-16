@@ -1,0 +1,93 @@
+{
+  "legacy_case": "tests/test_tdexport_html_text.py::test_format_text_links_spoilers_and_custom_emoji",
+  "traces": [
+    {
+      "function": "html_text.format_text",
+      "args": [
+        [
+          {
+            "text": "example.com/a?b=1&c=2",
+            "additional": "",
+            "kind": "url"
+          },
+          {
+            "text": "bad",
+            "additional": "javascript:alert(1)",
+            "kind": "text_url"
+          },
+          {
+            "text": "ok",
+            "additional": "HTTPS://Example.COM/Path",
+            "kind": "text_url"
+          },
+          {
+            "text": "hidden",
+            "additional": "",
+            "kind": "spoiler"
+          },
+          {
+            "text": "😀",
+            "additional": "",
+            "kind": "custom_emoji"
+          },
+          {
+            "text": "😀",
+            "additional": "(unavailable)",
+            "kind": "custom_emoji"
+          },
+          {
+            "text": "😀",
+            "additional": "stickers/e.webp",
+            "kind": "custom_emoji"
+          }
+        ],
+        "https://t.me/",
+        "../"
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": "<a href=\"https://example.com/a?b=1&amp;c=2\">example.com/a?b=1&amp;c=2</a>bad<a href=\"https://example.com/Path\">ok</a><span class=\"spoiler hidden\" onclick=\"ShowSpoiler(this)\"><span aria-hidden=\"true\">hidden</span></span><a href=\"\" onclick=\"return ShowNotLoadedEmoji();\">😀</a><a href=\"\" onclick=\"return ShowNotAvailableEmoji();\">😀</a><a href = \"../stickers/e.webp\">😀</a>",
+      "after": [
+        [
+          {
+            "text": "example.com/a?b=1&c=2",
+            "additional": "",
+            "kind": "url"
+          },
+          {
+            "text": "bad",
+            "additional": "javascript:alert(1)",
+            "kind": "text_url"
+          },
+          {
+            "text": "ok",
+            "additional": "HTTPS://Example.COM/Path",
+            "kind": "text_url"
+          },
+          {
+            "text": "hidden",
+            "additional": "",
+            "kind": "spoiler"
+          },
+          {
+            "text": "😀",
+            "additional": "",
+            "kind": "custom_emoji"
+          },
+          {
+            "text": "😀",
+            "additional": "(unavailable)",
+            "kind": "custom_emoji"
+          },
+          {
+            "text": "😀",
+            "additional": "stickers/e.webp",
+            "kind": "custom_emoji"
+          }
+        ],
+        "https://t.me/",
+        "../"
+      ]
+    }
+  ]
+}

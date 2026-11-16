@@ -1,10 +1,10 @@
 //! Validated 2048-bit Diffie-Hellman exchange; parameters use grammers' safe-prime check.
 use crate::{
     crypto::{SharedKey, random_bytes},
-    error::{Error, Result},
+    error::{DhFailure, Error, Result},
 };
-use num_bigint::BigUint;
-use num_traits::One;
+use num_bigint::{BigInt, BigUint};
+use num_traits::{One, ToPrimitive};
 use zeroize::Zeroizing;
 
 #[derive(Clone)]
@@ -16,30 +16,49 @@ type GoodParameters = std::sync::Mutex<Vec<(u32, Vec<u8>)>>;
 impl DhConfig {
     pub fn new(g: u32, bytes: &[u8]) -> Result<Self> {
         if bytes.len() != 256 {
-            return Err(Error::DhParameters);
+            return Err(Error::DhFailure(DhFailure::Length));
+        }
+        Self::from_parameters(&BigInt::from(g), &value_from_bytes(bytes))
+    }
+    /// Validate externally supplied integer parameters before converting them to
+    /// Telegram's narrow generator representation or doing primality work.
+    pub fn from_parameters(generator: &BigInt, prime: &BigUint) -> Result<Self> {
+        if prime.bits() != 2048 || *prime <= BigUint::one() << 2047 {
+            return Err(Error::DhFailure(DhFailure::Length));
+        }
+        let g = generator
+            .to_u32()
+            .filter(|g| (2..=7).contains(g))
+            .ok_or(Error::DhFailure(DhFailure::GeneratorRange))?;
+        if !generator_is_quadratic_residue(g, prime) {
+            return Err(Error::DhFailure(DhFailure::Residue));
         }
         static GOOD: std::sync::OnceLock<GoodParameters> = std::sync::OnceLock::new();
         let cache = GOOD.get_or_init(|| std::sync::Mutex::new(Vec::new()));
-        let cached = cache
+        let bytes = prime.to_bytes_be();
+        if cache
             .lock()
             .map_err(|_| Error::DhParameters)?
             .iter()
-            .any(|(known_g, known)| *known_g == g && known == bytes);
-        let prime = BigUint::from_bytes_be(bytes);
-        if cached {
-            return Ok(Self { g, prime });
-        }
-        if prime <= BigUint::one() << 2047
-            || !grammers_crypto::check_dh_prime(&prime, g as i32).map_err(|_| Error::Randomness)?
+            .any(|(known_g, known)| *known_g == g && *known == bytes)
         {
-            return Err(Error::DhParameters);
+            return Ok(Self {
+                g,
+                prime: prime.clone(),
+            });
+        }
+        if !grammers_crypto::check_dh_prime(prime, g as i32).map_err(|_| Error::Randomness)? {
+            return Err(Error::DhFailure(DhFailure::UnsafePrime));
         }
         let mut good = cache.lock().map_err(|_| Error::DhParameters)?;
         if good.len() >= 8 {
             good.remove(0);
         }
-        good.push((g, bytes.to_vec()));
-        Ok(Self { g, prime })
+        good.push((g, bytes));
+        Ok(Self {
+            g,
+            prime: prime.clone(),
+        })
     }
     pub fn prime_bytes(&self) -> Vec<u8> {
         self.prime.to_bytes_be()
@@ -51,7 +70,11 @@ impl DhConfig {
         if bytes.len() > 256 {
             return Err(Error::PeerValue);
         }
-        let value = BigUint::from_bytes_be(bytes);
+        self.check_peer_integer(&BigInt::from_bytes_be(num_bigint::Sign::Plus, bytes))
+    }
+    /// Accept signed integers from application decoders, rejecting negative values.
+    pub fn check_peer_integer(&self, value: &BigInt) -> Result<BigUint> {
+        let value = value.to_biguint().ok_or(Error::PeerValue)?;
         let floor = BigUint::one() << 1984;
         if value < floor || value > &self.prime - &floor {
             return Err(Error::PeerValue);
@@ -120,5 +143,28 @@ impl<'de> serde::Deserialize<'de> for SecretExponent {
         hex::decode_to_slice(&*value, &mut bytes[..])
             .map_err(|_| serde::de::Error::custom("Invalid private exponent"))?;
         Ok(Self(bytes))
+    }
+}
+
+/// Decode Telegram's unsigned big-endian public integer encoding.
+pub fn value_from_bytes(bytes: &[u8]) -> BigUint {
+    BigUint::from_bytes_be(bytes)
+}
+pub fn is_probable_prime(value: &BigUint) -> Result<bool> {
+    glass_pumpkin::prime::check(value).map_err(|_| Error::Randomness)
+}
+pub fn is_safe_prime(value: &BigUint) -> Result<bool> {
+    glass_pumpkin::safe_prime::check(value).map_err(|_| Error::Randomness)
+}
+pub fn generator_is_quadratic_residue(g: u32, prime: &BigUint) -> bool {
+    let residue = |modulus: u32| (prime % modulus).to_u32().unwrap_or(u32::MAX);
+    match g {
+        2 => residue(8) == 7,
+        3 => residue(3) == 2,
+        4 => true,
+        5 => matches!(residue(5), 1 | 4),
+        6 => matches!(residue(24), 19 | 23),
+        7 => matches!(residue(7), 3 | 5 | 6),
+        _ => false,
     }
 }

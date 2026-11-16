@@ -5,6 +5,7 @@ use crate::{
     error::{Error, Result},
 };
 use std::{collections::BTreeMap, sync::OnceLock};
+pub const MAX_NESTING: usize = 64;
 
 struct Definition {
     family: String,
@@ -86,7 +87,7 @@ impl Reader<'_> {
         Ok(())
     }
     fn field(&mut self, ty: &str, depth: usize) -> Result<()> {
-        if depth > 64 {
+        if depth > MAX_NESTING {
             return Err(Error::WrapperRejected);
         }
         match ty {
@@ -125,7 +126,7 @@ impl Reader<'_> {
     }
     fn object(&mut self, family: &str, depth: usize) -> Result<()> {
         self.objects += 1;
-        if depth > 64 || self.objects > 65536 {
+        if depth > MAX_NESTING || self.objects > 65536 {
             return Err(Error::WrapperRejected);
         }
         let id = self.number()?;
@@ -155,7 +156,11 @@ impl Reader<'_> {
     }
 }
 pub fn validate(bytes: &[u8], family: &str) -> Result<()> {
-    if bytes.len() > MAX_FRAME_LENGTH {
+    validate_at_depth(bytes, family, 0)
+}
+/// Validate an embedded TL root against the caller's remaining nesting budget.
+pub fn validate_at_depth(bytes: &[u8], family: &str, depth: usize) -> Result<()> {
+    if bytes.len() > MAX_FRAME_LENGTH || depth >= MAX_NESTING {
         return Err(Error::WrapperRejected);
     }
     let mut reader = Reader {
@@ -163,7 +168,7 @@ pub fn validate(bytes: &[u8], family: &str) -> Result<()> {
         pos: 0,
         objects: 0,
     };
-    reader.object(family, 0)?;
+    reader.object(family, depth)?;
     if reader.pos != bytes.len() {
         return Err(Error::WrapperRejected);
     }

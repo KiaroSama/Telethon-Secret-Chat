@@ -1,0 +1,1849 @@
+{
+  "legacy_case": "tests/test_tdexport_html_media.py::test_giveaway_results_prize_lines",
+  "traces": [
+    {
+      "function": "html_media_extra.ExtraMediaMixin.push_giveaway_results",
+      "args": [
+        {
+          "base": "",
+          "context": {
+            "tags": []
+          }
+        },
+        {
+          "data": {
+            "5": {
+              "User": {
+                "bare_id": 5,
+                "info": {
+                  "user_id": 5,
+                  "first_name": "Ann",
+                  "last_name": "Lee",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "",
+                "color_index": 0,
+                "is_bot": false,
+                "is_self": false,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "9": {
+              "User": {
+                "bare_id": 9,
+                "info": {
+                  "user_id": 9,
+                  "first_name": "Me",
+                  "last_name": "",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "",
+                "color_index": 0,
+                "is_bot": false,
+                "is_self": true,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "7": {
+              "User": {
+                "bare_id": 7,
+                "info": {
+                  "user_id": 7,
+                  "first_name": "Bot",
+                  "last_name": "",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "robot",
+                "color_index": 0,
+                "is_bot": true,
+                "is_self": false,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "8": {
+              "User": {
+                "bare_id": 8,
+                "info": {
+                  "user_id": 8,
+                  "first_name": "Human",
+                  "last_name": "",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "human",
+                "color_index": 0,
+                "is_bot": false,
+                "is_self": false,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "562949953421315": {
+              "Chat": {
+                "bare_id": 3,
+                "migrated_to_channel_id": 0,
+                "title": "News",
+                "username": "",
+                "color_index": 0,
+                "is_monoforum": false,
+                "is_broadcast": true,
+                "is_supergroup": false,
+                "is_monoforum_admin": false,
+                "has_monoforum_admin_rights": false,
+                "is_monoforum_of_public_broadcast": false,
+                "monoforum_link_id": 0,
+                "input": {
+                  "_": "InputPeerEmpty"
+                },
+                "monoforum_broadcast_input": {
+                  "_": "InputPeerEmpty"
+                }
+              }
+            },
+            "562949953421316": {
+              "Chat": {
+                "bare_id": 4,
+                "migrated_to_channel_id": 0,
+                "title": "Club",
+                "username": "",
+                "color_index": 0,
+                "is_monoforum": false,
+                "is_broadcast": false,
+                "is_supergroup": true,
+                "is_monoforum_admin": false,
+                "has_monoforum_admin_rights": false,
+                "is_monoforum_of_public_broadcast": false,
+                "monoforum_link_id": 0,
+                "input": {
+                  "_": "InputPeerEmpty"
+                },
+                "monoforum_broadcast_input": {
+                  "_": "InputPeerEmpty"
+                }
+              }
+            },
+            "562949953421318": {
+              "Chat": {
+                "bare_id": 6,
+                "migrated_to_channel_id": 0,
+                "title": "Plain",
+                "username": "",
+                "color_index": 0,
+                "is_monoforum": false,
+                "is_broadcast": false,
+                "is_supergroup": false,
+                "is_monoforum_admin": false,
+                "has_monoforum_admin_rights": false,
+                "is_monoforum_of_public_broadcast": false,
+                "monoforum_link_id": 0,
+                "input": {
+                  "_": "InputPeerEmpty"
+                },
+                "monoforum_broadcast_input": {
+                  "_": "InputPeerEmpty"
+                }
+              }
+            }
+          }
+        },
+        {
+          "channel": 0,
+          "winners": [
+            5
+          ],
+          "additional_prize": "",
+          "until_date": 0,
+          "launch_id": 4,
+          "additional_peers_count": 0,
+          "winners_count": 1,
+          "unclaimed_count": 0,
+          "months": 0,
+          "credits": 1,
+          "refunded": false,
+          "all": false
+        }
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": "\n<div class=\"media_wrap clearfix\">\n\n <div class=\"media_giveaway\">\n\n  <div class=\"section_title bold\">\nWinner Selected!\n  </div>\n\n  <div class=\"section_body\">\n<b>1</b> winner of the [4:Giveaway] was randomly selected by Telegram.\n  </div>\n\n  <div class=\"section_title bold\">\nWinner\n  </div>\n\n  <div class=\"section_body\">\n<b>Ann Lee</b>\n  </div>\n\n  <div class=\"section_body\">\nThe winner received <b>1</b> Star.\n  </div>\n\n </div>\n\n</div>\n",
+      "after": [
+        {
+          "base": "",
+          "context": {
+            "tags": []
+          }
+        },
+        {
+          "data": {
+            "5": {
+              "User": {
+                "bare_id": 5,
+                "info": {
+                  "user_id": 5,
+                  "first_name": "Ann",
+                  "last_name": "Lee",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "",
+                "color_index": 0,
+                "is_bot": false,
+                "is_self": false,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "9": {
+              "User": {
+                "bare_id": 9,
+                "info": {
+                  "user_id": 9,
+                  "first_name": "Me",
+                  "last_name": "",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "",
+                "color_index": 0,
+                "is_bot": false,
+                "is_self": true,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "7": {
+              "User": {
+                "bare_id": 7,
+                "info": {
+                  "user_id": 7,
+                  "first_name": "Bot",
+                  "last_name": "",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "robot",
+                "color_index": 0,
+                "is_bot": true,
+                "is_self": false,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "8": {
+              "User": {
+                "bare_id": 8,
+                "info": {
+                  "user_id": 8,
+                  "first_name": "Human",
+                  "last_name": "",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "human",
+                "color_index": 0,
+                "is_bot": false,
+                "is_self": false,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "562949953421315": {
+              "Chat": {
+                "bare_id": 3,
+                "migrated_to_channel_id": 0,
+                "title": "News",
+                "username": "",
+                "color_index": 0,
+                "is_monoforum": false,
+                "is_broadcast": true,
+                "is_supergroup": false,
+                "is_monoforum_admin": false,
+                "has_monoforum_admin_rights": false,
+                "is_monoforum_of_public_broadcast": false,
+                "monoforum_link_id": 0,
+                "input": {
+                  "_": "InputPeerEmpty"
+                },
+                "monoforum_broadcast_input": {
+                  "_": "InputPeerEmpty"
+                }
+              }
+            },
+            "562949953421316": {
+              "Chat": {
+                "bare_id": 4,
+                "migrated_to_channel_id": 0,
+                "title": "Club",
+                "username": "",
+                "color_index": 0,
+                "is_monoforum": false,
+                "is_broadcast": false,
+                "is_supergroup": true,
+                "is_monoforum_admin": false,
+                "has_monoforum_admin_rights": false,
+                "is_monoforum_of_public_broadcast": false,
+                "monoforum_link_id": 0,
+                "input": {
+                  "_": "InputPeerEmpty"
+                },
+                "monoforum_broadcast_input": {
+                  "_": "InputPeerEmpty"
+                }
+              }
+            },
+            "562949953421318": {
+              "Chat": {
+                "bare_id": 6,
+                "migrated_to_channel_id": 0,
+                "title": "Plain",
+                "username": "",
+                "color_index": 0,
+                "is_monoforum": false,
+                "is_broadcast": false,
+                "is_supergroup": false,
+                "is_monoforum_admin": false,
+                "has_monoforum_admin_rights": false,
+                "is_monoforum_of_public_broadcast": false,
+                "monoforum_link_id": 0,
+                "input": {
+                  "_": "InputPeerEmpty"
+                },
+                "monoforum_broadcast_input": {
+                  "_": "InputPeerEmpty"
+                }
+              }
+            }
+          }
+        },
+        {
+          "channel": 0,
+          "winners": [
+            5
+          ],
+          "additional_prize": "",
+          "until_date": 0,
+          "launch_id": 4,
+          "additional_peers_count": 0,
+          "winners_count": 1,
+          "unclaimed_count": 0,
+          "months": 0,
+          "credits": 1,
+          "refunded": false,
+          "all": false
+        }
+      ]
+    },
+    {
+      "function": "html_media_extra.ExtraMediaMixin.push_giveaway_results",
+      "args": [
+        {
+          "base": "",
+          "context": {
+            "tags": []
+          }
+        },
+        {
+          "data": {
+            "5": {
+              "User": {
+                "bare_id": 5,
+                "info": {
+                  "user_id": 5,
+                  "first_name": "Ann",
+                  "last_name": "Lee",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "",
+                "color_index": 0,
+                "is_bot": false,
+                "is_self": false,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "9": {
+              "User": {
+                "bare_id": 9,
+                "info": {
+                  "user_id": 9,
+                  "first_name": "Me",
+                  "last_name": "",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "",
+                "color_index": 0,
+                "is_bot": false,
+                "is_self": true,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "7": {
+              "User": {
+                "bare_id": 7,
+                "info": {
+                  "user_id": 7,
+                  "first_name": "Bot",
+                  "last_name": "",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "robot",
+                "color_index": 0,
+                "is_bot": true,
+                "is_self": false,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "8": {
+              "User": {
+                "bare_id": 8,
+                "info": {
+                  "user_id": 8,
+                  "first_name": "Human",
+                  "last_name": "",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "human",
+                "color_index": 0,
+                "is_bot": false,
+                "is_self": false,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "562949953421315": {
+              "Chat": {
+                "bare_id": 3,
+                "migrated_to_channel_id": 0,
+                "title": "News",
+                "username": "",
+                "color_index": 0,
+                "is_monoforum": false,
+                "is_broadcast": true,
+                "is_supergroup": false,
+                "is_monoforum_admin": false,
+                "has_monoforum_admin_rights": false,
+                "is_monoforum_of_public_broadcast": false,
+                "monoforum_link_id": 0,
+                "input": {
+                  "_": "InputPeerEmpty"
+                },
+                "monoforum_broadcast_input": {
+                  "_": "InputPeerEmpty"
+                }
+              }
+            },
+            "562949953421316": {
+              "Chat": {
+                "bare_id": 4,
+                "migrated_to_channel_id": 0,
+                "title": "Club",
+                "username": "",
+                "color_index": 0,
+                "is_monoforum": false,
+                "is_broadcast": false,
+                "is_supergroup": true,
+                "is_monoforum_admin": false,
+                "has_monoforum_admin_rights": false,
+                "is_monoforum_of_public_broadcast": false,
+                "monoforum_link_id": 0,
+                "input": {
+                  "_": "InputPeerEmpty"
+                },
+                "monoforum_broadcast_input": {
+                  "_": "InputPeerEmpty"
+                }
+              }
+            },
+            "562949953421318": {
+              "Chat": {
+                "bare_id": 6,
+                "migrated_to_channel_id": 0,
+                "title": "Plain",
+                "username": "",
+                "color_index": 0,
+                "is_monoforum": false,
+                "is_broadcast": false,
+                "is_supergroup": false,
+                "is_monoforum_admin": false,
+                "has_monoforum_admin_rights": false,
+                "is_monoforum_of_public_broadcast": false,
+                "monoforum_link_id": 0,
+                "input": {
+                  "_": "InputPeerEmpty"
+                },
+                "monoforum_broadcast_input": {
+                  "_": "InputPeerEmpty"
+                }
+              }
+            }
+          }
+        },
+        {
+          "channel": 0,
+          "winners": [
+            5,
+            9
+          ],
+          "additional_prize": "",
+          "until_date": 0,
+          "launch_id": 0,
+          "additional_peers_count": 0,
+          "winners_count": 2,
+          "unclaimed_count": 0,
+          "months": 0,
+          "credits": 100,
+          "refunded": false,
+          "all": false
+        }
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": "\n<div class=\"media_wrap clearfix\">\n\n <div class=\"media_giveaway\">\n\n  <div class=\"section_title bold\">\nWinners Selected!\n  </div>\n\n  <div class=\"section_body\">\n<b>2</b> winners of the [0:Giveaway] was randomly selected by Telegram.\n  </div>\n\n  <div class=\"section_title bold\">\nWinners\n  </div>\n\n  <div class=\"section_body\">\n<b>Ann Lee</b>, <b>Me</b>\n  </div>\n\n  <div class=\"section_body\">\nAll winners received <b>100</b> Stars in total.\n  </div>\n\n </div>\n\n</div>\n",
+      "after": [
+        {
+          "base": "",
+          "context": {
+            "tags": []
+          }
+        },
+        {
+          "data": {
+            "5": {
+              "User": {
+                "bare_id": 5,
+                "info": {
+                  "user_id": 5,
+                  "first_name": "Ann",
+                  "last_name": "Lee",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "",
+                "color_index": 0,
+                "is_bot": false,
+                "is_self": false,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "9": {
+              "User": {
+                "bare_id": 9,
+                "info": {
+                  "user_id": 9,
+                  "first_name": "Me",
+                  "last_name": "",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "",
+                "color_index": 0,
+                "is_bot": false,
+                "is_self": true,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "7": {
+              "User": {
+                "bare_id": 7,
+                "info": {
+                  "user_id": 7,
+                  "first_name": "Bot",
+                  "last_name": "",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "robot",
+                "color_index": 0,
+                "is_bot": true,
+                "is_self": false,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "8": {
+              "User": {
+                "bare_id": 8,
+                "info": {
+                  "user_id": 8,
+                  "first_name": "Human",
+                  "last_name": "",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "human",
+                "color_index": 0,
+                "is_bot": false,
+                "is_self": false,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "562949953421315": {
+              "Chat": {
+                "bare_id": 3,
+                "migrated_to_channel_id": 0,
+                "title": "News",
+                "username": "",
+                "color_index": 0,
+                "is_monoforum": false,
+                "is_broadcast": true,
+                "is_supergroup": false,
+                "is_monoforum_admin": false,
+                "has_monoforum_admin_rights": false,
+                "is_monoforum_of_public_broadcast": false,
+                "monoforum_link_id": 0,
+                "input": {
+                  "_": "InputPeerEmpty"
+                },
+                "monoforum_broadcast_input": {
+                  "_": "InputPeerEmpty"
+                }
+              }
+            },
+            "562949953421316": {
+              "Chat": {
+                "bare_id": 4,
+                "migrated_to_channel_id": 0,
+                "title": "Club",
+                "username": "",
+                "color_index": 0,
+                "is_monoforum": false,
+                "is_broadcast": false,
+                "is_supergroup": true,
+                "is_monoforum_admin": false,
+                "has_monoforum_admin_rights": false,
+                "is_monoforum_of_public_broadcast": false,
+                "monoforum_link_id": 0,
+                "input": {
+                  "_": "InputPeerEmpty"
+                },
+                "monoforum_broadcast_input": {
+                  "_": "InputPeerEmpty"
+                }
+              }
+            },
+            "562949953421318": {
+              "Chat": {
+                "bare_id": 6,
+                "migrated_to_channel_id": 0,
+                "title": "Plain",
+                "username": "",
+                "color_index": 0,
+                "is_monoforum": false,
+                "is_broadcast": false,
+                "is_supergroup": false,
+                "is_monoforum_admin": false,
+                "has_monoforum_admin_rights": false,
+                "is_monoforum_of_public_broadcast": false,
+                "monoforum_link_id": 0,
+                "input": {
+                  "_": "InputPeerEmpty"
+                },
+                "monoforum_broadcast_input": {
+                  "_": "InputPeerEmpty"
+                }
+              }
+            }
+          }
+        },
+        {
+          "channel": 0,
+          "winners": [
+            5,
+            9
+          ],
+          "additional_prize": "",
+          "until_date": 0,
+          "launch_id": 0,
+          "additional_peers_count": 0,
+          "winners_count": 2,
+          "unclaimed_count": 0,
+          "months": 0,
+          "credits": 100,
+          "refunded": false,
+          "all": false
+        }
+      ]
+    },
+    {
+      "function": "html_media_extra.ExtraMediaMixin.push_giveaway_results",
+      "args": [
+        {
+          "base": "",
+          "context": {
+            "tags": []
+          }
+        },
+        {
+          "data": {
+            "5": {
+              "User": {
+                "bare_id": 5,
+                "info": {
+                  "user_id": 5,
+                  "first_name": "Ann",
+                  "last_name": "Lee",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "",
+                "color_index": 0,
+                "is_bot": false,
+                "is_self": false,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "9": {
+              "User": {
+                "bare_id": 9,
+                "info": {
+                  "user_id": 9,
+                  "first_name": "Me",
+                  "last_name": "",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "",
+                "color_index": 0,
+                "is_bot": false,
+                "is_self": true,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "7": {
+              "User": {
+                "bare_id": 7,
+                "info": {
+                  "user_id": 7,
+                  "first_name": "Bot",
+                  "last_name": "",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "robot",
+                "color_index": 0,
+                "is_bot": true,
+                "is_self": false,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "8": {
+              "User": {
+                "bare_id": 8,
+                "info": {
+                  "user_id": 8,
+                  "first_name": "Human",
+                  "last_name": "",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "human",
+                "color_index": 0,
+                "is_bot": false,
+                "is_self": false,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "562949953421315": {
+              "Chat": {
+                "bare_id": 3,
+                "migrated_to_channel_id": 0,
+                "title": "News",
+                "username": "",
+                "color_index": 0,
+                "is_monoforum": false,
+                "is_broadcast": true,
+                "is_supergroup": false,
+                "is_monoforum_admin": false,
+                "has_monoforum_admin_rights": false,
+                "is_monoforum_of_public_broadcast": false,
+                "monoforum_link_id": 0,
+                "input": {
+                  "_": "InputPeerEmpty"
+                },
+                "monoforum_broadcast_input": {
+                  "_": "InputPeerEmpty"
+                }
+              }
+            },
+            "562949953421316": {
+              "Chat": {
+                "bare_id": 4,
+                "migrated_to_channel_id": 0,
+                "title": "Club",
+                "username": "",
+                "color_index": 0,
+                "is_monoforum": false,
+                "is_broadcast": false,
+                "is_supergroup": true,
+                "is_monoforum_admin": false,
+                "has_monoforum_admin_rights": false,
+                "is_monoforum_of_public_broadcast": false,
+                "monoforum_link_id": 0,
+                "input": {
+                  "_": "InputPeerEmpty"
+                },
+                "monoforum_broadcast_input": {
+                  "_": "InputPeerEmpty"
+                }
+              }
+            },
+            "562949953421318": {
+              "Chat": {
+                "bare_id": 6,
+                "migrated_to_channel_id": 0,
+                "title": "Plain",
+                "username": "",
+                "color_index": 0,
+                "is_monoforum": false,
+                "is_broadcast": false,
+                "is_supergroup": false,
+                "is_monoforum_admin": false,
+                "has_monoforum_admin_rights": false,
+                "is_monoforum_of_public_broadcast": false,
+                "monoforum_link_id": 0,
+                "input": {
+                  "_": "InputPeerEmpty"
+                },
+                "monoforum_broadcast_input": {
+                  "_": "InputPeerEmpty"
+                }
+              }
+            }
+          }
+        },
+        {
+          "channel": 0,
+          "winners": [],
+          "additional_prize": "",
+          "until_date": 0,
+          "launch_id": 0,
+          "additional_peers_count": 0,
+          "winners_count": 2,
+          "unclaimed_count": 1,
+          "months": 0,
+          "credits": 0,
+          "refunded": false,
+          "all": false
+        }
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": "\n<div class=\"media_wrap clearfix\">\n\n <div class=\"media_giveaway\">\n\n  <div class=\"section_title bold\">\nWinners Selected!\n  </div>\n\n  <div class=\"section_body\">\n<b>2</b> winners of the [0:Giveaway] was randomly selected by Telegram.\n  </div>\n\n  <div class=\"section_title bold\">\nWinners\n  </div>\n\n  <div class=\"section_body\">\n and 2 more!\n  </div>\n\n  <div class=\"section_body\">\nSome winners couldn&apos;t be selected.\n  </div>\n\n </div>\n\n</div>\n",
+      "after": [
+        {
+          "base": "",
+          "context": {
+            "tags": []
+          }
+        },
+        {
+          "data": {
+            "5": {
+              "User": {
+                "bare_id": 5,
+                "info": {
+                  "user_id": 5,
+                  "first_name": "Ann",
+                  "last_name": "Lee",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "",
+                "color_index": 0,
+                "is_bot": false,
+                "is_self": false,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "9": {
+              "User": {
+                "bare_id": 9,
+                "info": {
+                  "user_id": 9,
+                  "first_name": "Me",
+                  "last_name": "",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "",
+                "color_index": 0,
+                "is_bot": false,
+                "is_self": true,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "7": {
+              "User": {
+                "bare_id": 7,
+                "info": {
+                  "user_id": 7,
+                  "first_name": "Bot",
+                  "last_name": "",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "robot",
+                "color_index": 0,
+                "is_bot": true,
+                "is_self": false,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "8": {
+              "User": {
+                "bare_id": 8,
+                "info": {
+                  "user_id": 8,
+                  "first_name": "Human",
+                  "last_name": "",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "human",
+                "color_index": 0,
+                "is_bot": false,
+                "is_self": false,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "562949953421315": {
+              "Chat": {
+                "bare_id": 3,
+                "migrated_to_channel_id": 0,
+                "title": "News",
+                "username": "",
+                "color_index": 0,
+                "is_monoforum": false,
+                "is_broadcast": true,
+                "is_supergroup": false,
+                "is_monoforum_admin": false,
+                "has_monoforum_admin_rights": false,
+                "is_monoforum_of_public_broadcast": false,
+                "monoforum_link_id": 0,
+                "input": {
+                  "_": "InputPeerEmpty"
+                },
+                "monoforum_broadcast_input": {
+                  "_": "InputPeerEmpty"
+                }
+              }
+            },
+            "562949953421316": {
+              "Chat": {
+                "bare_id": 4,
+                "migrated_to_channel_id": 0,
+                "title": "Club",
+                "username": "",
+                "color_index": 0,
+                "is_monoforum": false,
+                "is_broadcast": false,
+                "is_supergroup": true,
+                "is_monoforum_admin": false,
+                "has_monoforum_admin_rights": false,
+                "is_monoforum_of_public_broadcast": false,
+                "monoforum_link_id": 0,
+                "input": {
+                  "_": "InputPeerEmpty"
+                },
+                "monoforum_broadcast_input": {
+                  "_": "InputPeerEmpty"
+                }
+              }
+            },
+            "562949953421318": {
+              "Chat": {
+                "bare_id": 6,
+                "migrated_to_channel_id": 0,
+                "title": "Plain",
+                "username": "",
+                "color_index": 0,
+                "is_monoforum": false,
+                "is_broadcast": false,
+                "is_supergroup": false,
+                "is_monoforum_admin": false,
+                "has_monoforum_admin_rights": false,
+                "is_monoforum_of_public_broadcast": false,
+                "monoforum_link_id": 0,
+                "input": {
+                  "_": "InputPeerEmpty"
+                },
+                "monoforum_broadcast_input": {
+                  "_": "InputPeerEmpty"
+                }
+              }
+            }
+          }
+        },
+        {
+          "channel": 0,
+          "winners": [],
+          "additional_prize": "",
+          "until_date": 0,
+          "launch_id": 0,
+          "additional_peers_count": 0,
+          "winners_count": 2,
+          "unclaimed_count": 1,
+          "months": 0,
+          "credits": 0,
+          "refunded": false,
+          "all": false
+        }
+      ]
+    },
+    {
+      "function": "html_media_extra.ExtraMediaMixin.push_giveaway_results",
+      "args": [
+        {
+          "base": "",
+          "context": {
+            "tags": []
+          }
+        },
+        {
+          "data": {
+            "5": {
+              "User": {
+                "bare_id": 5,
+                "info": {
+                  "user_id": 5,
+                  "first_name": "Ann",
+                  "last_name": "Lee",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "",
+                "color_index": 0,
+                "is_bot": false,
+                "is_self": false,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "9": {
+              "User": {
+                "bare_id": 9,
+                "info": {
+                  "user_id": 9,
+                  "first_name": "Me",
+                  "last_name": "",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "",
+                "color_index": 0,
+                "is_bot": false,
+                "is_self": true,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "7": {
+              "User": {
+                "bare_id": 7,
+                "info": {
+                  "user_id": 7,
+                  "first_name": "Bot",
+                  "last_name": "",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "robot",
+                "color_index": 0,
+                "is_bot": true,
+                "is_self": false,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "8": {
+              "User": {
+                "bare_id": 8,
+                "info": {
+                  "user_id": 8,
+                  "first_name": "Human",
+                  "last_name": "",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "human",
+                "color_index": 0,
+                "is_bot": false,
+                "is_self": false,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "562949953421315": {
+              "Chat": {
+                "bare_id": 3,
+                "migrated_to_channel_id": 0,
+                "title": "News",
+                "username": "",
+                "color_index": 0,
+                "is_monoforum": false,
+                "is_broadcast": true,
+                "is_supergroup": false,
+                "is_monoforum_admin": false,
+                "has_monoforum_admin_rights": false,
+                "is_monoforum_of_public_broadcast": false,
+                "monoforum_link_id": 0,
+                "input": {
+                  "_": "InputPeerEmpty"
+                },
+                "monoforum_broadcast_input": {
+                  "_": "InputPeerEmpty"
+                }
+              }
+            },
+            "562949953421316": {
+              "Chat": {
+                "bare_id": 4,
+                "migrated_to_channel_id": 0,
+                "title": "Club",
+                "username": "",
+                "color_index": 0,
+                "is_monoforum": false,
+                "is_broadcast": false,
+                "is_supergroup": true,
+                "is_monoforum_admin": false,
+                "has_monoforum_admin_rights": false,
+                "is_monoforum_of_public_broadcast": false,
+                "monoforum_link_id": 0,
+                "input": {
+                  "_": "InputPeerEmpty"
+                },
+                "monoforum_broadcast_input": {
+                  "_": "InputPeerEmpty"
+                }
+              }
+            },
+            "562949953421318": {
+              "Chat": {
+                "bare_id": 6,
+                "migrated_to_channel_id": 0,
+                "title": "Plain",
+                "username": "",
+                "color_index": 0,
+                "is_monoforum": false,
+                "is_broadcast": false,
+                "is_supergroup": false,
+                "is_monoforum_admin": false,
+                "has_monoforum_admin_rights": false,
+                "is_monoforum_of_public_broadcast": false,
+                "monoforum_link_id": 0,
+                "input": {
+                  "_": "InputPeerEmpty"
+                },
+                "monoforum_broadcast_input": {
+                  "_": "InputPeerEmpty"
+                }
+              }
+            }
+          }
+        },
+        {
+          "channel": 0,
+          "winners": [
+            5
+          ],
+          "additional_prize": "",
+          "until_date": 0,
+          "launch_id": 0,
+          "additional_peers_count": 0,
+          "winners_count": 1,
+          "unclaimed_count": 0,
+          "months": 0,
+          "credits": 0,
+          "refunded": false,
+          "all": false
+        }
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": "\n<div class=\"media_wrap clearfix\">\n\n <div class=\"media_giveaway\">\n\n  <div class=\"section_title bold\">\nWinner Selected!\n  </div>\n\n  <div class=\"section_body\">\n<b>1</b> winner of the [0:Giveaway] was randomly selected by Telegram.\n  </div>\n\n  <div class=\"section_title bold\">\nWinner\n  </div>\n\n  <div class=\"section_body\">\n<b>Ann Lee</b>\n  </div>\n\n  <div class=\"section_body\">\nThe winner received their gift link in a private message.\n  </div>\n\n </div>\n\n</div>\n",
+      "after": [
+        {
+          "base": "",
+          "context": {
+            "tags": []
+          }
+        },
+        {
+          "data": {
+            "5": {
+              "User": {
+                "bare_id": 5,
+                "info": {
+                  "user_id": 5,
+                  "first_name": "Ann",
+                  "last_name": "Lee",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "",
+                "color_index": 0,
+                "is_bot": false,
+                "is_self": false,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "9": {
+              "User": {
+                "bare_id": 9,
+                "info": {
+                  "user_id": 9,
+                  "first_name": "Me",
+                  "last_name": "",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "",
+                "color_index": 0,
+                "is_bot": false,
+                "is_self": true,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "7": {
+              "User": {
+                "bare_id": 7,
+                "info": {
+                  "user_id": 7,
+                  "first_name": "Bot",
+                  "last_name": "",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "robot",
+                "color_index": 0,
+                "is_bot": true,
+                "is_self": false,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "8": {
+              "User": {
+                "bare_id": 8,
+                "info": {
+                  "user_id": 8,
+                  "first_name": "Human",
+                  "last_name": "",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "human",
+                "color_index": 0,
+                "is_bot": false,
+                "is_self": false,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "562949953421315": {
+              "Chat": {
+                "bare_id": 3,
+                "migrated_to_channel_id": 0,
+                "title": "News",
+                "username": "",
+                "color_index": 0,
+                "is_monoforum": false,
+                "is_broadcast": true,
+                "is_supergroup": false,
+                "is_monoforum_admin": false,
+                "has_monoforum_admin_rights": false,
+                "is_monoforum_of_public_broadcast": false,
+                "monoforum_link_id": 0,
+                "input": {
+                  "_": "InputPeerEmpty"
+                },
+                "monoforum_broadcast_input": {
+                  "_": "InputPeerEmpty"
+                }
+              }
+            },
+            "562949953421316": {
+              "Chat": {
+                "bare_id": 4,
+                "migrated_to_channel_id": 0,
+                "title": "Club",
+                "username": "",
+                "color_index": 0,
+                "is_monoforum": false,
+                "is_broadcast": false,
+                "is_supergroup": true,
+                "is_monoforum_admin": false,
+                "has_monoforum_admin_rights": false,
+                "is_monoforum_of_public_broadcast": false,
+                "monoforum_link_id": 0,
+                "input": {
+                  "_": "InputPeerEmpty"
+                },
+                "monoforum_broadcast_input": {
+                  "_": "InputPeerEmpty"
+                }
+              }
+            },
+            "562949953421318": {
+              "Chat": {
+                "bare_id": 6,
+                "migrated_to_channel_id": 0,
+                "title": "Plain",
+                "username": "",
+                "color_index": 0,
+                "is_monoforum": false,
+                "is_broadcast": false,
+                "is_supergroup": false,
+                "is_monoforum_admin": false,
+                "has_monoforum_admin_rights": false,
+                "is_monoforum_of_public_broadcast": false,
+                "monoforum_link_id": 0,
+                "input": {
+                  "_": "InputPeerEmpty"
+                },
+                "monoforum_broadcast_input": {
+                  "_": "InputPeerEmpty"
+                }
+              }
+            }
+          }
+        },
+        {
+          "channel": 0,
+          "winners": [
+            5
+          ],
+          "additional_prize": "",
+          "until_date": 0,
+          "launch_id": 0,
+          "additional_peers_count": 0,
+          "winners_count": 1,
+          "unclaimed_count": 0,
+          "months": 0,
+          "credits": 0,
+          "refunded": false,
+          "all": false
+        }
+      ]
+    },
+    {
+      "function": "html_media_extra.ExtraMediaMixin.push_giveaway_results",
+      "args": [
+        {
+          "base": "",
+          "context": {
+            "tags": []
+          }
+        },
+        {
+          "data": {
+            "5": {
+              "User": {
+                "bare_id": 5,
+                "info": {
+                  "user_id": 5,
+                  "first_name": "Ann",
+                  "last_name": "Lee",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "",
+                "color_index": 0,
+                "is_bot": false,
+                "is_self": false,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "9": {
+              "User": {
+                "bare_id": 9,
+                "info": {
+                  "user_id": 9,
+                  "first_name": "Me",
+                  "last_name": "",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "",
+                "color_index": 0,
+                "is_bot": false,
+                "is_self": true,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "7": {
+              "User": {
+                "bare_id": 7,
+                "info": {
+                  "user_id": 7,
+                  "first_name": "Bot",
+                  "last_name": "",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "robot",
+                "color_index": 0,
+                "is_bot": true,
+                "is_self": false,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "8": {
+              "User": {
+                "bare_id": 8,
+                "info": {
+                  "user_id": 8,
+                  "first_name": "Human",
+                  "last_name": "",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "human",
+                "color_index": 0,
+                "is_bot": false,
+                "is_self": false,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "562949953421315": {
+              "Chat": {
+                "bare_id": 3,
+                "migrated_to_channel_id": 0,
+                "title": "News",
+                "username": "",
+                "color_index": 0,
+                "is_monoforum": false,
+                "is_broadcast": true,
+                "is_supergroup": false,
+                "is_monoforum_admin": false,
+                "has_monoforum_admin_rights": false,
+                "is_monoforum_of_public_broadcast": false,
+                "monoforum_link_id": 0,
+                "input": {
+                  "_": "InputPeerEmpty"
+                },
+                "monoforum_broadcast_input": {
+                  "_": "InputPeerEmpty"
+                }
+              }
+            },
+            "562949953421316": {
+              "Chat": {
+                "bare_id": 4,
+                "migrated_to_channel_id": 0,
+                "title": "Club",
+                "username": "",
+                "color_index": 0,
+                "is_monoforum": false,
+                "is_broadcast": false,
+                "is_supergroup": true,
+                "is_monoforum_admin": false,
+                "has_monoforum_admin_rights": false,
+                "is_monoforum_of_public_broadcast": false,
+                "monoforum_link_id": 0,
+                "input": {
+                  "_": "InputPeerEmpty"
+                },
+                "monoforum_broadcast_input": {
+                  "_": "InputPeerEmpty"
+                }
+              }
+            },
+            "562949953421318": {
+              "Chat": {
+                "bare_id": 6,
+                "migrated_to_channel_id": 0,
+                "title": "Plain",
+                "username": "",
+                "color_index": 0,
+                "is_monoforum": false,
+                "is_broadcast": false,
+                "is_supergroup": false,
+                "is_monoforum_admin": false,
+                "has_monoforum_admin_rights": false,
+                "is_monoforum_of_public_broadcast": false,
+                "monoforum_link_id": 0,
+                "input": {
+                  "_": "InputPeerEmpty"
+                },
+                "monoforum_broadcast_input": {
+                  "_": "InputPeerEmpty"
+                }
+              }
+            }
+          }
+        },
+        {
+          "channel": 0,
+          "winners": [],
+          "additional_prize": "",
+          "until_date": 0,
+          "launch_id": 0,
+          "additional_peers_count": 0,
+          "winners_count": 0,
+          "unclaimed_count": 0,
+          "months": 0,
+          "credits": 0,
+          "refunded": false,
+          "all": false
+        }
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": "\n<div class=\"media_wrap clearfix\">\n\n <div class=\"media_giveaway\">\n\n  <div class=\"section_title bold\">\nWinner Selected!\n  </div>\n\n  <div class=\"section_body\">\n<b>0</b> winner of the [0:Giveaway] was randomly selected by Telegram.\n  </div>\n\n  <div class=\"section_title bold\">\nWinner\n  </div>\n\n  <div class=\"section_body\">\n\n  </div>\n\n  <div class=\"section_body\">\n\n  </div>\n\n </div>\n\n</div>\n",
+      "after": [
+        {
+          "base": "",
+          "context": {
+            "tags": []
+          }
+        },
+        {
+          "data": {
+            "5": {
+              "User": {
+                "bare_id": 5,
+                "info": {
+                  "user_id": 5,
+                  "first_name": "Ann",
+                  "last_name": "Lee",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "",
+                "color_index": 0,
+                "is_bot": false,
+                "is_self": false,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "9": {
+              "User": {
+                "bare_id": 9,
+                "info": {
+                  "user_id": 9,
+                  "first_name": "Me",
+                  "last_name": "",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "",
+                "color_index": 0,
+                "is_bot": false,
+                "is_self": true,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "7": {
+              "User": {
+                "bare_id": 7,
+                "info": {
+                  "user_id": 7,
+                  "first_name": "Bot",
+                  "last_name": "",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "robot",
+                "color_index": 0,
+                "is_bot": true,
+                "is_self": false,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "8": {
+              "User": {
+                "bare_id": 8,
+                "info": {
+                  "user_id": 8,
+                  "first_name": "Human",
+                  "last_name": "",
+                  "phone_number": "",
+                  "date": 0,
+                  "color_index": 0
+                },
+                "username": "human",
+                "color_index": 0,
+                "is_bot": false,
+                "is_self": false,
+                "is_replies": false,
+                "is_verify_codes": false,
+                "input": {
+                  "_": "InputUserEmpty"
+                }
+              }
+            },
+            "562949953421315": {
+              "Chat": {
+                "bare_id": 3,
+                "migrated_to_channel_id": 0,
+                "title": "News",
+                "username": "",
+                "color_index": 0,
+                "is_monoforum": false,
+                "is_broadcast": true,
+                "is_supergroup": false,
+                "is_monoforum_admin": false,
+                "has_monoforum_admin_rights": false,
+                "is_monoforum_of_public_broadcast": false,
+                "monoforum_link_id": 0,
+                "input": {
+                  "_": "InputPeerEmpty"
+                },
+                "monoforum_broadcast_input": {
+                  "_": "InputPeerEmpty"
+                }
+              }
+            },
+            "562949953421316": {
+              "Chat": {
+                "bare_id": 4,
+                "migrated_to_channel_id": 0,
+                "title": "Club",
+                "username": "",
+                "color_index": 0,
+                "is_monoforum": false,
+                "is_broadcast": false,
+                "is_supergroup": true,
+                "is_monoforum_admin": false,
+                "has_monoforum_admin_rights": false,
+                "is_monoforum_of_public_broadcast": false,
+                "monoforum_link_id": 0,
+                "input": {
+                  "_": "InputPeerEmpty"
+                },
+                "monoforum_broadcast_input": {
+                  "_": "InputPeerEmpty"
+                }
+              }
+            },
+            "562949953421318": {
+              "Chat": {
+                "bare_id": 6,
+                "migrated_to_channel_id": 0,
+                "title": "Plain",
+                "username": "",
+                "color_index": 0,
+                "is_monoforum": false,
+                "is_broadcast": false,
+                "is_supergroup": false,
+                "is_monoforum_admin": false,
+                "has_monoforum_admin_rights": false,
+                "is_monoforum_of_public_broadcast": false,
+                "monoforum_link_id": 0,
+                "input": {
+                  "_": "InputPeerEmpty"
+                },
+                "monoforum_broadcast_input": {
+                  "_": "InputPeerEmpty"
+                }
+              }
+            }
+          }
+        },
+        {
+          "channel": 0,
+          "winners": [],
+          "additional_prize": "",
+          "until_date": 0,
+          "launch_id": 0,
+          "additional_peers_count": 0,
+          "winners_count": 0,
+          "unclaimed_count": 0,
+          "months": 0,
+          "credits": 0,
+          "refunded": false,
+          "all": false
+        }
+      ]
+    }
+  ]
+}
