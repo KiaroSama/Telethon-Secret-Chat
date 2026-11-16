@@ -177,9 +177,14 @@ async fn uncertain_commit(fault: CommitFault, expected: i32) {
     assert!(receiver.next().await.is_err());
     assert_eq!(qts(&ingress), 40);
     assert!(ingress.guard_request(2, &request(41).to_bytes()).is_err());
+    let owner = Arc::downgrade(&ingress);
     drop(receiver);
     drop(pool);
     drop(ingress);
+    assert!(
+        owner.upgrade().is_none(),
+        "the original SDK handles must release the custody owner before reopen"
+    );
     let restored = restore(&dir.path().join("state/custody.bin"), binding);
     // New SDK capture persists the whole raw body before applying MessageBoxes.
     // An uncertain raw receipt may reopen at qts40 with that input safely held.

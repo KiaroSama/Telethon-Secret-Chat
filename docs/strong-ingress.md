@@ -32,6 +32,11 @@ The exact `prepare` and binding signatures are in the Rust API. The supplement i
 already included in source/Git installs; [SDK preparation](rust-migration.md) is
 an optional hash-verification/auditing tool, not a runtime patch step.
 
+Choose an owner-controlled physical directory for custody. The encrypted store
+refuses symbolic links in the path or its ancestors, including macOS temporary
+directory aliases. Resolve the trusted base directory before appending the new
+custody filename.
+
 ## Custody and acknowledgement
 
 A complete live input is staged before any volatile SDK forwarding. The receiver

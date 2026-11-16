@@ -93,6 +93,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Use a physical temporary directory for guarded storage fixtures
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          canonical_temp=$(cd "$RUNNER_TEMP" && pwd -P)
+          printf 'TMPDIR=%s\n' "$canonical_temp" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca
         if: matrix.os != 'windows-11-arm'
         with:

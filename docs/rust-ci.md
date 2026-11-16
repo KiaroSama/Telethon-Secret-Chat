@@ -23,6 +23,8 @@ then executes all targets on these nine native legs:
 | macos-15-intel | x86_64 | 1.100.0 | Release |
 | macos-15 | aarch64 | 1.100.0 | Release |
 
+Release lanes use Cargo's optimized release defaults.
+
 Every job checks the actual runner architecture and `rustc` host triple before
 building. ARM64 jobs execute the full test suite natively. `RUSTUP_TOOLCHAIN`
 also pins nested Cargo and rustc calls to the selected leg. Both Windows jobs

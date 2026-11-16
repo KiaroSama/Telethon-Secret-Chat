@@ -278,25 +278,40 @@ impl FileStorage {
     pub fn path(&self) -> &Path {
         &self.path
     }
+    fn release_lock(&mut self) -> Result<()> {
+        if self.owner_pid != std::process::id() {
+            return Err(Error::Storage);
+        }
+        if let Some(lock) = self._lock.as_ref() {
+            // A concurrent child may retain the same open-file description
+            // until exec closes CLOEXEC descriptors. Release the owner's lock
+            // explicitly rather than waiting for the final inherited close.
+            lock.unlock().map_err(|_| Error::Storage)?;
+        }
+        self._lock.take();
+        Ok(())
+    }
+}
+impl Drop for FileStorage {
+    fn drop(&mut self) {
+        // A forked child may close its handle but must never unlock its parent.
+        let _ = self.release_lock();
+    }
 }
 impl Storage for FileStorage {
     fn repair_pending(&self) -> bool {
         self.repair_pending.load(Ordering::Acquire)
     }
     fn suspend_storage(&mut self) -> Result<()> {
-        if self.owner_pid != std::process::id() {
-            return Err(Error::Storage);
-        }
-        self._lock.take();
-        Ok(())
+        self.release_lock()
     }
     fn resume_storage(&mut self) -> Result<Option<State>> {
         if self.poisoned || self.owner_pid != std::process::id() {
             return Err(Error::Storage);
         }
         if self._lock.is_none() {
-            let reopened = FileStorage::open(&self.path)?;
-            self._lock = reopened._lock;
+            let mut reopened = FileStorage::open(&self.path)?;
+            self._lock = reopened._lock.take();
         }
         self.load()
     }
