@@ -498,6 +498,63 @@ fn invalid_media_string() {
 }
 #[test]
 fn overlap_refusal_preserves_source() {
+    let mut fabricated = Vec::new();
+    for direct_writer in [false, true] {
+        let source_kinds: &[u8] = if cfg!(unix) { &[0, 1, 2] } else { &[0] };
+        for &source_kind in source_kinds {
+            let empty = tempfile::tempdir().unwrap();
+            let destination = empty.path().join("out");
+            if source_kind != 2 {
+                fs::create_dir(&destination).unwrap();
+            }
+            let missing = destination.join("result.json");
+            let source = if source_kind == 0 {
+                missing
+            } else {
+                #[cfg(unix)]
+                {
+                    let alias = empty.path().join("source-alias");
+                    std::os::unix::fs::symlink(&destination, &alias).unwrap();
+                    alias.join("result.json")
+                }
+                #[cfg(not(unix))]
+                {
+                    unreachable!("source aliases are exercised on Unix")
+                }
+            };
+            assert!(!source.exists());
+            let (owner, other) = users();
+            let rows = [photo_row(1, BASE, Some(&source), 1)];
+            let mut settings = options(&destination);
+            settings.format = Format::Json;
+            let result = if direct_writer {
+                export_saved_chat(
+                    &rows,
+                    &settings,
+                    &mut export::json_writer::JsonWriter::new(),
+                    &owner,
+                    &other,
+                    &Environment::default(),
+                )
+            } else {
+                export_saved_records(&rows, &destination, &owner, &other, &settings, None)
+            }
+            .unwrap();
+            let output: Value =
+                serde_json::from_slice(&fs::read(result.path.join("result.json")).unwrap())
+                    .unwrap();
+            if result.files != 0
+                || output["messages"][0]["photo"] != "(File unavailable, please try again later)"
+                || destination.join("photos").exists()
+            {
+                fabricated.push((direct_writer, source_kind, result.files));
+            }
+        }
+    }
+    assert!(
+        fabricated.is_empty(),
+        "a missing attachment became generated export media (direct writer, source kind, copies): {fabricated:?}"
+    );
     // Both entrypoints normalize a populated destination to a fresh subdirectory.
     // An archived attachment called result.json must remain byte-for-byte intact.
     let direct = tempfile::tempdir().unwrap();
@@ -516,6 +573,7 @@ fn overlap_refusal_preserves_source() {
     let exported =
         export_saved_records(&rows, direct.path(), &owner, &other, &settings, None).unwrap();
     assert_ne!(exported.path, direct.path());
+    assert_eq!(exported.files, 1);
     assert!(exported.path.join("result.json").is_file());
     assert_eq!(fs::read(&original).unwrap(), original_bytes);
     let exported = export_saved_chat(
@@ -528,6 +586,7 @@ fn overlap_refusal_preserves_source() {
     )
     .unwrap();
     assert_ne!(exported.path, direct.path());
+    assert_eq!(exported.files, 1);
     assert!(exported.path.join("result.json").is_file());
     assert_eq!(fs::read(&original).unwrap(), original_bytes);
     let d = tempfile::tempdir().unwrap();

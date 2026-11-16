@@ -174,7 +174,14 @@ pub fn export_saved_chat_with_copier(
         .as_deref()
         .map_or_else(|| Ok(DateContext::system()), DateContext::named)?;
     settings.path = normalize_path(&settings, None, &dates)?;
-    let (mut messages, sources) = parse_with_sources(records, own, peer, &dates)?;
+    let (mut messages, mut sources) = parse_with_sources(records, own, peer, &dates)?;
+    let output_root = resolve_path(&settings.path)?;
+    // Snapshot source eligibility before a writer creates its own output or
+    // assets. A missing attachment must never become generated export media.
+    sources.retain(|_, source| {
+        fs::metadata(source.as_path()).is_ok_and(|metadata| metadata.is_file())
+            && resolve_path(source.as_path()).is_ok_and(|source| !source.starts_with(&output_root))
+    });
     let mut peers = BTreeMap::new();
     peers.insert(own.id, Peer::User(PeerUser::from(own)));
     peers.insert(peer.id, Peer::User(PeerUser::from(peer)));
