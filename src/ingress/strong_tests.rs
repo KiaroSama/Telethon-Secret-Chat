@@ -325,19 +325,21 @@ async fn crash_barrier(stage: u8) {
     capture(&f, vec![update(7, 41, 77, wire.clone())], 2).await;
     let binding = f.ingress.binding().unwrap();
     let path = f.dir.path().join("state/custody.bin");
-    let parent = f.dir.path().join("state");
-    let saved = f.dir.path().join("before-state");
     match stage {
         0 => {
-            std::fs::rename(&parent, &saved).unwrap();
-            std::fs::write(&parent, b"blocks actual replacement directory").unwrap();
+            let previous = std::fs::read(&path).unwrap();
+            f.ingress
+                .core
+                .lock()
+                .unwrap()
+                .backend
+                .fail_next_commit(crate::storage::CommitFault::BeforeReplace);
             assert!(f.manager.drain_ingress().await.is_err());
             assert_eq!(f.ingress.pending_batches().unwrap()[0].cursor, 0);
             assert_eq!(f.ingress.core.lock().unwrap().state.chats[&7].in_seq_no, 0);
+            assert_eq!(std::fs::read(&path).unwrap(), previous);
             assert!(f.manager.stop().await.is_err());
             release_after_crash(&f.ingress);
-            std::fs::remove_file(&parent).unwrap();
-            std::fs::rename(&saved, &parent).unwrap();
         }
         1 => {
             let id = f.ingress.pending_batches().unwrap()[0].id;

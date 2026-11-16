@@ -379,10 +379,14 @@ async fn failed_protocol_write_preserves_exact_receipt_for_reconstruction() {
         .envelope
         .as_bytes()
         .to_vec();
-    let parent = dir.path().join("state");
-    let saved = dir.path().join("held");
-    std::fs::rename(&parent, &saved).unwrap();
-    std::fs::write(&parent, b"fault fixture blocks atomic replace").unwrap();
+    let path = dir.path().join("state/custody.bin");
+    let previous = std::fs::read(&path).unwrap();
+    ingress
+        .core
+        .lock()
+        .unwrap()
+        .backend
+        .fail_next_commit(crate::storage::CommitFault::BeforeReplace);
     assert!(
         ingress
             .apply(batch, 0, async { protocol.receive(7, &frame, None, 124) })
@@ -392,15 +396,12 @@ async fn failed_protocol_write_preserves_exact_receipt_for_reconstruction() {
     );
     assert_eq!(ingress.pending_batches().unwrap()[0].cursor, 0);
     assert_eq!(protocol.chat_record(7).unwrap().in_seq_no, 0);
+    assert_eq!(std::fs::read(&path).unwrap(), previous);
     drop(receiver);
     drop(protocol);
     drop(pool);
     drop(ingress);
-    std::fs::remove_file(&parent).unwrap();
-    std::fs::rename(&saved, &parent).unwrap();
-    let restored =
-        EncryptedIngressStorage::open(parent.join("custody.bin"), [9; 32], binding, 1024 * 1024)
-            .unwrap();
+    let restored = EncryptedIngressStorage::open(path, [9; 32], binding, 1024 * 1024).unwrap();
     let restored = DurableIngress::new(
         restored,
         IngressLimits::new(32, 1024 * 1024, 3600.0).unwrap(),
