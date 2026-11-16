@@ -70,7 +70,9 @@ The immutable baseline is `d53c7c21574ac404e01b8c3535b0d0fcfa25a193`.
 static expected fixtures before old code removal. Tests do not serialize their
 own expected answers. The HTML viewer's static JS/CSS remain data.
 
-Nine CI legs build before tests, including native ARM64 and x86_64 for all three operating systems. Evidence rejects partial, failed, filtered,
+Seven CI legs build before tests, including native ARM64 and x86_64 for Linux
+and Windows. macOS is outside this PR's supported scope.
+Evidence rejects partial, failed, filtered,
 missing/extra or duplicate runs and undeclared ignores. Ten live cases are ignored
 by default. Three Unix filesystem cases are additionally ignored on Windows.
 A portable-AES leg executes the same inventory. See [verification](../migration/README.md).

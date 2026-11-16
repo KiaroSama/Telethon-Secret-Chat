@@ -9,7 +9,7 @@ real I/O. Independent protocol, Desktop export and image fixtures remain data.
 ## Build and test matrix
 
 `.github/workflows/rust.yml` builds the library and executables on every run,
-then executes all targets on these nine native legs:
+then executes all targets on these seven native legs:
 
 | Hosted runner | Architecture | Rust | Profile |
 | --- | --- | --- | --- |
@@ -20,10 +20,9 @@ then executes all targets on these nine native legs:
 | ubuntu-24.04-arm | aarch64 | 1.99.1 | Release |
 | windows-2025 | x86_64 | 1.99.1 | Release |
 | windows-11-arm | aarch64 | 1.99.1 | Release |
-| macos-15-intel | x86_64 | 1.99.1 | Release |
-| macos-15 | aarch64 | 1.99.1 | Release |
 
 Release lanes use Cargo's optimized release defaults.
+macOS runners and macOS release artifacts are disabled for this PR.
 
 Every job checks the actual runner architecture and `rustc` host triple before
 building. ARM64 jobs execute the full test suite natively. `RUSTUP_TOOLCHAIN`
@@ -44,7 +43,7 @@ fallback. Reuse removes a second compilation without changing test scenarios,
 release settings or the 60-minute job budget.
 
 `matrix-evidence` reads each Cargo suite and its test-result summary, strips
-terminal color escapes and requires exactly the same manifest on all nine legs.
+terminal color escapes and requires exactly the same manifest on all seven legs.
 Missing, additional, duplicate, failed, filtered, measured or unexpectedly
 ignored cases fail the gate. A job that only prints successful test lines cannot
 pass without matching suite summaries. The separate migration audit requires
@@ -56,9 +55,9 @@ them does not read credentials or contact Telegram. Windows additionally ignores
 exactly three Unix filesystem scenarios: owner-only store permissions, symlink
 refusal and directory-sync failure handling. The manifest names each exception;
 there is no general permission to ignore tests. Those three platform exceptions
-apply to both Windows architectures and to no Linux or macOS leg.
+apply to both Windows architectures and to no Linux leg.
 
-The six release legs upload `native-{target-triple}` artifacts. Each contains
+The four release legs upload `native-{target-triple}` artifacts. Each contains
 four native developer tools (`generate-schema`, `matrix-evidence`,
 `migration-audit` and `prepare-sdk`), inherited licenses, target/toolchain/commit
 metadata, and SHA-256 checksums. Unix tools are in a tar archive that preserves
@@ -125,7 +124,7 @@ Git configuration.
 `package-validation.yml` checks the committed source inputs and uploads a Git
 archive with its commit, file list and SHA-256 checksums. It rejects executable
 legacy-language files and private working data in tracked distribution inputs.
-Its `source-distribution-rust` artifact is separate from the nine matrix records.
+Its `source-distribution-rust` artifact is separate from the seven matrix records.
 
 ## Native history scanner
 

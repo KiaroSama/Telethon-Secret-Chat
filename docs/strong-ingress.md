@@ -34,7 +34,7 @@ already included in source/Git installs; [SDK preparation](rust-migration.md) is
 an optional hash-verification/auditing tool, not a runtime patch step.
 
 Choose an owner-controlled physical directory for custody. The encrypted store
-refuses symbolic links in the path or its ancestors, including macOS temporary
+refuses symbolic links in the path or its ancestors, including temporary
 directory aliases. Resolve the trusted base directory before appending the new
 custody filename.
 

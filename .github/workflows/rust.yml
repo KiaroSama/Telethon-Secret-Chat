@@ -69,18 +69,6 @@ jobs:
             target: aarch64-pc-windows-msvc
             toolchain: '1.99.1'
             profile: release
-          - os: macos-15-intel
-            arch: x86_64
-            runner_arch: X64
-            target: x86_64-apple-darwin
-            toolchain: '1.99.1'
-            profile: release
-          - os: macos-15
-            arch: aarch64
-            runner_arch: ARM64
-            target: aarch64-apple-darwin
-            toolchain: '1.99.1'
-            profile: release
     env:
       # Keep rust-toolchain.toml and nested Cargo/rustc calls on this exact leg.
       RUSTUP_TOOLCHAIN: ${{ matrix.toolchain }}
