@@ -24,8 +24,8 @@ async fn real_original_client_and_live_receiver_commit_before_deleting_server_ac
     artifact["executable"] = serde_json::Value::Null;
     assert!(support_sdk::compiler_executable(&serde_json::to_vec(&artifact).unwrap()).is_none());
     assert!(support_sdk::compiler_executable(b"not Cargo JSON").is_none());
-    support_sdk::run("adapter");
     boundary::original_handle_clone_refuses_before_request_is_queued().await;
+    support_sdk::run("adapter");
     machine::live_codec_retains_complete_envelope_and_peers();
     support_sdk::run("bot");
     support_sdk::run("live");

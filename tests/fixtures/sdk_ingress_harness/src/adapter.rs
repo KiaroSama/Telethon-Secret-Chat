@@ -1,4 +1,6 @@
 //! Exercise production adapters through an original Client and typed offline RPCs.
+#[path = "review_custody.rs"]
+mod custody;
 #[path = "adapter_export.rs"]
 mod export;
 #[path = "adapter_media.rs"]
@@ -21,6 +23,7 @@ use kiaro_secret_chat::{
 };
 use std::sync::{Arc, Mutex};
 pub async fn run() {
+    Box::pin(custody::run()).await;
     let mut session = SessionData {
         home_dc: 2,
         ..Default::default()

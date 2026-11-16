@@ -94,19 +94,17 @@ impl PartialOrd for Position {
 
 /// Represents a borrowed or owned segment of text to insert.
 #[derive(Debug)]
-pub enum Segment<'a> {
+pub enum Segment {
     Fixed(&'static str),
-    String(&'a str),
     Owned(String),
     Number(i64),
     Timestamp(Timestamp),
 }
 
-impl<'a> Segment<'a> {
+impl Segment {
     fn len(&self) -> usize {
         match self {
             Self::Fixed(s) => s.len(),
-            Self::String(s) => s.len(),
             Self::Owned(s) => s.len(),
             Self::Number(n) => {
                 let minus_sign = if *n < 0 { 1 } else { 0 };
@@ -118,11 +116,10 @@ impl<'a> Segment<'a> {
     }
 }
 
-impl<'a> fmt::Display for Segment<'a> {
+impl fmt::Display for Segment {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Fixed(s) => f.write_str(s),
-            Self::String(s) => f.write_str(s),
             Self::Owned(s) => f.write_str(s),
             Self::Number(s) => write!(f, "{}", s),
             Self::Timestamp(t) => write!(f, "{}", t),
@@ -155,9 +152,9 @@ pub fn after(index: usize, part: u8, offset: i32) -> Position {
 /// Inject multiple text segments into a message.
 ///
 /// The insertions do not need to be sorted before-hand, as this method takes care of that.
-pub fn inject_into_message<'a, I, F>(message: &str, insertions: I, mut push_character: F) -> String
+pub fn inject_into_message<I, F>(message: &str, insertions: I, mut push_character: F) -> String
 where
-    I: IntoIterator<Item = (Position, Segment<'a>)>,
+    I: IntoIterator<Item = (Position, Segment)>,
     F: FnMut(&mut String, char, usize),
 {
     let mut insertions = insertions.into_iter().collect::<Vec<_>>();

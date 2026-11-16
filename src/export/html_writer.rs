@@ -12,6 +12,7 @@ use super::{
     writer::ExportWriter,
 };
 use std::{
+    collections::{BTreeMap, BTreeSet},
     ops::{Deref, DerefMut},
     path::{Component, Path, PathBuf},
 };
@@ -159,7 +160,9 @@ pub struct HtmlWriter {
     last_message_info: Option<MessageInfo>,
     date_message_id: i64,
     chat: Option<HtmlPage>,
-    last_message_ids_per_file: Vec<i64>,
+    message_pages: BTreeMap<i64, usize>,
+    unresolved_links: BTreeMap<usize, BTreeSet<i64>>,
+    current_page: usize,
     chat_file_empty: bool,
     dates: DateContext,
     started: bool,
@@ -169,13 +172,13 @@ impl HtmlWriter {
         Self::default()
     }
     pub fn wrap_message_link(&self, id: i64, text: &str) -> String {
-        for (index, max) in self.last_message_ids_per_file.iter().enumerate() {
-            if id <= *max {
-                return format!(
-                    "<a href=\"{}#go_to_message{id}\">{text}</a>",
-                    messages_file(index)
-                );
-            }
+        if let Some(index) = self.message_pages.get(&id)
+            && *index != self.current_page
+        {
+            return format!(
+                "<a href=\"{}#go_to_message{id}\">{text}</a>",
+                messages_file(*index)
+            );
         }
         format!("<a href=\"#go_to_message{id}\" onclick=\"return GoToMessage({id})\">{text}</a>")
     }
@@ -249,11 +252,6 @@ impl HtmlWriter {
             if old_index != new_index {
                 chat.write_block(&block)?;
                 self.switch_page(chat, new_index)?;
-                let last = saved
-                    .as_ref()
-                    .or(self.last_message_info.as_ref())
-                    .ok_or(ExportError::WriterState)?;
-                self.last_message_ids_per_file.push(last.id);
                 block.clear();
                 self.last_message_info = None;
                 previous = None;
@@ -278,6 +276,9 @@ impl HtmlWriter {
                     None,
                 )?);
             }
+            self.current_page = new_index;
+            self.message_pages.insert(message.id, new_index);
+            let mut unresolved = BTreeSet::new();
             let (info, content) = chat.push_message(
                 message,
                 previous.as_ref(),
@@ -285,9 +286,18 @@ impl HtmlWriter {
                 &self.settings.path,
                 &peers,
                 &self.environment.internal_links_domain,
-                |id, text| self.wrap_message_link(id, text),
+                |id, text| {
+                    if !self.message_pages.contains_key(&id) {
+                        unresolved.insert(id);
+                    }
+                    self.wrap_message_link(id, text)
+                },
                 &self.dates,
             )?;
+            self.unresolved_links
+                .entry(new_index)
+                .or_default()
+                .extend(unresolved);
             block.extend(content);
             self.messages_count += 1;
             saved = Some(info.clone());
@@ -336,7 +346,9 @@ impl ExportWriter for HtmlWriter {
         self.messages_count = 0;
         self.date_message_id = 0;
         self.last_message_info = None;
-        self.last_message_ids_per_file.clear();
+        self.message_pages.clear();
+        self.unresolved_links.clear();
+        self.current_page = 0;
         Ok(())
     }
     fn write_dialog_slice(&mut self, data: &MessagesSlice) -> Result<()> {
@@ -359,7 +371,29 @@ impl ExportWriter for HtmlWriter {
             )?;
             chat.write_block(&block)?;
         }
-        chat.close()
+        chat.close()?;
+        for (page, ids) in &self.unresolved_links {
+            let targets = ids
+                .iter()
+                .filter_map(|id| {
+                    self.message_pages
+                        .get(id)
+                        .filter(|target| *target != page)
+                        .map(|target| (*id, *target))
+                })
+                .collect::<BTreeMap<_, _>>();
+            if !targets.is_empty() {
+                super::html_links::resolve(
+                    &self
+                        .settings
+                        .path
+                        .join(&self.dialog.relative_path)
+                        .join(messages_file(*page)),
+                    &targets,
+                )?;
+            }
+        }
+        Ok(())
     }
     fn write_dialogs_end(&mut self) -> Result<()> {
         Ok(())

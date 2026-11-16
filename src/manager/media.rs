@@ -526,17 +526,25 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
         reference: MediaReference,
         name: String,
     ) {
+        let worker = match autosave.worker(id) {
+            Ok(worker) => worker,
+            Err(_) => {
+                tracing::warn!(chat_id = id, "Auto-save download admission failed");
+                return;
+            }
+        };
         let transport = self.inner.transport.clone();
         let task = tokio::spawn(async move {
-            let result = async {
-                let path = autosave.files_dir(id)?.join(format!(
-                    "{random_id}-{}",
-                    crate::autosave::safe_file_name(&name)
-                ));
-                let path = transport.download(&reference, &path).await?;
-                autosave.completed_file(id, random_id, &path)
-            }
-            .await;
+            let result=async {
+                let stage=worker.stage()?;
+                let path=stage.path().join("attachment.bin");
+                let held:Arc<dyn Send+Sync>=stage.clone();
+                crate::media::blocking::resources(vec![held],async {
+                    tokio::select! {biased;_=worker.cancelled()=>return Err(Error::Paused),result=transport.download(&reference,&path)=>{result?;}}
+                    worker.publish(random_id,&path,&name)?;
+                    Ok(())
+                }).await
+            }.await;
             if result.is_err() {
                 tracing::warn!(chat_id = id, "Auto-save file download remains pending");
             }

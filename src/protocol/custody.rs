@@ -19,6 +19,13 @@ impl<S: Storage> Protocol<CustodyStorage<S>> {
         }
         result
     }
+    pub(crate) fn paused_custody_ids(&self) -> Vec<i32> {
+        self.state
+            .chats
+            .iter()
+            .filter_map(|(id, chat)| chat.paused.then_some(*id))
+            .collect()
+    }
     pub fn check_custody(&mut self) -> Result<Vec<i32>> {
         let result = self.storage.check_custody();
         if let Some(view) = self.storage.committed_view() {

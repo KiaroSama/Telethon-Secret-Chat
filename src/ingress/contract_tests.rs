@@ -295,8 +295,19 @@ async fn session_projection_uses_custody_frontier_after_stop() {
         seq: 2,
         unread_count: 0,
     });
+    pool.handle
+        .session
+        .set_update_state(grammers_session::types::UpdateState::All(
+            observed.session_state(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(pool.handle.session.updates_state().await.unwrap().qts, 999);
+    let (_tx, sdk_receiver) = receiver(&ingress, &pool).await;
     let binding = ingress.binding().unwrap();
     ingress.fence().unwrap();
+    sdk_receiver.sync_update_state().await.unwrap();
+    assert_eq!(pool.handle.session.updates_state().await.unwrap().qts, 40);
     assert_eq!(qts(&ingress), 40);
     assert_eq!(
         MessageBoxes::from_durable_checkpoint(&ingress.restore().unwrap())
@@ -305,6 +316,7 @@ async fn session_projection_uses_custody_frontier_after_stop() {
             .qts,
         40
     );
+    drop(sdk_receiver);
     drop(pool);
     drop(ingress);
     let restored = restore(&dir.path().join("state/custody.bin"), binding);

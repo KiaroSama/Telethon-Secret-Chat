@@ -28,15 +28,23 @@ pub fn no_file_description(reason: SkipReason) -> Result<&'static str> {
 }
 pub fn rich_file_presentation(file: Option<&File>) -> File {
     let mut result = file.cloned().unwrap_or_default();
-    if !result.relative_path.is_empty() {
-        result.skip_reason = SkipReason::None;
-    } else if !matches!(
-        result.skip_reason,
-        SkipReason::FileType | SkipReason::FileSize
-    ) {
-        result.skip_reason = SkipReason::Unavailable;
-    }
+    result.skip_reason = rich_file_availability(file);
     result
+}
+/// Normalize availability without copying embedded file content.
+fn rich_file_availability(file: Option<&File>) -> SkipReason {
+    match file {
+        Some(file) if !file.relative_path.is_empty() => SkipReason::None,
+        Some(file)
+            if matches!(
+                file.skip_reason,
+                SkipReason::FileType | SkipReason::FileSize
+            ) =>
+        {
+            file.skip_reason.clone()
+        }
+        _ => SkipReason::Unavailable,
+    }
 }
 pub fn rich_photo_presentation(photo: Option<&Photo>) -> Photo {
     let mut result = photo.cloned().unwrap_or_default();
@@ -50,7 +58,7 @@ pub fn rich_document_presentation(document: Option<&Document>) -> Document {
     result
 }
 pub fn rich_file_description(file: Option<&File>) -> Result<&'static str> {
-    no_file_description(rich_file_presentation(file).skip_reason)
+    no_file_description(rich_file_availability(file))
 }
 pub fn rich_block_attributes(classes: &str, kind: &str) -> BTreeMap<String, String> {
     attrs([

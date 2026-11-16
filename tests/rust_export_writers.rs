@@ -197,6 +197,19 @@ fn assets_are_copied_like_tdesktop() {
 }
 #[test]
 fn paging_links_and_cross_page_replies() {
+    let forward = tempfile::tempdir().unwrap();
+    let mut forward_first = (1..=1000)
+        .map(|id| message(id, DATE, "forward target"))
+        .collect::<Vec<_>>();
+    forward_first[0].reply_to_msg_id = 1001;
+    html_export(
+        forward.path(),
+        vec![forward_first, vec![message(1001, DATE, "later page")]],
+        None,
+        None,
+    );
+    let page = fs::read_to_string(forward.path().join("messages.html")).unwrap();
+    assert!(page.contains("href=\"messages2.html#go_to_message1001\""));
     let folder = tempfile::tempdir().unwrap();
     let first = (1..=1000)
         .map(|id| message(id, DATE, "Hi"))

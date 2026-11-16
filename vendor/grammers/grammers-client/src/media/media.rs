@@ -143,8 +143,18 @@ impl Photo {
             spoiler: self.raw.spoiler,
             id: self.to_raw_input_photo(),
             ttl_seconds: self.raw.ttl_seconds,
-            live_photo: false,
-            video: None,
+            live_photo: self.raw.live_photo,
+            video: self.raw.video.as_ref().and_then(|video| match video {
+                tl::enums::Document::Document(document) => Some(
+                    tl::types::InputDocument {
+                        id: document.id,
+                        access_hash: document.access_hash,
+                        file_reference: document.file_reference.clone(),
+                    }
+                    .into(),
+                ),
+                tl::enums::Document::Empty(_) => None,
+            }),
         }
     }
 
@@ -177,10 +187,27 @@ impl Photo {
 
     /// The size of the photo, if not empty.
     pub fn size(&self) -> Option<usize> {
-        self.thumbs()
+        self.downloadable_thumb().map(|(_, size)| size)
+    }
+
+    fn downloadable_thumb(&self) -> Option<(&str, usize)> {
+        let tl::enums::Photo::Photo(photo) = self.raw.photo.as_ref()? else {
+            return None;
+        };
+        photo
+            .sizes
             .iter()
-            .max_by_key(|x| x.size())
-            .map(|thumb| thumb.size())
+            .filter_map(|size| match size {
+                tl::enums::PhotoSize::Size(size) => {
+                    Some((size.r#type.as_str(), usize::try_from(size.size).ok()?))
+                }
+                tl::enums::PhotoSize::Progressive(size) => Some((
+                    size.r#type.as_str(),
+                    usize::try_from(*size.sizes.iter().max()?).ok()?,
+                )),
+                _ => None,
+            })
+            .max_by_key(|(_, size)| *size)
     }
 
     /// Get photo thumbs.
@@ -225,7 +252,7 @@ impl Photo {
 impl Downloadable for Photo {
     fn to_raw_input_location(&self) -> Option<tl::enums::InputFileLocation> {
         use tl::enums::Photo as P;
-
+        let thumb_size = self.downloadable_thumb()?.0.to_owned();
         self.raw.photo.as_ref().and_then(|p| match p {
             P::Empty(_) => None,
             P::Photo(photo) => Some(
@@ -233,12 +260,7 @@ impl Downloadable for Photo {
                     id: photo.id,
                     access_hash: photo.access_hash,
                     file_reference: photo.file_reference.clone(),
-                    thumb_size: self
-                        .thumbs()
-                        .iter()
-                        .max_by_key(|x| x.size())
-                        .map(|ps| ps.photo_type())
-                        .unwrap_or(String::from("w")),
+                    thumb_size,
                 }
                 .into(),
             ),
@@ -497,9 +519,8 @@ impl Sticker {
                 let animated = doc.mime_type == "application/x-tgsticker";
                 let mut sticker_attrs: Option<tl::types::DocumentAttributeSticker> = None;
                 for attr in &doc.attributes {
-                    match attr {
-                        tl::enums::DocumentAttribute::Sticker(s) => sticker_attrs = Some(s.clone()),
-                        _ => (),
+                    if let tl::enums::DocumentAttribute::Sticker(s) = attr {
+                        sticker_attrs = Some(s.clone());
                     }
                 }
                 Some(Self {

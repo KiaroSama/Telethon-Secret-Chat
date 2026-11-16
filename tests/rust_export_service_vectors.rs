@@ -34,6 +34,29 @@ fn run(name: &str) {
                 let message: Message = decode(&args[0]);
                 let dialog: DialogInfo = decode(&args[1]);
                 let peers: PeersMap = decode(&args[2]);
+                if name == "14702609bbab7c5a.json" {
+                    let mut minute = message.clone();
+                    let Some(kiaro_secret_chat::export::model_actions::Action::SetMessagesTTL(ttl)) =
+                        &mut minute.action.content
+                    else {
+                        panic!("TTL fixture")
+                    };
+                    ttl.period = 60;
+                    let text = html_service::service_text(
+                        &minute,
+                        &dialog,
+                        &peers,
+                        "",
+                        "",
+                        str::to_owned,
+                        &dates,
+                    )
+                    .unwrap();
+                    assert_eq!(
+                        text,
+                        b"Ann Lee has set messages to auto-delete in 60 seconds"
+                    );
+                }
                 let prefix = trace["kwargs"]["link_prefix"].as_str().unwrap();
                 let suffix = trace["kwargs"]["link_suffix"].as_str().unwrap();
                 String::from_utf8(

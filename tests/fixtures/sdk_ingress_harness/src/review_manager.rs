@@ -3,6 +3,10 @@
 mod blocking_review;
 #[path = "review_downloads.rs"]
 mod downloads_review;
+#[path = "review_files885.rs"]
+mod files_review885;
+#[path = "review_flush885.rs"]
+mod flush_review885;
 #[path = "review_updates.rs"]
 mod updates_review;
 use kiaro_secret_chat::{
@@ -30,6 +34,9 @@ struct Gate {
 struct Model {
     base: super::adapter::server::Server,
     downloads: VecDeque<Result<Vec<u8>, InvocationError>>,
+    download_queries: Vec<(i64, i32, bool)>,
+    boundary_download: bool,
+    upload_gate: Option<Arc<Gate>>,
     offsets: Vec<i64>,
     deletions: usize,
     unpins: usize,
@@ -79,6 +86,25 @@ impl Model {
             id if id == tl::functions::upload::GetFile::CONSTRUCTOR_ID => {
                 let request = super::decode::<tl::functions::upload::GetFile>(&body[4..]);
                 self.offsets.push(request.offset);
+                self.download_queries
+                    .push((request.offset, request.limit, request.precise));
+                if self.boundary_download {
+                    let boundary = 1024 * 1024;
+                    if request.offset / boundary
+                        != (request.offset + i64::from(request.limit) - 1) / boundary
+                    {
+                        return Err(super::adapter::server::rpc("OFFSET_INVALID"));
+                    }
+                    if !request.precise && boundary % i64::from(request.limit) != 0 {
+                        return Err(super::adapter::server::rpc("LIMIT_INVALID"));
+                    }
+                    return Ok(tl::enums::upload::File::File(tl::types::upload::File {
+                        r#type: tl::enums::storage::FileType::FileUnknown,
+                        mtime: 0,
+                        bytes: vec![9; request.limit as usize],
+                    })
+                    .to_bytes());
+                }
                 if self.auth_failure {
                     return Err(super::adapter::server::rpc("AUTH_KEY_UNREGISTERED"));
                 }
@@ -202,8 +228,9 @@ impl Downloadable for File {
     }
 }
 pub async fn run() {
-    updates_review::run().await;
+    Box::pin(updates_review::run()).await;
     downloads_review::bounded_chunk_progress();
+    flush_review885::run();
     let mut data = SessionData {
         home_dc: 2,
         ..Default::default()
@@ -211,7 +238,8 @@ pub async fn run() {
     for dc in [2, 4] {
         data.dc_options.get_mut(&dc).unwrap().auth_key = Some([7; 256]);
     }
-    let pool = SenderPool::new(Arc::new(MemorySession::from(data)), 123);
+    let session = Arc::new(MemorySession::from(data));
+    let pool = SenderPool::new(session.clone(), 123);
     let client = Client::new(pool.handle.clone());
     let handle = pool.handle.clone();
     let model = Arc::new(Mutex::new(Model::default()));
@@ -223,9 +251,9 @@ pub async fn run() {
                 == tl::functions::upload::GetFile::CONSTRUCTOR_ID
             {
                 remote.lock().unwrap().download_gate.take()
-            } else {
-                None
-            };
+            } else if matches!(u32::from_le_bytes(body[..4].try_into().unwrap()), id if id==tl::functions::upload::SaveFilePart::CONSTRUCTOR_ID || id==tl::functions::upload::SaveBigFilePart::CONSTRUCTOR_ID) {
+                remote.lock().unwrap().upload_gate.take()
+            } else {None};
             if let Some(gate) = gate {
                 gate.entered.notify_one();
                 gate.release.notified().await;
@@ -328,7 +356,12 @@ pub async fn run() {
     let mut suffix = Vec::new();
     source.read_to_end(&mut suffix).await.unwrap();
     assert_eq!(suffix, b"B");
-    blocking_review::run(&client, &model).await;
+    Box::pin(blocking_review::cancelled_upload_preserves_reader(
+        &client, &model,
+    ))
+    .await;
+    Box::pin(files_review885::run(&client, &session, &model)).await;
+    Box::pin(blocking_review::run(&client, &model)).await;
     handle.quit();
     runner.await.unwrap();
     drop(pool.updates);

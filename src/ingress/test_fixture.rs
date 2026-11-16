@@ -25,7 +25,8 @@ pub(super) async fn fixture(
 pub(super) fn unprepared(
     records: usize,
 ) -> (tempfile::TempDir, Arc<DurableIngress>, SenderPool, Vec<u8>) {
-    let dir = tempfile::tempdir().unwrap();
+    let base = std::env::temp_dir().canonicalize().unwrap();
+    let dir = tempfile::Builder::new().tempdir_in(base).unwrap();
     let key: [u8; 256] = std::array::from_fn(|i| i as u8);
     let digest = Sha1::digest(key);
     let key_id = i64::from_le_bytes(digest[12..20].try_into().unwrap());

@@ -69,7 +69,7 @@ pub async fn run(client: &Client, model: &Arc<Mutex<super::Model>>) {
     )
     .unwrap();
     manager.start().await.unwrap();
-    network_wait_cannot_publish_after_stop(&manager, model).await;
+    Box::pin(network_wait_cannot_publish_after_stop(&manager, model)).await;
     let count = model.lock().unwrap().base.files.len();
     let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
     let (release_tx, release_rx) = mpsc::channel();
@@ -210,4 +210,30 @@ async fn network_wait_cannot_publish_after_stop(
             "the already queued RPC may complete but no subsequent chunk may be requested"
         );
     }
+}
+
+pub(super) async fn cancelled_upload_preserves_reader(
+    client: &Client,
+    model: &Arc<Mutex<super::Model>>,
+) {
+    let native = GrammersTransport::new(client.clone());
+    let mut source = FileSource::bytes(b"caller retains this source".to_vec(), "retained.bin")
+        .unwrap()
+        .open()
+        .unwrap();
+    let key = FileKey::generate().unwrap();
+    let gate = Arc::new(super::Gate::default());
+    model.lock().unwrap().upload_gate = Some(gate.clone());
+    let mut upload = Box::pin(native.upload(&mut source, &key));
+    tokio::select! {_=gate.entered.notified()=>{},result=&mut upload=>panic!("upload RPC gate bypassed: {}",result.is_ok())}
+    drop(upload);
+    source.rewind().unwrap();
+    let mut recovered = Vec::new();
+    source.reader().read_to_end(&mut recovered).unwrap();
+    gate.release.notify_one();
+    native.verified_binding("session").await.unwrap();
+    assert_eq!(
+        recovered, b"caller retains this source",
+        "canceling a borrowed upload must preserve the original reader; explicit rewind restores already consumed bytes"
+    );
 }

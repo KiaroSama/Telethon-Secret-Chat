@@ -56,8 +56,8 @@ pub(super) fn missing_parent_is_created_for_persistent_state() {
     #[cfg(unix)]
     super::directory::SYNCED_PARENTS.with(|paths| {
         assert_eq!(
-            *paths.borrow(),
-            [
+            &paths.borrow()[paths.borrow().len() - 2..],
+            &[
                 directory.path().to_path_buf(),
                 directory.path().join("missing")
             ]
@@ -85,6 +85,19 @@ pub(super) fn missing_parent_is_created_for_persistent_state() {
                 & 0o777,
             0o700
         );
+        let retry = directory.path().join("retry/child/state.json");
+        super::directory::FAIL_NEXT_PARENT.with(|path| {
+            *path.borrow_mut() = Some(directory.path().to_path_buf());
+        });
+        assert!(FileStorage::open(&retry).is_err());
+        super::directory::SYNCED_PARENTS.with(|paths| paths.borrow_mut().clear());
+        let _reopened = FileStorage::open(&retry).unwrap();
+        super::directory::SYNCED_PARENTS.with(|paths| {
+            assert!(
+                paths.borrow().contains(&directory.path().to_path_buf()),
+                "retry must synchronize the ancestor entry left by the failed open"
+            );
+        });
     }
 }
 pub(super) fn malformed_store_refuses_start() {

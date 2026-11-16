@@ -224,7 +224,11 @@ pub fn desktop_thumb(source: &[u8], size: (u32, u32), quality: Option<u8>) -> Re
     splice(
         &encoded,
         dpm,
-        if channels == 3 { &icc } else { &[] },
+        if channels == 3 && icc.get(16..20) == Some(&b"RGB "[..]) {
+            &icc
+        } else {
+            &[]
+        },
         &source_comments(source),
     )
 }

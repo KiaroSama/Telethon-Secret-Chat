@@ -25,6 +25,11 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
             })?;
             let generation = self.inner.generation.load(Ordering::Acquire);
             self.ensure_binding().await?;
+            let _publication = self
+                .inner
+                .runtime_state
+                .lock()
+                .map_err(|_| Error::Storage)?;
             if self.inner.generation.load(Ordering::Acquire) != generation {
                 return Err(Error::ManagerStopping);
             }
@@ -85,6 +90,7 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
         let startup_generation = self.generation()?;
         let chats = self.protocol(|protocol| Ok(protocol.chat_records()))?;
         for chat in chats {
+            self.check_generation(startup_generation)?;
             if chat.paused || chat.state == ChatState::Suspended {
                 continue;
             }
@@ -110,10 +116,18 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
                 }
             }
         }
-        self.recover_creations().await?;
-        self.resume_saved_downloads()?;
         self.check_generation(startup_generation)?;
-        self.inner.startup_complete.store(true, Ordering::Release);
+        self.recover_creations().await?;
+        {
+            let _publication = self
+                .inner
+                .runtime_state
+                .lock()
+                .map_err(|_| Error::Storage)?;
+            self.check_generation(startup_generation)?;
+            self.resume_saved_downloads()?;
+            self.inner.startup_complete.store(true, Ordering::Release);
+        }
         Ok(())
     }
     /// Coordinate one cancellation-isolated shutdown; a later start retries a failed save.

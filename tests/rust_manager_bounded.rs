@@ -118,6 +118,7 @@ async fn rejected_receive_keeps_existing_receipt_and_forbids_resume() {
 }
 #[tokio::test]
 async fn custody_age_pause_preserves_original_obligation() {
+    partial_pause_failure_still_cancels_committed_chat().await;
     let mut quota = limits();
     quota.age_seconds = 0.2;
     let (a, b, world, id) = pair(TestStorage::default(), quota, Options::default()).await;
@@ -240,3 +241,86 @@ paused!(paused_screenshot_sends_nothing, "screenshot");
 paused!(paused_typing_sends_nothing, "typing");
 paused!(paused_upload_sends_nothing, "file");
 paused!(paused_forward_sends_nothing, "forward");
+
+async fn partial_pause_failure_still_cancels_committed_chat() {
+    use std::sync::{Mutex, atomic::AtomicUsize};
+    let storage = TestStorage::default();
+    let mut quota = limits();
+    quota.age_seconds = 2.0;
+    let (a, b, world, first) = pair(storage.clone(), quota, Options::default()).await;
+    let second = a.create(peer(2000)).await.unwrap().id;
+    pump(&a, &b, &world).await;
+    b.accept(second).await.unwrap();
+    pump(&a, &b, &world).await;
+    assert!(first < second);
+    let entered = Arc::new(AtomicUsize::new(0));
+    let running = entered.clone();
+    let cleaned = Arc::new(Mutex::new(Vec::new()));
+    let done = cleaned.clone();
+    a.on_async_with_cleanup(
+        "MessageReceived",
+        "custody_failure",
+        move |_| {
+            let entered = running.clone();
+            async move {
+                entered.fetch_add(1, Ordering::AcqRel);
+                std::future::pending::<kiaro_secret_chat::error::Result<()>>().await
+            }
+        },
+        move |event| {
+            let done = done.clone();
+            async move {
+                if let kiaro_secret_chat::manager::Event::MessageReceived(message) = event {
+                    done.lock().unwrap().push(message.chat_id);
+                }
+                Ok(())
+            }
+        },
+    )
+    .unwrap();
+    b.send_message(first, "first owed", None, None)
+        .await
+        .unwrap();
+    b.send_message(second, "second owed", None, None)
+        .await
+        .unwrap();
+    pump(&a, &b, &world).await;
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while entered.load(Ordering::Acquire) != 2 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let before = a.pending_relay_deliveries(first).unwrap();
+    tokio::time::sleep(Duration::from_millis(2100)).await;
+    storage.fail_on_commit.store(
+        storage.commits.load(Ordering::Acquire) + 2,
+        Ordering::Release,
+    );
+    assert!(matches!(a.check_custody(), Err(Error::Storage)));
+    assert!(a.pause_status(first).unwrap().paused);
+    assert!(
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while !cleaned.lock().unwrap().contains(&first) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .is_ok(),
+        "a later failed pause must not skip cancellation of the already committed paused chat"
+    );
+    assert_eq!(
+        storage.state.lock().unwrap().as_ref().unwrap().chats[&first]
+            .deliveries
+            .values()
+            .next()
+            .unwrap()
+            .body,
+        before[0].message.body
+    );
+    storage.fail_on_commit.store(0, Ordering::Release);
+    a.check_custody().unwrap();
+    a.stop().await.unwrap();
+    b.stop().await.unwrap();
+}

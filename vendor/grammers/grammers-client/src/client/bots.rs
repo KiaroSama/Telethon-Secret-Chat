@@ -167,30 +167,10 @@ impl Client {
     ) -> Result<bool, InvocationError> {
         let text = Some(message.text).filter(|text| !text.is_empty());
         let entities = parse_mention_entities(self, message.entities).await;
-        if message.media.as_ref().is_some_and(|media| {
-            !matches!(
-                media,
-                tl::enums::InputMedia::PhotoExternal(_)
-                    | tl::enums::InputMedia::DocumentExternal(_),
-            )
-        }) {
-            let dc_id = message_id.dc_id();
-            self.invoke_in_dc(
-                dc_id,
-                &tl::functions::messages::EditInlineBotMessage {
-                    id: message_id,
-                    message: text,
-                    media: message.media,
-                    entities,
-                    no_webpage: !message.link_preview,
-                    reply_markup: message.reply_markup,
-                    invert_media: message.invert_media,
-                    rich_message: None,
-                },
-            )
-            .await
-        } else {
-            self.invoke(&tl::functions::messages::EditInlineBotMessage {
+        let dc_id = message_id.dc_id();
+        self.invoke_in_dc(
+            dc_id,
+            &tl::functions::messages::EditInlineBotMessage {
                 id: message_id,
                 message: text,
                 media: message.media,
@@ -198,9 +178,9 @@ impl Client {
                 no_webpage: !message.link_preview,
                 reply_markup: message.reply_markup,
                 invert_media: message.invert_media,
-                rich_message: None,
-            })
-            .await
-        }
+                rich_message: message.rich_message,
+            },
+        )
+        .await
     }
 }

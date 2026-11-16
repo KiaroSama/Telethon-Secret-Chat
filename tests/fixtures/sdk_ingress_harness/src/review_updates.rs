@@ -86,16 +86,25 @@ pub async fn run() {
             .to_bytes(),
         )
     }));
-    let mut stream = client
-        .stream_updates(
-            pool.updates,
-            UpdatesConfiguration {
-                catch_up: true,
-                ..Default::default()
-            },
-        )
+    let stream = client
+        .stream_updates(pool.updates, UpdatesConfiguration { catch_up: true })
         .await
         .unwrap();
+    // This independently owned stream scenario must not compound the parent
+    // suite's generator poll frames on Windows' default 1 MiB main stack.
+    // JoinSet aborts the child if the outer suite is canceled or times out.
+    let mut checks = tokio::task::JoinSet::new();
+    checks.spawn(verify_stream(stream, session, live));
+    checks.join_next().await.unwrap().unwrap();
+    handle.quit();
+    runner.await.unwrap();
+}
+
+async fn verify_stream(
+    mut stream: kiaro_secret_chat::grammers_client::client::UpdateStream,
+    session: Arc<GateSession>,
+    live: tokio::sync::mpsc::Sender<UpdatesLike>,
+) {
     let mut users: Vec<tl::enums::User> = super::super::decode(&super::super::self_user(false));
     let tl::enums::User::User(user) = &mut users[0] else {
         panic!()
@@ -140,20 +149,21 @@ pub async fn run() {
     );
     assert_eq!(session.updates_state().await.unwrap().qts, 40);
     session.release.notify_one();
-    let (first, _, _) = tokio::time::timeout(std::time::Duration::from_secs(2), stream.next_raw())
-        .await
-        .unwrap()
-        .unwrap();
+    let (first, _, _) = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        Box::pin(stream.next_raw()),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     assert!(matches!(first,tl::enums::Update::NewEncryptedMessage(update)if update.qts==41));
     assert!(
         stream.sync_update_state().await.is_err(),
         "a caller has not observed the second buffered update"
     );
     assert_eq!(session.updates_state().await.unwrap().qts, 40);
-    let (second, _, _) = stream.next_raw().await.unwrap();
+    let (second, _, _) = Box::pin(stream.next_raw()).await.unwrap();
     assert!(matches!(second,tl::enums::Update::NewEncryptedMessage(update)if update.qts==42));
     stream.sync_update_state().await.unwrap();
     assert_eq!(session.updates_state().await.unwrap().qts, 42);
-    handle.quit();
-    runner.await.unwrap();
 }

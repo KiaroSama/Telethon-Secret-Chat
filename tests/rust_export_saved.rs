@@ -317,8 +317,9 @@ fn saved_dates_handed_to_writer() {
         )
         .unwrap()
         .messages,
-        3
+        1
     );
+    assert_eq!(output.dialog.messages_count_per_split, [1]);
     assert_eq!(
         output.slices[0]
             .list
@@ -584,6 +585,7 @@ fn date_range_reaches_native_writer() {
     let result = manager
         .export_saved_messages(7, &d.path().join("limited"), &own, &peer, &s)
         .unwrap();
+    assert_eq!(result.messages, 1);
     let v: Value =
         serde_json::from_slice(&fs::read(result.path.join("result.json")).unwrap()).unwrap();
     assert_eq!(
@@ -595,4 +597,12 @@ fn date_range_reaches_native_writer() {
             .collect::<Vec<_>>(),
         [2]
     );
+    s.single_peer_till = BASE + 80;
+    let empty = manager
+        .export_saved_messages(7, &d.path().join("empty-range"), &own, &peer, &s)
+        .unwrap();
+    assert_eq!(empty.messages, 0);
+    let value: Value =
+        serde_json::from_slice(&fs::read(empty.path.join("result.json")).unwrap()).unwrap();
+    assert!(value["messages"].as_array().unwrap().is_empty());
 }

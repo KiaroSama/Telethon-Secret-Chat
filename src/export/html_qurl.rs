@@ -375,7 +375,10 @@ fn set_authority(url: &mut ParsedUrl, auth: &str) -> bool {
             if !b.is_ascii_digit() {
                 return false;
             }
-            port = port.wrapping_mul(10).wrapping_add(u32::from(b - b'0'));
+            port = port * 10 + u32::from(b - b'0');
+            if port > 65535 {
+                return false;
+            }
         }
         if port > 65535 {
             return false;

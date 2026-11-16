@@ -134,6 +134,7 @@ impl ParticipantIter {
                                 InvocationError::Dropped("participant peer missing from response"),
                             )?);
                         }
+                        *total = Some(buffer.len());
                         return Ok(buffer.len());
                     }
                     tl::enums::ChatParticipants::Participants(c) => c.participants,
@@ -195,8 +196,8 @@ impl ParticipantIter {
         // Need to split the `match` because `fill_buffer()` borrows mutably.
         match &mut self.0 {
             ParticipantIterInner::Empty => {}
-            ParticipantIterInner::Chat { buffer, .. } => {
-                if buffer.is_empty() {
+            ParticipantIterInner::Chat { buffer, total, .. } => {
+                if buffer.is_empty() && total.is_none() {
                     self.fill_buffer().await?;
                 }
             }
@@ -210,13 +211,7 @@ impl ParticipantIter {
 
         match &mut self.0 {
             ParticipantIterInner::Empty => Ok(None),
-            ParticipantIterInner::Chat { buffer, .. } => {
-                let result = buffer.pop_front();
-                if buffer.is_empty() {
-                    self.0 = ParticipantIterInner::Empty;
-                }
-                Ok(result)
-            }
+            ParticipantIterInner::Chat { buffer, .. } => Ok(buffer.pop_front()),
             ParticipantIterInner::Channel(iter) => Ok(iter.pop_item()),
         }
     }

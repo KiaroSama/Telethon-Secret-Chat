@@ -235,7 +235,7 @@ impl TextPart {
 }
 pub fn parse_text(text: &str, entities: &[Value]) -> Vec<TextPart> {
     let units = text.encode_utf16().collect::<Vec<_>>();
-    let size = text.len();
+    let size = units.len();
     let mut offset = 0usize;
     let mut result = Vec::new();
     // Desktop entity offsets are QString UTF-16 positions; its substring operation

@@ -16,7 +16,7 @@ pub(crate) struct ClientInner {
     pub(crate) api_id: i32,
     pub(crate) handle: SenderPoolHandle,
     pub(crate) configuration: ClientConfiguration,
-    pub(crate) auth_copied_to_dcs: tokio::sync::Mutex<Vec<i32>>,
+    pub(crate) auth_copied_to_dcs: tokio::sync::Mutex<Vec<(i32, [u8; 32])>>,
 }
 
 /// Wrapper around [`SenderPool`] to facilitate interaction with Telegram's API.

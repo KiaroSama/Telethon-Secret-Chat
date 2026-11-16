@@ -7,15 +7,20 @@ use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
     fs::{self, OpenOptions},
-    io::{Read, Write},
+    io::{Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     sync::{Arc, LazyLock, Mutex, Weak},
 };
-type ChatLocks = BTreeMap<PathBuf, Weak<Mutex<()>>>;
+#[derive(Default)]
+struct ArchiveChat {
+    generation: u64,
+    changed: Arc<tokio::sync::Notify>,
+}
+type ChatLocks = BTreeMap<PathBuf, Weak<Mutex<ArchiveChat>>>;
 static CHAT_LOCKS: LazyLock<Mutex<ChatLocks>> = LazyLock::new(Mutex::default);
 // Independently loaded settings and cloned archive workers must share the same
 // transaction lock for the same physical conversation directory.
-fn chat_lock(root: &Path, id: i32) -> Result<Arc<Mutex<()>>> {
+fn chat_lock(root: &Path, id: i32) -> Result<Arc<Mutex<ArchiveChat>>> {
     let root = match fs::canonicalize(root) {
         Ok(root) => root,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -29,7 +34,7 @@ fn chat_lock(root: &Path, id: i32) -> Result<Arc<Mutex<()>>> {
     if let Some(lock) = slot.upgrade() {
         return Ok(lock);
     }
-    let lock = Arc::new(Mutex::new(()));
+    let lock = Arc::new(Mutex::new(ArchiveChat::default()));
     *slot = Arc::downgrade(&lock);
     Ok(lock)
 }
@@ -127,7 +132,7 @@ impl AutoSave {
     fn append_unlocked(&self, directory: &Path, record: &Value) -> Result<()> {
         let path = directory.join("messages.jsonl");
         let mut options = OpenOptions::new();
-        options.append(true).create(true);
+        options.read(true).write(true).create(true).truncate(false);
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt;
@@ -138,9 +143,20 @@ impl AutoSave {
         let mut file = options.open(path).map_err(|_| Error::Storage)?;
         let mut encoded = serde_json::to_vec(record).map_err(|_| Error::Storage)?;
         encoded.push(b'\n');
-        file.write_all(&encoded)
-            .and_then(|()| file.sync_all())
-            .map_err(|_| Error::Storage)
+        file.lock().map_err(|_| Error::Storage)?;
+        let result = (|| {
+            recover_tail(&mut file)?;
+            let original = file.metadata().map_err(|_| Error::Storage)?.len();
+            file.seek(SeekFrom::End(0)).map_err(|_| Error::Storage)?;
+            let append = file.write_all(&encoded).and_then(|()| file.sync_all());
+            if append.is_err() {
+                let _ = file.set_len(original);
+                let _ = file.sync_all();
+            }
+            append.map_err(|_| Error::Storage)
+        })();
+        let unlocked = file.unlock().map_err(|_| Error::Storage);
+        result.and(unlocked)
     }
     pub fn read(&self, id: i32) -> Result<Vec<Value>> {
         let Some(folder) = &self.saved_in else {
@@ -185,7 +201,9 @@ impl AutoSave {
     pub fn delete(&self, id: i32) -> Result<()> {
         if let Some(folder) = &self.saved_in {
             let lock = chat_lock(folder, id)?;
-            let _guard = lock.lock().map_err(|_| Error::Storage)?;
+            let mut guard = lock.lock().map_err(|_| Error::Storage)?;
+            guard.generation = guard.generation.checked_add(1).ok_or(Error::Capacity)?;
+            guard.changed.notify_waiters();
             let path = folder.join(id.to_string());
             match fs::remove_dir_all(path) {
                 Ok(()) => {}
@@ -310,28 +328,41 @@ impl AutoSave {
         self.append_unlocked(&directory,&json!({"v":1,"type":"file","id":random_id,"path":path.to_str().ok_or(Error::Storage)?}))?;
         self.settle_unlocked(id, random_id)
     }
+    pub(crate) fn worker(&self, id: i32) -> Result<ArchiveWorker> {
+        let root = self.folder.as_deref().ok_or(Error::Storage)?;
+        let lock = chat_lock(root, id)?;
+        let guard = lock.lock().map_err(|_| Error::Storage)?;
+        let generation = guard.generation;
+        let changed = Arc::clone(&guard.changed);
+        drop(guard);
+        Ok(ArchiveWorker {
+            archive: self.clone(),
+            id,
+            lock,
+            generation,
+            changed,
+        })
+    }
     pub fn copy_source(
         &self,
         id: i32,
         random_id: i64,
         source: &mut SourceReader,
     ) -> Result<PathBuf> {
-        let name = safe_file_name(&source.name);
-        let path = self.files_dir(id)?.join(format!("{random_id}-{name}"));
+        let worker = self.worker(id)?;
+        let stage = worker.stage()?;
+        let path = stage.path().join("source.bin");
+        let mut temporary = crate::temporary::create(stage.path(), ".saved-copy-")?;
         source.rewind()?;
-        let parent = path.parent().ok_or(Error::Storage)?;
-        crate::temporary::cleanup(parent, ".saved-copy-");
-        let mut temporary = crate::temporary::create(parent, ".saved-copy-")?;
         let size = source.size;
-        let mut limited = source.reader().take(size);
-        let copied = std::io::copy(&mut limited, &mut temporary).map_err(|_| Error::Storage)?;
+        let copied = std::io::copy(&mut source.reader().take(size), &mut temporary)
+            .map_err(|_| Error::Storage)?;
         if copied != size {
             return Err(Error::Media);
         }
         temporary.as_file().sync_all().map_err(|_| Error::Storage)?;
-        temporary.persist(&path).map_err(|_| Error::Storage)?;
-        self.completed_file(id, random_id, &path)?;
-        Ok(path)
+        temporary.persist(&path)?;
+        worker.publish(random_id, &path, &source.name)
     }
 }
 pub fn safe_file_name(value: &str) -> String {
@@ -363,4 +394,105 @@ fn restrict_directory(path: &Path) -> Result<()> {
         let _ = path;
     }
     Ok(())
+}
+
+fn recover_tail(file: &mut std::fs::File) -> Result<()> {
+    let length = file.metadata().map_err(|_| Error::Storage)?.len();
+    if length == 0 {
+        return Ok(());
+    }
+    file.seek(SeekFrom::End(-1)).map_err(|_| Error::Storage)?;
+    let mut last = [0];
+    file.read_exact(&mut last).map_err(|_| Error::Storage)?;
+    if last[0] == b'\n' {
+        return Ok(());
+    }
+    let mut boundary = 0;
+    let mut position = length;
+    let mut buffer = [0; 4096];
+    while position > 0 {
+        let count =
+            usize::try_from(position.min(buffer.len() as u64)).map_err(|_| Error::Storage)?;
+        position -= count as u64;
+        file.seek(SeekFrom::Start(position))
+            .map_err(|_| Error::Storage)?;
+        file.read_exact(&mut buffer[..count])
+            .map_err(|_| Error::Storage)?;
+        if let Some(index) = buffer[..count].iter().rposition(|byte| *byte == b'\n') {
+            boundary = position + index as u64 + 1;
+            break;
+        }
+    }
+    file.seek(SeekFrom::Start(boundary))
+        .map_err(|_| Error::Storage)?;
+    let complete = match serde_json::from_reader::<_, serde::de::IgnoredAny>(
+        Read::by_ref(file).take(length - boundary),
+    ) {
+        Ok(_) => true,
+        Err(error) if error.is_io() => return Err(Error::Storage),
+        Err(_) => false,
+    };
+    if complete {
+        file.seek(SeekFrom::End(0)).map_err(|_| Error::Storage)?;
+        file.write_all(b"\n").map_err(|_| Error::Storage)?;
+    } else {
+        file.set_len(boundary).map_err(|_| Error::Storage)?;
+    }
+    file.sync_all().map_err(|_| Error::Storage)
+}
+
+pub(crate) struct ArchiveWorker {
+    archive: AutoSave,
+    id: i32,
+    lock: Arc<Mutex<ArchiveChat>>,
+    generation: u64,
+    changed: Arc<tokio::sync::Notify>,
+}
+impl ArchiveWorker {
+    fn current(&self, chat: &ArchiveChat) -> Result<()> {
+        if chat.generation == self.generation {
+            Ok(())
+        } else {
+            Err(Error::Paused)
+        }
+    }
+    pub(crate) fn stage(&self) -> Result<Arc<tempfile::TempDir>> {
+        let chat = self.lock.lock().map_err(|_| Error::Storage)?;
+        self.current(&chat)?;
+        let root = self.archive.folder.as_deref().ok_or(Error::Storage)?;
+        fs::create_dir_all(root).map_err(|_| Error::Storage)?;
+        tempfile::Builder::new()
+            .prefix(".saved-download-")
+            .tempdir_in(root)
+            .map(Arc::new)
+            .map_err(|_| Error::Storage)
+    }
+    pub(crate) async fn cancelled(&self) {
+        loop {
+            let changed = self.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if self
+                .lock
+                .lock()
+                .map_or(true, |chat| chat.generation != self.generation)
+            {
+                return;
+            }
+            changed.await;
+        }
+    }
+    pub(crate) fn publish(&self, random_id: i64, staged: &Path, name: &str) -> Result<PathBuf> {
+        let chat = self.lock.lock().map_err(|_| Error::Storage)?;
+        self.current(&chat)?;
+        let directory = self.archive.chat_dir(self.id)?;
+        let files = directory.join("files");
+        fs::create_dir_all(&files).map_err(|_| Error::Storage)?;
+        restrict_directory(&files)?;
+        let path = files.join(format!("{random_id}-{}", safe_file_name(name)));
+        fs::rename(staged, &path).map_err(|_| Error::Storage)?;
+        self.archive.append_unlocked(&directory,&json!({"v":1,"type":"file","id":random_id,"path":path.to_str().ok_or(Error::Storage)?}))?;
+        self.archive.settle_unlocked(self.id, random_id)?;
+        Ok(path)
+    }
 }

@@ -92,6 +92,9 @@ impl NetStream {
                             .map_err(|err| io::Error::new(ErrorKind::ConnectionAborted, err))?,
                     ))
                 } else {
+                    // RFC1929 credentials are plaintext on this TCP leg. The
+                    // public proxy_url contract requires a trusted local or
+                    // independently tunneled proxy when credentials are used.
                     Ok(NetStream::ProxySocks5(
                         tokio_socks::tcp::Socks5Stream::connect_with_password(
                             socks_addr, addr, username, password,

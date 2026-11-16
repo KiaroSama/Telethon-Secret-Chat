@@ -9,6 +9,8 @@
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::thread;
 use std::time::SystemTime;
+mod clock;
+use clock::random_id_seed;
 
 use grammers_tl_types as tl;
 use jiff::Timestamp;
@@ -21,10 +23,7 @@ static LAST_ID: AtomicI64 = AtomicI64::new(0);
 /// Generate a "random" ID suitable for sending messages or media.
 pub(crate) fn generate_random_id() -> i64 {
     while LAST_ID.load(Ordering::SeqCst) == 0 {
-        let now = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .expect("system time is before epoch")
-            .as_nanos() as i64;
+        let now = random_id_seed(SystemTime::now());
 
         if LAST_ID
             .compare_exchange(0, now, Ordering::SeqCst, Ordering::SeqCst)

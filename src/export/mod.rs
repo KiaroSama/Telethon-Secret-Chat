@@ -5,6 +5,7 @@ pub mod files;
 pub mod format;
 pub mod html_countries;
 pub mod html_layout;
+mod html_links;
 pub mod html_media;
 pub mod html_media_extra;
 pub mod html_message;

@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use grammers_mtsender::{InvocationError, SenderPoolFatHandle};
 use grammers_tl_types as tl;
+use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 
 use super::{Client, ClientConfiguration, ClientInner};
@@ -115,32 +116,49 @@ impl Client {
 
     pub(crate) async fn copy_auth_to_dc(&self, target_dc_id: i32) -> Result<(), InvocationError> {
         let mut auth_copied_to_dcs = self.0.auth_copied_to_dcs.lock().await;
-        if auth_copied_to_dcs.contains(&target_dc_id) {
-            return Ok(());
-        }
-
         let home_dc_id = self.0.session.home_dc_id()?;
         if target_dc_id == home_dc_id {
             return Ok(());
         }
-
-        let tl::enums::auth::ExportedAuthorization::Authorization(exported_auth) = self
-            .invoke(&tl::functions::auth::ExportAuthorization {
-                dc_id: target_dc_id,
-            })
+        // The authorization import belongs to a particular target auth key, not
+        // merely its DC. Keep only a digest; never retain another raw key copy.
+        let fingerprint = || -> Result<Option<[u8; 32]>, InvocationError> {
+            Ok(self.0.session.dc_option(target_dc_id)?.and_then(|option| {
+                option
+                    .auth_key
+                    .as_ref()
+                    .map(|key| Sha256::digest(key).into())
+            }))
+        };
+        for _ in 0..2 {
+            let before = fingerprint()?;
+            if before.is_some_and(|digest| auth_copied_to_dcs.contains(&(target_dc_id, digest))) {
+                return Ok(());
+            }
+            let tl::enums::auth::ExportedAuthorization::Authorization(exported_auth) = self
+                .invoke(&tl::functions::auth::ExportAuthorization {
+                    dc_id: target_dc_id,
+                })
+                .await?;
+            self.invoke_in_dc(
+                target_dc_id,
+                &tl::functions::auth::ImportAuthorization {
+                    id: exported_auth.id,
+                    bytes: exported_auth.bytes,
+                },
+            )
             .await?;
-
-        self.invoke_in_dc(
-            target_dc_id,
-            &tl::functions::auth::ImportAuthorization {
-                id: exported_auth.id,
-                bytes: exported_auth.bytes,
-            },
-        )
-        .await?;
-
-        auth_copied_to_dcs.push(target_dc_id);
-
-        Ok(())
+            let after = fingerprint()?;
+            // Opening a fresh connection can create its key during import. Only
+            // publish an import proven to span the same key on both sides.
+            if let Some(digest) = after.filter(|_| before == after) {
+                auth_copied_to_dcs.retain(|(dc, _)| *dc != target_dc_id);
+                auth_copied_to_dcs.push((target_dc_id, digest));
+                return Ok(());
+            }
+        }
+        Err(InvocationError::Dropped(
+            "target authorization changed during import",
+        ))
     }
 }

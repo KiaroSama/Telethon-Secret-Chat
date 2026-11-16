@@ -119,27 +119,7 @@ impl<F: Future<Output = BuilderRes>> AdminRightsBuilder<F> {
                 peer: user.into(),
                 user: user.into(),
                 rank: "".into(),
-                rights: tl::types::ChatAdminRights {
-                    anonymous: false,
-                    change_info: false,
-                    post_messages: false,
-                    edit_messages: false,
-                    delete_messages: false,
-                    ban_users: false,
-                    invite_users: false,
-                    pin_messages: false,
-                    add_admins: false,
-                    manage_call: false,
-                    other: false,
-                    manage_topics: false,
-                    post_stories: false,
-                    edit_stories: false,
-                    delete_stories: false,
-                    manage_direct_messages: false,
-                    manage_ranks: false,
-                    manage_linked_peers: false,
-                    manage_welcome_messages: false,
-                },
+                rights: empty_admin_rights(),
             }),
             fut_gen,
             fut: None,
@@ -174,7 +154,10 @@ impl<F: Future<Output = BuilderRes>> AdminRightsBuilder<F> {
                     s.rights = a.admin_rights.into();
                     s.rank = a.rank.unwrap_or_default();
                 }
-                _ => (),
+                _ => {
+                    s.rights = empty_admin_rights();
+                    s.rank.clear();
+                }
             }
         } else if s.peer_ref.id.kind() == PeerKind::Chat {
             let uid = match &s.user {
@@ -190,6 +173,8 @@ impl<F: Future<Output = BuilderRes>> AdminRightsBuilder<F> {
                 }
             };
 
+            s.rights = empty_admin_rights();
+            s.rank.clear();
             let mut participants = s.client.iter_participants(s.peer_ref);
             while let Some(participant) = participants.next().await? {
                 if matches!(participant.role, Role::Creator(_) | Role::Admin(_))
@@ -405,32 +390,7 @@ impl<F: Future<Output = BuilderRes>> BannedRightsBuilder<F> {
                 peer_ref: peer,
                 peer: user.into(),
                 user: user.into(),
-                rights: tl::types::ChatBannedRights {
-                    view_messages: false,
-                    send_messages: false,
-                    send_media: false,
-                    send_stickers: false,
-                    send_gifs: false,
-                    send_games: false,
-                    send_inline: false,
-                    embed_links: false,
-                    send_polls: false,
-                    change_info: false,
-                    invite_users: false,
-                    pin_messages: false,
-                    manage_topics: false,
-                    send_photos: false,
-                    send_videos: false,
-                    send_roundvideos: false,
-                    send_audios: false,
-                    send_voices: false,
-                    send_docs: false,
-                    send_plain: false,
-                    edit_rank: false,
-                    send_reactions: false,
-                    manage_linked_peers: false,
-                    until_date: 0,
-                },
+                rights: unrestricted_rights(),
             }),
             fut_gen,
             fut: None,
@@ -457,9 +417,10 @@ impl<F: Future<Output = BuilderRes>> BannedRightsBuilder<F> {
                 })
                 .await?;
 
-            if let tl::enums::ChannelParticipant::Banned(u) = user.participant {
-                s.rights = u.banned_rights.into();
-            }
+            s.rights = match user.participant {
+                tl::enums::ChannelParticipant::Banned(u) => u.banned_rights.into(),
+                _ => unrestricted_rights(),
+            };
         }
 
         Ok(self)
@@ -557,14 +518,69 @@ impl<F: Future<Output = BuilderRes>> BannedRightsBuilder<F> {
     }
 
     /// Apply the restriction for a given duration.
+    /// Durations beyond the representable Unix range use a permanent restriction (zero).
     pub fn duration(mut self, val: Duration) -> Self {
         // TODO this should account for the server time instead (via sender's offset)
         self.inner_mut().rights.until_date = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .expect("system time is before epoch")
-            .as_secs() as i32
-            + val.as_secs() as i32;
+            .ok()
+            .and_then(|now| now.as_secs().checked_add(val.as_secs()))
+            .and_then(|expiry| i32::try_from(expiry).ok())
+            .unwrap_or(0);
 
         self
+    }
+}
+
+fn empty_admin_rights() -> tl::types::ChatAdminRights {
+    tl::types::ChatAdminRights {
+        anonymous: false,
+        change_info: false,
+        post_messages: false,
+        edit_messages: false,
+        delete_messages: false,
+        ban_users: false,
+        invite_users: false,
+        pin_messages: false,
+        add_admins: false,
+        manage_call: false,
+        other: false,
+        manage_topics: false,
+        post_stories: false,
+        edit_stories: false,
+        delete_stories: false,
+        manage_direct_messages: false,
+        manage_ranks: false,
+        manage_linked_peers: false,
+        manage_welcome_messages: false,
+    }
+}
+
+fn unrestricted_rights() -> tl::types::ChatBannedRights {
+    tl::types::ChatBannedRights {
+        view_messages: false,
+        send_messages: false,
+        send_media: false,
+        send_stickers: false,
+        send_gifs: false,
+        send_games: false,
+        send_inline: false,
+        embed_links: false,
+        send_polls: false,
+        change_info: false,
+        invite_users: false,
+        pin_messages: false,
+        manage_topics: false,
+        send_photos: false,
+        send_videos: false,
+        send_roundvideos: false,
+        send_audios: false,
+        send_voices: false,
+        send_docs: false,
+        send_plain: false,
+        edit_rank: false,
+        send_reactions: false,
+        manage_linked_peers: false,
+        until_date: 0,
     }
 }

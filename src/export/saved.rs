@@ -206,7 +206,7 @@ pub fn export_saved_chat_with_copier(
         writer.finish()?;
         Ok(ExportResult {
             path: settings.path,
-            messages: if count == 0 { 0 } else { messages.len() },
+            messages: count,
             files: copied,
             ..Default::default()
         })
@@ -217,16 +217,10 @@ pub fn export_saved_chat_with_copier(
     result
 }
 fn messages_count(messages: &[Message], s: &Settings) -> usize {
-    let latest = messages.iter().map(|message| message.date).max();
-    let earliest = messages.iter().map(|message| message.date).min();
-    if latest.is_none_or(|date| date <= 0 || date < s.single_peer_from)
-        || s.single_peer_till > 0
-            && earliest.is_none_or(|date| date <= 0 || date >= s.single_peer_till)
-    {
-        0
-    } else {
-        messages.len()
-    }
+    messages
+        .iter()
+        .filter(|message| !skip_message_by_date(message, s))
+        .count()
 }
 fn copy_files(
     messages: &mut [Message],

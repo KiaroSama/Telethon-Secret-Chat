@@ -156,6 +156,12 @@ fn html_text_8d71fa8900778701() {
 }
 #[test]
 fn html_text_f0409edd204488bb() {
+    for port in ["4294967376", "184467440737095516160", "65536"] {
+        assert_eq!(
+            safe::safe_message_href(&format!("https://host:{port}/")),
+            None
+        );
+    }
     run("f0409edd204488bb.json");
 }
 #[test]

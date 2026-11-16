@@ -6,6 +6,8 @@ use grammers_session::{
     updates::{MessageBoxes, UpdatesLike},
 };
 use grammers_tl_types as tl;
+#[path = "session885.rs"]
+mod followup885;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -218,6 +220,7 @@ pub async fn run() {
         suggested_post: None,
         rich_message: None,
     };
+    followup885::run(&request);
     let result = machine.process_updates(UpdatesLike::ShortSentMessage {
         request,
         update: tl::types::UpdateShortSentMessage {
