@@ -129,6 +129,7 @@ pub struct TransientStorage<S: Storage> {
     created: BTreeMap<(i32, String), u64>,
     attempts: BTreeMap<(i32, i32), u8>,
     external: BTreeMap<u64, ExternalReservation>,
+    admitted_chat: Option<i32>,
     refused: bool,
 }
 #[derive(Clone)]
@@ -169,6 +170,7 @@ impl<S: Storage> TransientStorage<S> {
             created: BTreeMap::new(),
             attempts: BTreeMap::new(),
             external: BTreeMap::new(),
+            admitted_chat: None,
             refused: false,
         })
     }
@@ -184,6 +186,7 @@ impl<S: Storage> TransientStorage<S> {
     // Suspension can only remove volatile custody. Publish its safe RAM state
     // even after a backend refusal, while retaining every key and counter.
     fn persist_suspension(&mut self, state: State) -> Result<()> {
+        self.admitted_chat = None;
         let projected = projection(&state);
         validate_protected(&projected)?;
         let result = self.protected.commit(&projected);
@@ -433,6 +436,7 @@ impl<S: Storage> Storage for TransientStorage<S> {
         Some(self.state.clone())
     }
     fn admit(&mut self, id: Option<i32>, _operation: Operation, bytes: usize) -> Result<()> {
+        self.admitted_chat = None;
         if self.refused {
             return Err(Error::Storage);
         }
@@ -456,9 +460,11 @@ impl<S: Storage> Storage for TransientStorage<S> {
                 return Err(Error::Paused);
             }
         }
+        self.admitted_chat = id;
         Ok(())
     }
     fn commit(&mut self, state: &State) -> Result<()> {
+        let admitted_chat = self.admitted_chat.take();
         if self.refused {
             let mut cleanup = self.state.clone();
             for chat in cleanup.chats.values_mut() {
@@ -486,19 +492,15 @@ impl<S: Storage> Storage for TransientStorage<S> {
             return Err(Error::Paused);
         }
         if let Err(error) = self.check(state) {
-            // Only a changed existing conversation belongs to this failed
-            // transaction. An earlier admission can have returned without a
-            // commit; global creation work must not inherit that chat's identity.
-            let mut affected = Vec::new();
-            for (id, previous) in &self.state.chats {
-                if let Some(next) = state.chats.get(id)
-                    && serde_json::to_vec(previous).map_err(|_| Error::InvalidState)?
-                        != serde_json::to_vec(next).map_err(|_| Error::InvalidState)?
-                {
-                    affected.push(*id);
-                }
-            }
-            for id in affected {
+            // Refuse an admitted operation on its actual changed owner. Direct
+            // storage commits remain atomic, and a no-op admission cannot lend
+            // an unrelated or unbound transaction a conversation identity.
+            if let Some(id) = admitted_chat
+                && let Some(previous) = self.state.chats.get(&id)
+                && let Some(next) = state.chats.get(&id)
+                && serde_json::to_vec(previous).map_err(|_| Error::InvalidState)?
+                    != serde_json::to_vec(next).map_err(|_| Error::InvalidState)?
+            {
                 self.suspend(id)?;
             }
             return Err(error);
