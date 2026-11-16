@@ -1,4 +1,6 @@
 #![allow(clippy::unwrap_used)]
+#[path = "support_media/archive_io_review.rs"]
+mod archive_io_review;
 #[path = "support_manager/archive_review.rs"]
 mod archive_review;
 #[path = "support_manager/logging.rs"]
@@ -63,6 +65,7 @@ async fn messages_both_directions_include_ttl_and_service_records() {
 }
 #[tokio::test]
 async fn files_both_directions_are_saved_decrypted_without_keys() {
+    archive_io_review::slow_copy_is_owned_without_blocking_executor().await;
     uncertain_attachment_send_keeps_saved_file_work().await;
     let (a, b, world, id, _folder) = saving().await;
     let incoming = b"a photo from b".repeat(50);
@@ -114,6 +117,7 @@ async fn deleting_saved_conversation_removes_only_selected_folder() {
 }
 #[tokio::test]
 async fn turning_archive_off_retains_prior_rows_and_stops_new_rows() {
+    archive_io_review::cancelled_archive_stop_keeps_download_owner().await;
     disabling_archive_closes_download_admission_first().await;
     let (a, _b, _world, id, _folder) = saving().await;
     a.send_message(id, "saved", None, None).await.unwrap();
@@ -268,6 +272,7 @@ async fn archive_failure_never_breaks_delivery_or_send() {
 }
 #[tokio::test]
 async fn interrupted_file_download_is_resumed_on_next_start() {
+    archive_io_review::recovery_respects_configured_task_limit().await;
     let (a, b, world, id, _folder) = saving().await;
     let gate = Arc::new(Gate::default());
     world.lock().unwrap().download_gate = Some(Arc::clone(&gate));

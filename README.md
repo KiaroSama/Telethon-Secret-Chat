@@ -8,7 +8,7 @@ Telegram MTProto 2.0 secret chats for an application-owned
 [![Rust source distribution](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/package-validation.yml/badge.svg?branch=rewrite%2Frust-grammers)](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/package-validation.yml?query=branch%3Arewrite%2Frust-grammers)
 [![CodeQL Rust](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/codeql.yml/badge.svg?branch=rewrite%2Frust-grammers)](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/codeql.yml?query=branch%3Arewrite%2Frust-grammers)
 [![Secret scan](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/gitleaks.yml/badge.svg?branch=rewrite%2Frust-grammers)](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/gitleaks.yml?query=branch%3Arewrite%2Frust-grammers)
-[![Rust 1.95+](https://img.shields.io/badge/Rust-1.95%2B-000000?logo=rust)](Cargo.toml)
+[![Rust 1.99.1](https://img.shields.io/badge/Rust-1.99.1-000000?logo=rust)](rust-toolchain.toml)
 [![Linux · macOS · Windows](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)](.github/workflows/rust.yml)
 [![x86_64 · ARM64](https://img.shields.io/badge/architecture-x86__64%20%7C%20ARM64-blue)](docs/rust-ci.md)
 [![GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
@@ -115,7 +115,8 @@ cargo run --locked --bin migration-audit -- --require-complete
 ```
 
 CI always builds ARM64 and x86_64 natively on Linux/macOS/Windows. Nine legs
-cover MSRV 1.95, the pinned current toolchain, debug/release and portable AES. The evidence verifier compares
+use Rust 1.99.1, with a separate MSRV 1.95 compatibility check, debug/release
+and portable AES. The evidence verifier compares
 every identity, result and summary with the 1851-case inventory. Missing/extra
 cases, filtered runs and undeclared ignores fail it. Property, stateful, oracle,
 lifecycle, installed-Git consumer and SDK boundary scenarios retain their roles.

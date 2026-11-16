@@ -94,7 +94,7 @@ fn build() -> Harness {
     let quote =
         |path: &Path| serde_json::to_string(path.to_str().expect("UTF-8 fixture path")).unwrap();
     let manifest = format!(
-        "[package]\nname='kiaro-sdk-ingress-harness'\nversion='0.0.0'\nedition='2024'\n[dependencies]\nkiaro-secret-chat={{path={}}}\ngrammers-mtsender={{path={},features=['kiaro-offline-test-fixture']}}\ntokio={{version='1.54.1',features=['rt','macros','sync','time']}}\nsha1='0.11.0'\ntempfile='3'\nserde_json='1'\n[workspace]\n",
+        "[package]\nname='kiaro-sdk-ingress-harness'\nversion='0.0.0'\nedition='2024'\n[dependencies]\nkiaro-secret-chat={{path={}}}\ngrammers-mtsender={{path={},features=['kiaro-offline-test-fixture']}}\ntokio={{version='1.54.1',features=['rt','macros','sync','time','net','io-util','test-util']}}\nsha1='0.11.0'\ntempfile='3'\nserde_json='1'\n[workspace]\n",
         quote(&stage),
         quote(&sdk)
     );

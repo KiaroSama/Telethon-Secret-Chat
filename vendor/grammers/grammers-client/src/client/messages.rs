@@ -180,7 +180,7 @@ fn unpack_messages(
     }
 }
 
-impl<R: tl::RemoteCall<Return = tl::enums::messages::Messages>> IterBuffer<R, Message> {
+impl<R: tl::RemoteCall<Return = tl::enums::messages::Messages> + Clone> IterBuffer<R, Message> {
     /// Fetches the total unless cached.
     ///
     /// The `request.limit` should be set to the right value before calling this method.
@@ -210,10 +210,22 @@ impl<R: tl::RemoteCall<Return = tl::enums::messages::Messages>> IterBuffer<R, Me
         reverse: bool,
         peer: Option<PeerRef>,
     ) -> Result<Option<SearchCursor>, InvocationError> {
+        let request = self.request.clone();
+        self.fill_buffer_with_request(&request, limit, reverse, peer)
+            .await
+    }
+
+    async fn fill_buffer_with_request(
+        &mut self,
+        request: &R,
+        limit: i32,
+        reverse: bool,
+        peer: Option<PeerRef>,
+    ) -> Result<Option<SearchCursor>, InvocationError> {
         use tl::enums::messages::Messages;
 
         let (mut messages, users, chats, rate, last_chunk, total) =
-            match self.client.invoke(&self.request).await? {
+            match self.client.invoke(request).await? {
                 Messages::Messages(m) => {
                     let total = m.messages.len();
                     (m.messages, m.users, m.chats, None, true, total)
@@ -364,8 +376,8 @@ impl MessageIter {
             return result;
         }
 
-        self.inner.request.limit = self.inner.determine_limit(MAX_LIMIT);
-        let request = &mut self.inner.request;
+        let mut request = self.inner.request.clone();
+        request.limit = self.inner.determine_limit(MAX_LIMIT);
         if self.reverse {
             request.add_offset = -request.limit;
             request.min_id = request.offset_id;
@@ -376,12 +388,14 @@ impl MessageIter {
             }
         }
         self.inner
-            .fill_buffer(
-                self.inner.request.limit,
+            .fill_buffer_with_request(
+                &request,
+                request.limit,
                 self.reverse,
-                Some(self.inner.request.peer.clone().into()),
+                Some(request.peer.clone().into()),
             )
             .await?;
+        self.inner.request = request;
 
         // Don't bother updating offsets if this is the last time stuff has to be fetched.
         if !self.inner.last_chunk && !self.inner.buffer.is_empty() {
@@ -1219,7 +1233,7 @@ impl Client {
         let (messages, users, chats) = unpack_messages(result);
 
         let peers = self.build_peer_map(users, chats).await;
-        let mut map = messages
+        let map = messages
             .into_iter()
             .filter(|message| !matches!(message, tl::enums::Message::Empty(_)))
             .map(|m| Message::from_raw(self, m, Some(peer), peers.handle()))
@@ -1227,7 +1241,7 @@ impl Client {
             .map(|m| (m.id(), m))
             .collect::<HashMap<_, _>>();
 
-        Ok(message_ids.iter().map(|id| map.remove(id)).collect())
+        Ok(message_ids.iter().map(|id| map.get(id).cloned()).collect())
     }
 
     /// Get the latest pin from a peer.

@@ -9,6 +9,7 @@ use crate::{
 };
 #[tokio::test]
 async fn nested_reservations_reuse_task_and_release_each_payload() {
+    stale_operation_drop_waits_for_generation_fence();
     crate::media::SourceReader::verify_refill_ownership().await;
     review885::ea3_regressions().await;
     review885::acknowledged_ids_are_budgeted();
@@ -378,4 +379,57 @@ async fn blocking_workers_retain_operation_leases(
     .unwrap();
     let all = manager.reserve_payload(None, 65536 - used).unwrap();
     drop(all);
+}
+
+// Fold this race control into the original runtime case; no extra CI identity.
+fn stale_operation_drop_waits_for_generation_fence() {
+    let (transport, _) = support::Fake::pair();
+    let manager = SecretChatManager::new(
+        transport,
+        TransientStorage::new(
+            support::TestStorage::default(),
+            "11".repeat(32),
+            TransientLimits::default(),
+        )
+        .unwrap(),
+        "11".repeat(32),
+        Options::default(),
+    )
+    .unwrap();
+    let generation = manager.inner.generation.load(Ordering::Acquire);
+    let creation_generation = manager.inner.creation_generation.load(Ordering::Acquire);
+    let guard = OperationGuard {
+        manager: manager.clone(),
+        id: None,
+        kind: WorkKind::Create,
+        generation,
+        creation_generation,
+        mode: StoreMode::Protected,
+        armed: true,
+    };
+    let publication = manager.inner.runtime_state.lock().unwrap();
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (done_tx, done_rx) = std::sync::mpsc::channel();
+    let dropping = std::thread::spawn(move || {
+        started_tx.send(()).unwrap();
+        drop(guard);
+        done_tx.send(()).unwrap();
+    });
+    started_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    let escaped = done_rx.recv_timeout(Duration::from_millis(100)).is_ok();
+    manager.fence_runtime_locked();
+    drop(publication);
+    if !escaped {
+        done_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    }
+    dropping.join().unwrap();
+    assert!(
+        !escaped,
+        "an armed operation drop must serialize with runtime publication"
+    );
+    assert_eq!(
+        manager.inner.creation_generation.load(Ordering::Acquire),
+        creation_generation,
+        "an old generation guard cannot suspend a new generation's creation"
+    );
 }

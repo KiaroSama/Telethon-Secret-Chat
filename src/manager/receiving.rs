@@ -171,17 +171,26 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
             if chat.state == crate::chat::ChatState::Closed || chat.paused {
                 return Ok(());
             }
-            let ordinary = self.protocol(|p| p.pending_deliveries(id))?;
-            let services = self.protocol(|p| p.pending_service_deliveries(id))?;
+            let (ordinary, services) = self
+                .protocol(|p| Ok((p.pending_deliveries(id)?, p.pending_service_deliveries(id)?)))?;
             let seen = self
                 .inner
                 .delivered
                 .lock()
                 .map_err(|_| Error::Storage)?
                 .clone();
+            let pending_acknowledgements = self
+                .inner
+                .pending_acknowledgements
+                .lock()
+                .map_err(|_| Error::Storage)?
+                .clone();
             let normal = ordinary
                 .into_iter()
-                .filter(|seq| !seen.contains(&(id, *seq)))
+                .filter(|seq| {
+                    !seen.contains(&(id, *seq))
+                        || pending_acknowledgements.contains(&(id, *seq, false))
+                })
                 .min();
             let service = services.iter().map(|(seq, _)| *seq).min();
             let selected = match (normal, service) {
@@ -197,6 +206,28 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
                 }
             };
             let seq = selected.0;
+            if pending_acknowledgements.contains(&(id, seq, selected.1)) {
+                self.protocol(|p| {
+                    if selected.1 {
+                        p.acknowledge_service_delivery(id, seq)
+                    } else {
+                        p.acknowledge_delivery(id, seq)
+                    }
+                })?;
+                self.inner
+                    .pending_acknowledgements
+                    .lock()
+                    .map_err(|_| Error::Storage)?
+                    .remove(&(id, seq, selected.1));
+                if !selected.1 {
+                    self.inner
+                        .delivered
+                        .lock()
+                        .map_err(|_| Error::Storage)?
+                        .remove(&(id, seq));
+                }
+                continue;
+            }
             if selected.1 {
                 let generation = self.generation()?;
                 let row = services
@@ -282,6 +313,11 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
                 }) {
                     return Err(Error::Capacity);
                 }
+                self.inner
+                    .pending_acknowledgements
+                    .lock()
+                    .map_err(|_| Error::Storage)?
+                    .insert((id, seq, true));
                 if self.protocol(|p| {
                     Ok(p.pending_service_deliveries(id)?
                         .iter()
@@ -289,6 +325,11 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
                 })? {
                     self.protocol(|p| p.acknowledge_service_delivery(id, seq))?;
                 }
+                self.inner
+                    .pending_acknowledgements
+                    .lock()
+                    .map_err(|_| Error::Storage)?
+                    .remove(&(id, seq, true));
             } else {
                 let Some(envelope) = self.protocol(|p| p.delivery(id, seq))? else {
                     continue;
@@ -351,7 +392,17 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
                     return Err(Error::Paused);
                 }
                 if matches!(mode, StoreMode::Durable | StoreMode::Protected) {
+                    self.inner
+                        .pending_acknowledgements
+                        .lock()
+                        .map_err(|_| Error::Storage)?
+                        .insert((id, seq, false));
                     self.protocol(|p| p.acknowledge_delivery(id, seq))?;
+                    self.inner
+                        .pending_acknowledgements
+                        .lock()
+                        .map_err(|_| Error::Storage)?
+                        .remove(&(id, seq, false));
                     self.inner
                         .delivered
                         .lock()
@@ -370,6 +421,11 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
         }
         let sequence = wire_sequence / 2;
         self.protocol(|p| p.acknowledge_delivery(id, sequence))?;
+        self.inner
+            .pending_acknowledgements
+            .lock()
+            .map_err(|_| Error::Storage)?
+            .remove(&(id, sequence, false));
         self.inner
             .delivered
             .lock()

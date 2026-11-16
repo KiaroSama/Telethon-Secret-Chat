@@ -37,6 +37,9 @@ use crate::{Sender, ServerAddr, connect, connect_with_auth};
 /// How long to wait after warning the user that the updates was dropped.
 const UPDATES_DROPPED_LOG_COOLDOWN: Duration = Duration::from_secs(300);
 
+/// TCP, authorization and initConnection share one finite setup deadline.
+const CONNECTION_INITIALIZATION_TIMEOUT: Duration = Duration::from_secs(30);
+
 type InvokeResponse = Vec<u8>;
 
 enum Request {
@@ -415,7 +418,17 @@ impl SenderPoolRunner {
                     .position(|connection| connection.dc_id == dc_id);
                 let rpc_tx = match existing {
                     Some(index) => self.connections[index].rpc_tx.clone(),
-                    None => match self.create_connection(dc_id).await {
+                    None => match tokio::time::timeout(
+                        CONNECTION_INITIALIZATION_TIMEOUT,
+                        self.create_connection(dc_id),
+                    )
+                    .await
+                    .unwrap_or_else(|_| {
+                        Err(InvocationError::Io(std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            "connection initialization timed out",
+                        )))
+                    }) {
                         Ok(connection) => connection.rpc_tx.clone(),
                         Err(e) => {
                             let _ = tx.send(Err(e));

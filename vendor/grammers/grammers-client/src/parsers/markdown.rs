@@ -315,16 +315,28 @@ pub fn generate_markdown_message(message: &str, entities: &[tl::enums::MessageEn
             }
             ME::Code(e) => {
                 let content = entity_text(message, e.offset, e.length);
-                let delimiter = "`".repeat(longest_run(&content, '`') + 1);
-                let padding = content.starts_with('`')
-                    || content.ends_with('`')
-                    || content.starts_with(' ')
-                        && content.ends_with(' ')
-                        && content.chars().any(|c| c != ' ');
-                let edge = format!("{delimiter}{}", if padding { " " } else { "" });
-                let end = format!("{}{delimiter}", if padding { " " } else { "" });
-                insertions.push((before(i, 0, e.offset), Segment::Owned(edge)));
-                insertions.push((after(i, 0, e.offset + e.length), Segment::Owned(end)));
+                let mut offset = e.offset;
+                // CommonMark normalizes line endings inside code spans to
+                // spaces. Close each span before its line ending instead.
+                for line in content.split_inclusive(['\r', '\n']) {
+                    let segment = line.trim_end_matches(['\r', '\n']);
+                    if !segment.is_empty() {
+                        let delimiter = "`".repeat(longest_run(segment, '`') + 1);
+                        let padding = segment.starts_with('`')
+                            || segment.ends_with('`')
+                            || segment.starts_with(' ')
+                                && segment.ends_with(' ')
+                                && segment.chars().any(|c| c != ' ');
+                        let edge = format!("{delimiter}{}", if padding { " " } else { "" });
+                        let end = format!("{}{delimiter}", if padding { " " } else { "" });
+                        insertions.push((before(i, 0, offset), Segment::Owned(edge)));
+                        insertions.push((
+                            after(i, 0, offset + telegram_string_len(segment)),
+                            Segment::Owned(end),
+                        ));
+                    }
+                    offset += telegram_string_len(line);
+                }
             }
             ME::Pre(e) => {
                 let content = entity_text(message, e.offset, e.length);
@@ -398,6 +410,17 @@ pub fn generate_markdown_message(message: &str, entities: &[tl::enums::MessageEn
     let mut line_start = true;
     let line_end_spaces = line_end_spaces(message);
     inject_into_message(message, insertions, |result, c, position| {
+        if matches!(c, '\r' | '\n')
+            && entities.iter().any(|entity| {
+                matches!(entity, ME::Code(e) if position as i64 >= i64::from(e.offset)
+                && (position as i64) < i64::from(e.offset) + i64::from(e.length))
+            })
+        {
+            // Numeric references keep leading/trailing and repeated line
+            // endings as text, outside the separately delimited code spans.
+            result.push_str(if c == '\r' { "&#13;" } else { "&#10;" });
+            return;
+        }
         let code = entities.iter().any(|entity| {
             let (offset, length) = match entity {
                 ME::Code(e) => (e.offset, e.length),

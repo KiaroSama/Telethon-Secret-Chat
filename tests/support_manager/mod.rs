@@ -66,6 +66,7 @@ pub struct World {
     pub file_dc: Option<i32>,
     pub download_dcs: Vec<i32>,
     pub downloads: usize,
+    pub download_starts: usize,
     pub fail_send: Option<RpcFailure>,
     pub fail_sends: BTreeMap<i64, RpcFailure>,
     pub fail_sends_from: BTreeMap<i64, RpcFailure>,
@@ -467,6 +468,7 @@ impl Transport for Fake {
         path: &'a Path,
     ) -> BoxFuture<'a, Result<PathBuf>> {
         Box::pin(async move {
+            self.world.lock().unwrap().download_starts += 1;
             let gate = self.world.lock().unwrap().download_gate.clone();
             if let Some(gate) = gate {
                 gate.entered.notify_one();

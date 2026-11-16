@@ -10,7 +10,7 @@ use std::{
     },
     task::{Context, Poll},
 };
-use tokio::sync::{Notify, oneshot};
+use tokio::sync::Notify;
 type Hold = Arc<dyn Send + Sync>;
 tokio::task_local! {static TRACKER: Arc<IoTracker>; static HOLDS: RefCell<Vec<Weak<dyn Send+Sync>>>;}
 #[derive(Default)]
@@ -143,15 +143,19 @@ impl Drop for Completion {
     }
 }
 pub(crate) struct Blocking<T> {
-    receiver: oneshot::Receiver<Result<T>>,
+    handle: tokio::task::JoinHandle<OwnedResult<T>>,
     job: Arc<Job>,
+}
+struct OwnedResult<T> {
+    result: T,
+    _completion: Completion,
 }
 impl<T> Future for Blocking<T> {
     type Output = Result<T>;
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match Pin::new(&mut self.receiver).poll(cx) {
+        match Pin::new(&mut self.handle).poll(cx) {
             Poll::Pending => Poll::Pending,
-            Poll::Ready(Ok(result)) => Poll::Ready(result),
+            Poll::Ready(Ok(result)) => Poll::Ready(Ok(result.result)),
             Poll::Ready(Err(_)) => Poll::Ready(Err(Error::Storage)),
         }
     }
@@ -176,16 +180,14 @@ pub(crate) fn spawn<T: Send + 'static>(
         holds,
     };
     let worker_job = Arc::clone(&job);
-    let handle = tokio::task::spawn_blocking(move || work(&worker_job.cancelled));
-    let (sender, receiver) = oneshot::channel();
-    // This monitor owns the real blocking JoinHandle after caller cancellation.
-    // Signal completion only after joining and disposing of an orphaned result.
-    tokio::spawn(async move {
-        let result = handle.await.map_err(|_| Error::Storage);
-        if let Err(orphan) = sender.send(result) {
-            let _ = tokio::task::spawn_blocking(move || drop(orphan)).await;
+    // The actual worker and its result own completion, including when its
+    // awaiter or runtime disappears. An async monitor is not a resource owner.
+    let handle = tokio::task::spawn_blocking(move || {
+        let result = work(&worker_job.cancelled);
+        OwnedResult {
+            result,
+            _completion: completion,
         }
-        drop(completion);
     });
-    Ok(Blocking { receiver, job })
+    Ok(Blocking { handle, job })
 }

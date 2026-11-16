@@ -1,7 +1,9 @@
 # Rust migration and SDK compatibility
 
 `kiaro-secret-chat` is a Rust 2024 source/Git crate, version `0.3.0-alpha.1`, MSRV
-1.95. The development toolchain and dependency graph are pinned. PR #33 remains
+1.95. Development and primary CI builds use pinned Rust 1.99.1; the separate
+1.95 CI lane verifies minimum-version compatibility. The dependency graph is
+pinned. PR #33 remains
 unmerged. The completeness gate and final-head matrix must agree on all 1851
 collected cases; passing a component subset does not establish completion.
 

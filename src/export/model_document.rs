@@ -228,6 +228,7 @@ pub fn parse_document_thumb(document: &Value, path: &str) -> Image {
             !["PhotoSizeEmpty", "PhotoStrippedSize", "PhotoPathSize"]
                 .iter()
                 .any(|kind| is(size, kind))
+                && (!is(size, "PhotoSizeProgressive") || !array(size, "sizes").is_empty())
         })
         .filter_map(|size| image_dimensions(size).map(|(width, height)| (size, width, height)))
         .max_by_key(|(_, width, height)| u64::from(*width) * u64::from(*height));

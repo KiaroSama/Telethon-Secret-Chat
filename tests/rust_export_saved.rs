@@ -498,6 +498,53 @@ fn invalid_media_string() {
 }
 #[test]
 fn overlap_refusal_preserves_source() {
+    let canonical_directory = tempfile::tempdir().unwrap();
+    let canonical_root = fs::canonicalize(canonical_directory.path()).unwrap();
+    for path in [
+        canonical_root.clone(),
+        canonical_root.join("missing").join("output"),
+    ] {
+        let resolved = export::saved::resolve_path(&path).unwrap();
+        assert_eq!(export::saved::resolve_path(&resolved).unwrap(), resolved);
+    }
+    #[cfg(windows)]
+    {
+        use std::path::{Component, Path, PathBuf, Prefix};
+        // canonicalize returns a verbatim path on Windows. Its drive prefix is
+        // not a complete root until the following RootDir has been appended.
+        let mut components = canonical_root.components();
+        let prefix = components.next().unwrap();
+        assert!(
+            matches!(prefix, Component::Prefix(p) if matches!(p.kind(), Prefix::VerbatimDisk(_)))
+        );
+        let root = components.next().unwrap();
+        assert_eq!(root, Component::RootDir);
+        let mut drive_root = PathBuf::from(prefix.as_os_str());
+        assert_eq!(drive_root.components().nth(1), None);
+        assert!(export::saved::resolve_path(&drive_root).is_err());
+        drive_root.push(root.as_os_str());
+        assert!(drive_root.is_absolute());
+        assert_eq!(drive_root.components().nth(1), Some(Component::RootDir));
+        assert_eq!(
+            export::saved::resolve_path(&drive_root).unwrap(),
+            drive_root
+        );
+        // Exercise the real Windows component parser without contacting a UNC
+        // server: both kinds have a separate prefix and root separator.
+        for unc in [
+            r"\\fixture-server\fixture-share\",
+            r"\\?\UNC\fixture-server\fixture-share\",
+        ] {
+            let mut components = Path::new(unc).components();
+            let prefix = components.next().unwrap();
+            assert!(
+                matches!(prefix, Component::Prefix(p) if matches!(p.kind(), Prefix::UNC(_, _) | Prefix::VerbatimUNC(_, _)))
+            );
+            assert!(!prefix.as_os_str().to_string_lossy().ends_with('\\'));
+            assert_eq!(components.next(), Some(Component::RootDir));
+            assert_eq!(components.next(), None);
+        }
+    }
     let mut fabricated = Vec::new();
     for direct_writer in [false, true] {
         let source_kinds: &[u8] = if cfg!(unix) { &[0, 1, 2] } else { &[0] };

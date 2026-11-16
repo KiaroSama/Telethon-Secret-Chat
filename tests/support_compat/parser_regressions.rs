@@ -127,6 +127,33 @@ pub fn run() {
                 ("a b".into(), separate.to_vec())
             );
         }),
+        ("markdown_multiline_code", || {
+            for (text, expected) in [
+                ("a\nb", vec![(0, 1), (2, 1)]),
+                ("a\r\nb", vec![(0, 1), (3, 1)]),
+                ("a\rb", vec![(0, 1), (2, 1)]),
+                ("😀\n`b", vec![(0, 2), (3, 2)]),
+                ("\na\n\nb\n", vec![(1, 1), (4, 1)]),
+            ] {
+                let entities = expected
+                    .into_iter()
+                    .map(|(offset, length)| t::MessageEntityCode { offset, length }.into())
+                    .collect::<Vec<E>>();
+                let generated = generate_markdown_message(
+                    text,
+                    &[t::MessageEntityCode {
+                        offset: 0,
+                        length: text.encode_utf16().count() as i32,
+                    }
+                    .into()],
+                );
+                assert_eq!(
+                    parse_markdown_message(&generated),
+                    (text.into(), entities),
+                    "{generated:?}"
+                );
+            }
+        }),
         ("markdown_leading_whitespace", || {
             for text in [
                 "    hello",
