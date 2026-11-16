@@ -37,6 +37,11 @@ pub fn record(policy: &gate::Policy, leg: &str, color: bool, optional_skip: bool
             if color { "\x1b[1m\x1b[92m " } else { "" },
             if color { "\x1b[0m" } else { "" }
         ));
+        out.push_str(&format!(
+            "running {} test{}\n",
+            rows.len(),
+            if rows.len() == 1 { "" } else { "s" }
+        ));
         let mut ignored = 0;
         for (name, skip) in &rows {
             out.push_str(&format!(
@@ -99,8 +104,97 @@ pub fn false_green(scenario: &str) {
 "different"=>mutate(directory.path(),leg,"scenario_0000","different_only_on_this_leg"),
 "skipped"=>mutate(directory.path(),leg,"test scenario_0000 ... ok","test scenario_0000 ... ignored, unexpected"),
 "failed"=>mutate(directory.path(),leg,"test scenario_0000 ... ok","test scenario_0000 ... FAILED"),
-"empty"=>fs::write(directory.path().join(leg).join("rust-tests.txt"),"Running tests/empty.rs (target/test)\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0s\n").unwrap(),
+"empty"=>fs::write(directory.path().join(leg).join("rust-tests.txt"),"Running tests/empty.rs (target/test)\nrunning 0 tests\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0s\n").unwrap(),
 "duplicate"=>mutate(directory.path(),leg,"test scenario_0000 ... ok","test scenario_0000 ... ok\ntest scenario_0000 ... ok"),
 _=>panic!("unknown matrix scenario")};
     assert!(gate::check_matrix(directory.path(), &policy, gate::LEGS.len()).is_err());
+}
+fn stream_parts(policy: &gate::Policy, leg: &str) -> (Vec<String>, Vec<String>) {
+    let record = record(policy, leg, false, false);
+    let mut headers = Vec::new();
+    let mut blocks = Vec::new();
+    for section in record.split("\n\n").filter(|s| !s.is_empty()) {
+        let (header, body) = section.split_once('\n').unwrap();
+        headers.push(format!("{header}\n"));
+        blocks.push(format!("{body}\n\n"));
+    }
+    assert_eq!(headers.len(), blocks.len());
+    (headers, blocks)
+}
+pub fn stream_orderings() {
+    let policy = policy();
+    for leg in gate::LEGS {
+        let (headers, blocks) = stream_parts(&policy, leg);
+        for text in [
+            format!("{}{}", headers.concat(), blocks.concat()),
+            format!("{}{}", blocks.concat(), headers.concat()),
+        ] {
+            assert_eq!(
+                gate::parse_record(&text, leg, &policy).unwrap(),
+                policy.expected
+            );
+        }
+    }
+}
+pub fn stream_rejections(kind: &str) {
+    let policy = policy();
+    let leg = gate::WINDOWS_LEGS[0];
+    let (headers, blocks) = stream_parts(&policy, leg);
+    let valid = format!("{}{}", headers.concat(), blocks.concat());
+    assert_eq!(
+        gate::parse_record(&valid, leg, &policy).unwrap(),
+        policy.expected
+    );
+    let mut invalid = Vec::new();
+    match kind {
+        "missing" => {
+            let row = blocks[0]
+                .lines()
+                .find(|line| line.starts_with("test "))
+                .unwrap();
+            invalid.push(valid.replacen(&format!("{row}\n"), "", 1));
+            invalid.push(format!("{}{}", headers[1..].concat(), blocks.concat()));
+            let summary = blocks[0]
+                .lines()
+                .find(|line| line.starts_with("test result:"))
+                .unwrap();
+            invalid.push(valid.replacen(&format!("{summary}\n"), "", 1));
+            invalid.push(format!("{}{}", headers.concat(), blocks[1..].concat()));
+        }
+        "duplicate" => {
+            invalid.push(format!(
+                "{}{}{}",
+                headers[0],
+                headers.concat(),
+                blocks.concat()
+            ));
+            invalid.push(format!(
+                "{}{}{}",
+                headers.concat(),
+                blocks[0],
+                blocks.concat()
+            ));
+            invalid.push(format!(
+                "{}{}{}{}",
+                headers[0],
+                headers.concat(),
+                blocks[0],
+                blocks.concat()
+            ));
+        }
+        "counts" => {
+            let declared = blocks[0].lines().next().unwrap();
+            let number: usize = declared.split_whitespace().nth(1).unwrap().parse().unwrap();
+            invalid.push(valid.replacen(declared, &format!("running {} tests", number + 1), 1));
+            invalid.push(valid.replacen(declared, "running malformed tests", 1));
+            invalid.push(valid.replacen(&format!("{declared}\n"), "", 1));
+        }
+        _ => panic!("unknown stream rejection scenario"),
+    }
+    for text in invalid {
+        assert!(
+            gate::parse_record(&text, leg, &policy).is_err(),
+            "invalid {kind} stream accepted"
+        );
+    }
 }

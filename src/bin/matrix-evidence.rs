@@ -84,7 +84,8 @@ impl Policy {
 }
 #[derive(Default)]
 struct Suite {
-    label: String,
+    declared: usize,
+    rows: Vec<(String, bool)>,
     passed: usize,
     ignored: usize,
     open: bool,
@@ -102,14 +103,10 @@ pub fn parse_record(text: &str, leg: &str, policy: &Policy) -> Result<BTreeSet<S
         return Err(format!("{leg}: failing test run"));
     }
     let mut suite = Suite::default();
-    let mut cases = BTreeSet::new();
-    let mut ignored = BTreeSet::new();
-    let mut summaries = 0;
+    let mut labels = Vec::new();
+    let mut suites = Vec::new();
     for line in text.lines().map(str::trim) {
         if let Some(run) = line.strip_prefix("Running ") {
-            if suite.open {
-                return Err(format!("{leg}: no result summary for {}", suite.label));
-            }
             let label = run
                 .split(" (")
                 .next()
@@ -118,8 +115,21 @@ pub fn parse_record(text: &str, leg: &str, policy: &Policy) -> Result<BTreeSet<S
             if !(label.starts_with("tests/") || label.starts_with("unittests ")) {
                 return Err(format!("{leg}: unexpected Cargo test suite {label}"));
             }
+            labels.push(label);
+            continue;
+        }
+        if let Some(declared) = line.strip_prefix("running ").and_then(|value| {
+            value
+                .strip_suffix(" tests")
+                .or_else(|| value.strip_suffix(" test"))
+        }) {
+            if suite.open {
+                return Err(format!("{leg}: a test block has no result summary"));
+            }
             suite = Suite {
-                label,
+                declared: declared
+                    .parse()
+                    .map_err(|_| format!("{leg}: invalid declared test count"))?,
                 open: true,
                 ..Suite::default()
             };
@@ -139,14 +149,14 @@ pub fn parse_record(text: &str, leg: &str, policy: &Policy) -> Result<BTreeSet<S
                 || failed != 0
                 || measured != 0
                 || filtered != 0
+                || passed.checked_add(skip) != Some(suite.declared)
             {
                 return Err(format!(
-                    "{leg}: summary counts disagree with actual executed rows for {}",
-                    suite.label
+                    "{leg}: summary and declared counts disagree with actual executed rows"
                 ));
             }
             suite.open = false;
-            summaries += 1;
+            suites.push(std::mem::take(&mut suite));
             continue;
         }
         if let Some(test) = line.strip_prefix("test ")
@@ -155,23 +165,40 @@ pub fn parse_record(text: &str, leg: &str, policy: &Policy) -> Result<BTreeSet<S
             if !suite.open {
                 return Err(format!("{leg}: test row outside a running suite"));
             }
-            let id = format!("{}::{name}", suite.label);
-            if !cases.insert(id.clone()) {
-                return Err(format!("{leg}: duplicate testcase identity {id}"));
-            }
             if status == "ok" {
                 suite.passed += 1;
+                suite.rows.push((name.to_owned(), false));
             } else if status == "ignored" || status.starts_with("ignored,") {
                 suite.ignored += 1;
-                ignored.insert(id);
+                suite.rows.push((name.to_owned(), true));
             } else {
                 return Err(format!(
-                    "{leg}: failed or unknown status for {id}: {status}"
+                    "{leg}: failed or unknown status for {name}: {status}"
                 ));
             }
         }
     }
-    if suite.open || summaries == 0 || cases.is_empty() {
+    if suite.open || suites.is_empty() || labels.len() != suites.len() {
+        return Err(format!("{leg}: incomplete or empty executed test record"));
+    }
+    // Cargo writes headers to stderr; libtest writes blocks to stdout. Native
+    // Windows capture can interleave these streams, but each stream preserves
+    // Cargo's sequential suite order. Pair only after checking both complete
+    // inventories, never by guessing which case names belong to a suite.
+    let mut cases = BTreeSet::new();
+    let mut ignored = BTreeSet::new();
+    for (label, suite) in labels.into_iter().zip(suites) {
+        for (name, skipped) in suite.rows {
+            let id = format!("{label}::{name}");
+            if !cases.insert(id.clone()) {
+                return Err(format!("{leg}: duplicate testcase identity {id}"));
+            }
+            if skipped {
+                ignored.insert(id);
+            }
+        }
+    }
+    if cases.is_empty() {
         return Err(format!("{leg}: incomplete or empty executed test record"));
     }
     let mut required = policy.live.clone();
