@@ -18,6 +18,7 @@ mod support_live;
 mod support_live_harness;
 #[test]
 fn complete_identical_matrix_is_accepted() {
+    support::stream_orderings();
     let one: std::collections::BTreeMap<String, String> =
         std::collections::BTreeMap::from([("legacy-a".into(), "native-a".into())]);
     let two: std::collections::BTreeMap<String, String> =
@@ -63,6 +64,7 @@ fn complete_identical_matrix_is_accepted() {
 }
 #[test]
 fn rejects_missing() {
+    support::stream_rejections("missing");
     support::false_green("missing");
     for leg in gate::LEGS.into_iter().filter(|leg| leg.contains("aarch64")) {
         let directory = support::folder();
@@ -82,6 +84,7 @@ fn rejects_extra() {
 }
 #[test]
 fn rejects_different() {
+    support::stream_rejections("counts");
     support::false_green("different");
 }
 #[test]
@@ -116,6 +119,7 @@ fn rejects_empty() {
 }
 #[test]
 fn rejects_duplicate() {
+    support::stream_rejections("duplicate");
     support::false_green("duplicate");
 }
 #[test]
