@@ -84,6 +84,126 @@ pub async fn deletion_invalidates_sent_copy() {
     manager.stop().await.unwrap();
     peer.stop().await.unwrap();
 }
+pub async fn copy_deadline_reports_committed_identity() {
+    use kiaro_secret_chat::{
+        chat::{Chat, ChatState, DhRecord},
+        crypto::SharedKey,
+        custody::{CustodyLimits, CustodyStorage},
+        error::{Error, PendingCause},
+        manager::{Options, SecretChatManager},
+        storage::Storage,
+    };
+    struct Release(Option<mpsc::Sender<()>>);
+    impl Drop for Release {
+        fn drop(&mut self) {
+            if let Some(release) = self.0.take() {
+                let _ = release.send(());
+            }
+        }
+    }
+    let store = TestStorage::default();
+    let mut chat = Chat::new(7, 88, 2000, true, ChatState::Ready);
+    chat.adopt_key(SharedKey::from_slice(&[7; 256]).unwrap())
+        .unwrap();
+    chat.dh = Some(DhRecord {
+        g: 2,
+        prime: prime(),
+    });
+    chat.capability_layer = 144;
+    chat.wrapper_layer = 144;
+    chat.rekeyed_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    assert!(chat.outbox.is_empty() && chat.messages_since_rekey == 0);
+    let (transport, _) = Fake::pair();
+    let world = transport.world.clone();
+    world
+        .lock()
+        .unwrap()
+        .requests
+        .insert(7, (1000, 2000, vec![]));
+    let limits = CustodyLimits {
+        operation_seconds: 1.0,
+        tasks: 4,
+        frame_bytes: 8192,
+        ..CustodyLimits::new(64, 1024 * 1024, 3600.0).unwrap()
+    };
+    let mut storage = CustodyStorage::new(store.clone(), "11".repeat(32), limits).unwrap();
+    let mut state = storage.load().unwrap().unwrap();
+    state.chats.insert(7, chat);
+    storage.commit(&state).unwrap();
+    let manager =
+        SecretChatManager::new(transport, storage, "11".repeat(32), Options::default()).unwrap();
+    manager.start().await.unwrap();
+    let folder = tempfile::tempdir().unwrap();
+    manager
+        .start_auto_save_secret_chats(folder.path())
+        .await
+        .unwrap();
+    let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+    let (worker_tx, _worker_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let release = Release(Some(release_tx));
+    let source = SlowCopy {
+        bytes: Cursor::new(b"public archive deadline identity".to_vec()),
+        read: false,
+        entered: Some(entered_tx),
+        worker_entered: worker_tx,
+        release: release_rx,
+    };
+    let sender = manager.clone();
+    let task = tokio::spawn(async move {
+        sender
+            .send_file(
+                7,
+                FileSource::stream(Box::new(source), "pending.bin").unwrap(),
+                SendFileOptions::default(),
+            )
+            .await
+    });
+    tokio::time::timeout(Duration::from_secs(3), entered_rx)
+        .await
+        .unwrap()
+        .unwrap();
+    let error = tokio::time::timeout(Duration::from_secs(3), task)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap_err();
+    let snapshot = store.load().unwrap().unwrap();
+    let pending = snapshot.chats[&7]
+        .outbox
+        .values()
+        .filter(|row| row.pending && !row.service)
+        .collect::<Vec<_>>();
+    assert_eq!(pending.len(), 1);
+    let original = pending[0].clone();
+    let returned_identity = matches!(error,Error::SendPending{chat_id:7,random_id,cause:PendingCause::Deadline} if random_id==original.random_id);
+    assert!(
+        world.lock().unwrap().sent.is_empty(),
+        "no earlier pending send or due rekey may account for this deadline"
+    );
+    drop(release);
+    manager.resume_chat(7).await.unwrap();
+    {
+        let sent = world.lock().unwrap();
+        assert_eq!(sent.uploads, 1);
+        assert_eq!(
+            sent.sent.len(),
+            1,
+            "recovery retries the one committed file without creating a second file message"
+        );
+        assert_eq!(sent.sent[0].outgoing.random_id, original.random_id);
+        assert_eq!(sent.sent[0].outgoing.frame, original.frame);
+    }
+    assert_eq!(store.load().unwrap().unwrap().chats[&7].out_seq_no, 1);
+    manager.stop().await.unwrap();
+    assert!(
+        returned_identity,
+        "archive-copy deadline must return the exact committed SendPending identity"
+    );
+}
 pub async fn slow_copy_is_owned_without_blocking_executor() {
     let (manager, peer, _, id, _folder) = saving().await;
     let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();

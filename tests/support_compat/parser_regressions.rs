@@ -127,6 +127,70 @@ pub fn run() {
                 ("a b".into(), separate.to_vec())
             );
         }),
+        ("markdown_adjacent_emphasis", || {
+            for italic in [false, true] {
+                let entity = |offset, length| -> E {
+                    if italic {
+                        t::MessageEntityItalic { offset, length }.into()
+                    } else {
+                        t::MessageEntityBold { offset, length }.into()
+                    }
+                };
+                for (text, spans) in [
+                    ("ab", vec![(0, 1), (1, 1)]),
+                    ("😀b", vec![(0, 2), (2, 1)]),
+                    ("a b", vec![(0, 1), (1, 2)]),
+                    ("a!b", vec![(0, 1), (1, 2)]),
+                    ("abc", vec![(0, 1), (1, 1), (2, 1)]),
+                ] {
+                    for reverse in [false, true] {
+                        let mut ranges = spans
+                            .iter()
+                            .map(|&(offset, length)| entity(offset, length))
+                            .collect::<Vec<_>>();
+                        if reverse {
+                            ranges.reverse();
+                        }
+                        let generated = generate_markdown_message(text, &ranges);
+                        assert_eq!(
+                            parse_markdown_message(&generated),
+                            (
+                                text.into(),
+                                vec![entity(0, text.encode_utf16().count() as i32)]
+                            ),
+                            "{generated:?}"
+                        );
+                    }
+                }
+                let separate = [entity(0, 1), entity(2, 1)];
+                assert_eq!(
+                    parse_markdown_message(&generate_markdown_message("a b", &separate)),
+                    ("a b".into(), separate.to_vec())
+                );
+            }
+        }),
+        ("markdown_link_destination_entities", || {
+            for url in [
+                "https://example.com/?x=&copy;",
+                "https://example.com/?x=&amp;&y=&#65;",
+                "https://example.com/?x=&#x41;&plain=a&b=c",
+                "https://example.com/?x=&notAnEntity;",
+                "https://example.com/?x=&copy; (a)",
+            ] {
+                let expected: E = t::MessageEntityTextUrl {
+                    offset: 2,
+                    length: 1,
+                    url: url.into(),
+                }
+                .into();
+                let generated = generate_markdown_message("😀x", std::slice::from_ref(&expected));
+                assert_eq!(
+                    parse_markdown_message(&generated),
+                    ("😀x".into(), vec![expected]),
+                    "{generated:?}"
+                );
+            }
+        }),
         ("markdown_multiline_code", || {
             for (text, expected) in [
                 ("a\nb", vec![(0, 1), (2, 1)]),

@@ -65,6 +65,7 @@ async fn messages_both_directions_include_ttl_and_service_records() {
 }
 #[tokio::test]
 async fn files_both_directions_are_saved_decrypted_without_keys() {
+    archive_io_review::copy_deadline_reports_committed_identity().await;
     archive_io_review::slow_copy_is_owned_without_blocking_executor().await;
     archive_io_review::deletion_invalidates_sent_copy().await;
     uncertain_attachment_send_keeps_saved_file_work().await;

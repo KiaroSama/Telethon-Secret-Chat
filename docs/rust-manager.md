@@ -45,10 +45,13 @@ bounded runtime cache of received messages; it is not a disk archive.
 
 `send_message(chat_id, text, entities, reply_to).await` parses Markdown when
 `entities` is `None`; pass `Some(Vec::new())` for literal text. A successful send
-returns the original random ID. An uncertain send returns `Error::SendPending`
-with the chat and random ID. `retry_pending(chat_id).await` reuses the exact
+returns the original random ID. A committed send interrupted before confirmation
+can return `Error::SendPending` with the chat and random ID. `retry_pending(chat_id).await` reuses the exact
 retained ciphertext and ID; it never invents a replacement message. The manager
 also retries owed sends during startup and before a subsequent outgoing message.
+In bounded mode, a deadline while making a file archive copy reports the committed
+file identity even before its message RPC starts; retry that identity instead of
+creating another file message.
 Automatic rekey checks run before outgoing content, and `rekey(chat_id).await`
 requests an explicit exchange. Protocol responses, resends and public sends share
 one per-chat wire-effect lock. Before issuing a queued effect, the manager checks
@@ -227,8 +230,9 @@ ledger records compared, executed legacy equivalents individually; passing these
 suites does not establish parity for every legacy case. CI separately requires
 the repository's complete 1851-case migration gate.
 
-Native file transfers run synchronous source reads, AES-IGE refills, RAM file
-decryption, and final filesystem publication on Tokio's blocking pool. Cancellation fences final
+Native file transfers run source initialization, header probing, synchronous reads,
+AES-IGE refills, RAM file decryption and final filesystem publication on Tokio's
+blocking pool. Cancellation fences final
 publication, and manager shutdown retains and joins accepted workers. A caller's
 synchronous `Read` implementation must eventually return: Rust cannot forcibly
 interrupt an arbitrary blocking read or destructor. If that prevents bounded

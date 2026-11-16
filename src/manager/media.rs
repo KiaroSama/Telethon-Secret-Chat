@@ -29,7 +29,19 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
     ) -> Result<i64> {
         self.with_operation(Some(id), runtime::WorkKind::File, async {
             self.sendable(id)?;
-            let mut source = source.open()?;
+            let precharged = match &source {
+                FileSource::Bytes { data, name } => {
+                    if name.is_empty() {
+                        return Err(Error::Media);
+                    }
+                    data.len().saturating_mul(4)
+                }
+                _ => 0,
+            };
+            let _opening_payload = self.reserve_payload(Some(id), precharged)?;
+            let order = self.outbound(id)?;
+            let _order = order.lock().await;
+            let source = self.open_file_source(source).await?;
             let amount = usize::try_from(source.size)
                 .unwrap_or(usize::MAX)
                 .saturating_mul(4)
@@ -41,11 +53,9 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
                 .saturating_add(options.metadata.sticker_alt.as_ref().map_or(0, String::len))
                 .saturating_add(options.mime_type.as_ref().map_or(0, String::len))
                 .saturating_add(1024);
-            let _payload = self.reserve_payload(Some(id), amount)?;
+            let _payload = self.reserve_payload(Some(id), amount.saturating_sub(precharged))?;
             self.ensure_binding().await?;
             let witness = self.witness(id)?;
-            let order = self.outbound(id)?;
-            let _order = order.lock().await;
             let _headroom = self.reserve_headroom(
                 id,
                 4,
@@ -58,12 +68,12 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
                 .mime_type
                 .clone()
                 .unwrap_or_else(|| guess_mime(&source.name));
-            let header = if options.kind.is_none()
+            let (mut source, header) = if options.kind.is_none()
                 && matches!(mime.as_str(), "audio/ogg" | "audio/opus" | "audio/x-opus")
             {
-                source.peek()?
+                self.peek_file_source(source).await?
             } else {
-                Vec::new()
+                (source, Vec::new())
             };
             let kind =
                 resolve_kind_named(&source.name, options.kind, &mime, &options.caption, &header)?;
@@ -105,6 +115,11 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
             };
             let effect = self
                 .protocol(|p| p.prepare_message(id, message.into(), Some(uploaded.to_bytes())))?;
+            runtime::note_pending(
+                Arc::as_ptr(&self.inner) as usize,
+                effect.chat_id,
+                effect.outgoing.random_id,
+            );
             self.save_sent_file(id, random_id, &effect.outgoing.body, source)
                 .await;
             self.transmit(effect, witness.0).await?;
@@ -112,6 +127,35 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
             Ok(random_id)
         })
         .await
+    }
+    async fn open_file_source(&self, source: FileSource) -> Result<SourceReader> {
+        self.inner
+            .archive_io
+            .scope(async {
+                crate::media::blocking::spawn(move |cancelled| {
+                    if cancelled.load(Ordering::Acquire) {
+                        return Err(Error::ManagerStopping);
+                    }
+                    source.open()
+                })?
+                .await?
+            })
+            .await
+    }
+    async fn peek_file_source(&self, mut source: SourceReader) -> Result<(SourceReader, Vec<u8>)> {
+        self.inner
+            .archive_io
+            .scope(async {
+                crate::media::blocking::spawn(move |cancelled| {
+                    if cancelled.load(Ordering::Acquire) {
+                        return Err(Error::ManagerStopping);
+                    }
+                    let header = source.peek()?;
+                    Ok((source, header))
+                })?
+                .await?
+            })
+            .await
     }
     /// Reuse a validated server file and its original one-time key without upload.
     pub async fn forward_file(
