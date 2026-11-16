@@ -274,12 +274,14 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
                 if let Some(first) = action_name.get_mut(..1) {
                     first.make_ascii_uppercase();
                 }
-                self.emit(Event::ServiceActionReceived {
+                if !self.emit(Event::ServiceActionReceived {
                     chat_id: id,
                     action_name,
                     action: event.action,
                     applied: event.applied,
-                });
+                }) {
+                    return Err(Error::Capacity);
+                }
                 if self.protocol(|p| {
                     Ok(p.pending_service_deliveries(id)?
                         .iter()

@@ -1,4 +1,6 @@
 #![allow(clippy::unwrap_used)]
+#[path = "support_media/forward_review.rs"]
+mod forward_review;
 #[path = "support_manager/mod.rs"]
 mod support;
 use kiaro_secret_chat::{
@@ -569,6 +571,7 @@ async fn forward_reference_moves_no_bytes() {
 }
 #[tokio::test]
 async fn forward_message_moves_no_bytes() {
+    forward_review::forward_observes_ttl_after_retry().await;
     old_peer_uses_old_document_shape();
     forward(true).await;
 }

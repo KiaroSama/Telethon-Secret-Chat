@@ -24,6 +24,8 @@ use std::{
     time::Duration,
 };
 use tokio::sync::Notify;
+#[path = "review_pages_ea3.rs"]
+mod ea3;
 
 struct PausingSession {
     inner: MemorySession,
@@ -100,7 +102,9 @@ struct Model {
     history: usize,
     global: Vec<(i32, i32)>,
     missing_forward: bool,
-    unsupported_send: bool,
+    unsupported_send: u8,
+    channel_full: bool,
+    channel_offsets: Vec<i32>,
     forbidden: Option<bool>,
     role: u8,
     admin_flags: Vec<(bool, String)>,
@@ -240,11 +244,16 @@ impl Model {
             id if id == tl::functions::messages::SendMessage::CONSTRUCTOR_ID => {
                 let request: tl::functions::messages::SendMessage =
                     super::super::decode(&body[4..]);
-                if self.unsupported_send {
-                    tl::enums::Updates::TooLong.to_bytes()
+                if let Some(response) = ea3::unmapped_response(self.unsupported_send) {
+                    response
                 } else {
                     combined(&[request.random_id])
                 }
+            }
+            id if id == tl::functions::messages::SendMedia::CONSTRUCTOR_ID => {
+                let request: tl::functions::messages::SendMedia = super::super::decode(&body[4..]);
+                ea3::unmapped_response(self.unsupported_send)
+                    .unwrap_or_else(|| combined(&[request.random_id]))
             }
             id if id == tl::functions::messages::SendMultiMedia::CONSTRUCTOR_ID => {
                 let request: tl::functions::messages::SendMultiMedia =
@@ -253,6 +262,9 @@ impl Model {
                     assert!(
                         matches!(request.reply_to,Some(tl::enums::InputReplyTo::Message(reply)) if reply.reply_to_msg_id==expected)
                     );
+                }
+                if let Some(response) = ea3::unmapped_response(self.unsupported_send) {
+                    return Ok(response);
                 }
                 combined(
                     &request
@@ -268,6 +280,9 @@ impl Model {
             id if id == tl::functions::messages::ForwardMessages::CONSTRUCTOR_ID => {
                 let request: tl::functions::messages::ForwardMessages =
                     super::super::decode(&body[4..]);
+                if let Some(response) = ea3::unmapped_response(self.unsupported_send) {
+                    return Ok(response);
+                }
                 combined(if self.missing_forward {
                     &[]
                 } else {
@@ -348,6 +363,10 @@ impl Model {
                     users: vec![super::user(123, 0, Some(1))],
                 })
                 .to_bytes()
+            }
+            id if id == tl::functions::channels::GetParticipants::CONSTRUCTOR_ID => {
+                let request = super::super::decode(&body[4..]);
+                ea3::channel_page(self, request)
             }
             id if id == tl::functions::channels::GetParticipant::CONSTRUCTOR_ID => {
                 let participant = match self.role {
@@ -453,6 +472,13 @@ pub async fn run(state: State, peers: PeerMap) {
         auth: PeerAuth::from_hash(1),
     };
     Box::pin(pagination_checks(
+        client.clone(),
+        session.clone(),
+        model.clone(),
+        peer,
+    ))
+    .await;
+    Box::pin(ea3::participants(
         client.clone(),
         session,
         model.clone(),
@@ -604,14 +630,7 @@ async fn message_checks(
     model.lock().unwrap().missing_forward = true;
     assert!(normal.forward_to(peer).await.is_err());
     model.lock().unwrap().missing_forward = false;
-    model.lock().unwrap().unsupported_send = true;
-    assert!(
-        client
-            .send_message(peer, "unsupported response")
-            .await
-            .is_err()
-    );
-    model.lock().unwrap().unsupported_send = false;
+    Box::pin(ea3::accepted_sends(&client, &model, peer)).await;
     client
         .edit_message(
             peer,

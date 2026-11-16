@@ -1771,6 +1771,8 @@
       },
       "timezone": "UTC",
       "result": "You allowed this bot to message you when you opened ",
+      "current_result": "You allowed this bot to message you when you logged in on x.org",
+      "current_result_reason": "Native correction: an empty app uses the domain branch; the immutable baseline result above used the app branch.",
       "after": [
         {
           "id": 1,

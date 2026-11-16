@@ -27,7 +27,16 @@ pub fn parse_markdown_message(message: &str) -> (String, Vec<tl::enums::MessageE
     let length = 0;
     let mut pending_paragraph = false;
     for event in Parser::new(message) {
-        if matches!(&event, Event::End(TagEnd::Paragraph)) {
+        if matches!(
+            &event,
+            Event::End(
+                TagEnd::Paragraph
+                    | TagEnd::Heading(_)
+                    | TagEnd::Item
+                    | TagEnd::List(_)
+                    | TagEnd::BlockQuote(_)
+            )
+        ) {
             pending_paragraph = true;
             continue;
         }
@@ -43,8 +52,10 @@ pub fn parse_markdown_message(message: &str) -> (String, Vec<tl::enums::MessageE
                     )
             )
         {
-            text.push_str("\n\n");
-            offset += 2;
+            if !text.is_empty() {
+                text.push_str("\n\n");
+                offset += 2;
+            }
             pending_paragraph = false;
         }
         match event {
@@ -146,6 +157,7 @@ pub fn parse_markdown_message(message: &str) -> (String, Vec<tl::enums::MessageE
                 text.push('\n');
                 offset += 1;
             }
+            Event::Rule => pending_paragraph = true,
             _ => {}
         }
     }
@@ -173,8 +185,76 @@ fn longest_run(value: &str, delimiter: char) -> usize {
         .unwrap_or(0)
 }
 
+fn emphasis_range(message: &str, offset: i32, length: i32) -> Option<(i32, i32)> {
+    let content = entity_text(message, offset, length);
+    let trimmed = content.trim_matches(char::is_whitespace);
+    if trimmed.is_empty() {
+        return None;
+    }
+    let leading = &content[..content.len() - content.trim_start_matches(char::is_whitespace).len()];
+    let start = offset.checked_add(telegram_string_len(leading))?;
+    Some((start, start.checked_add(telegram_string_len(trimmed))?))
+}
+
+fn merge_adjacent_code(entities: &[tl::enums::MessageEntity]) -> Vec<tl::enums::MessageEntity> {
+    use tl::enums::MessageEntity as ME;
+    let mut normalized = entities.to_vec();
+    let mut indexes = normalized
+        .iter()
+        .enumerate()
+        .filter_map(|(index, entity)| match entity {
+            ME::Code(code) if code.offset >= 0 && code.length > 0 => Some((code.offset, index)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    indexes.sort_unstable();
+    let mut removed = vec![false; normalized.len()];
+    let mut previous = None;
+    for (_, index) in indexes {
+        let ME::Code(current) = &normalized[index] else {
+            unreachable!()
+        };
+        let (offset, length) = (current.offset, current.length);
+        if let Some(previous_index) = previous
+            && let ME::Code(previous_code) = &mut normalized[previous_index]
+            && previous_code.offset.checked_add(previous_code.length) == Some(offset)
+            && let Some(combined_length) = previous_code.length.checked_add(length)
+        {
+            previous_code.length = combined_length;
+            removed[index] = true;
+            continue;
+        }
+        previous = Some(index);
+    }
+    normalized
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, entity)| (!removed[index]).then_some(entity))
+        .collect()
+}
+
+fn line_end_spaces(message: &str) -> std::collections::BTreeSet<usize> {
+    let mut positions = std::collections::BTreeSet::new();
+    let mut offset = message.encode_utf16().count();
+    let mut at_end = true;
+    for character in message.chars().rev() {
+        offset -= character.len_utf16();
+        match character {
+            '\n' | '\r' => at_end = true,
+            ' ' | '\t' if at_end => {
+                positions.insert(offset);
+            }
+            _ => at_end = false,
+        }
+    }
+    positions
+}
+
 /// Combine plain text and the list of formatting entities understood by Telegram into CommonMark-compliant markdown.
+/// Adjacent inline-code ranges are merged. Emphasis excludes boundary whitespace,
+/// which CommonMark cannot represent inside emphasis delimiters; the text is preserved.
 pub fn generate_markdown_message(message: &str, entities: &[tl::enums::MessageEntity]) -> String {
+    let entities = merge_adjacent_code(entities);
     // Getting this wrong isn't the end of the world so the wildcard pattern is used
     // (but it would still be a shame for it to be wrong).
     let mut insertions = Vec::with_capacity(
@@ -209,13 +289,17 @@ pub fn generate_markdown_message(message: &str, entities: &[tl::enums::MessageEn
             ME::Url(_) => {}
             ME::Email(_) => {}
             ME::Bold(e) => {
-                insertions.push((before(i, 0, e.offset), Segment::Fixed("**")));
-                insertions.push((after(i, 0, e.offset + e.length), Segment::Fixed("**")));
+                if let Some((start, end)) = emphasis_range(message, e.offset, e.length) {
+                    insertions.push((before(i, 0, start), Segment::Fixed("**")));
+                    insertions.push((after(i, 0, end), Segment::Fixed("**")));
+                }
             }
             ME::Italic(e) => {
-                let before_text = entity_text(message, 0, e.offset);
-                let after_text =
-                    entity_text(message, e.offset + e.length, i32::MAX - e.offset - e.length);
+                let Some((start, end)) = emphasis_range(message, e.offset, e.length) else {
+                    return;
+                };
+                let before_text = entity_text(message, 0, start);
+                let after_text = entity_text(message, end, i32::MAX - end);
                 let delimiter = if before_text
                     .chars()
                     .last()
@@ -226,8 +310,8 @@ pub fn generate_markdown_message(message: &str, entities: &[tl::enums::MessageEn
                 } else {
                     "_"
                 };
-                insertions.push((before(i, 0, e.offset), Segment::Fixed(delimiter)));
-                insertions.push((after(i, 0, e.offset + e.length), Segment::Fixed(delimiter)));
+                insertions.push((before(i, 0, start), Segment::Fixed(delimiter)));
+                insertions.push((after(i, 0, end), Segment::Fixed(delimiter)));
             }
             ME::Code(e) => {
                 let content = entity_text(message, e.offset, e.length);
@@ -311,6 +395,8 @@ pub fn generate_markdown_message(message: &str, entities: &[tl::enums::MessageEn
             ME::TonAddress(_) => {}
         });
 
+    let mut line_start = true;
+    let line_end_spaces = line_end_spaces(message);
     inject_into_message(message, insertions, |result, c, position| {
         let code = entities.iter().any(|entity| {
             let (offset, length) = match entity {
@@ -321,6 +407,12 @@ pub fn generate_markdown_message(message: &str, entities: &[tl::enums::MessageEn
             let at = position as i64;
             at >= i64::from(offset) && at < i64::from(offset) + i64::from(length)
         });
+        line_start |= result.ends_with('\n');
+        if !code && (line_start || line_end_spaces.contains(&position)) && matches!(c, ' ' | '\t') {
+            result.push_str(if c == ' ' { "&#32;" } else { "&#9;" });
+            return;
+        }
+        line_start = c == '\n';
         if !code && c.is_ascii_punctuation() {
             result.push('\\');
         }

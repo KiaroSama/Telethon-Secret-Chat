@@ -33,8 +33,9 @@ impl<T: Transport> Clone for StrongSecretChatManager<T> {
         }
     }
 }
-fn completion() -> Arc<Shutdown> {
+fn completion(generation: u64) -> Arc<Shutdown> {
     Arc::new(Shutdown {
+        generation,
         result: Mutex::new(None),
         notify: Notify::new(),
     })
@@ -175,7 +176,7 @@ impl<T: Transport> StrongSecretChatManager<T> {
                 replay.requested = true;
                 Arc::clone(&replay.completion)
             } else {
-                let job = completion();
+                let job = completion(self.inner.manager.inner.generation.load(Ordering::Acquire));
                 let finished = Arc::clone(&job);
                 let manager = self.clone();
                 let seconds = self.inner.ingress.limits()?.operation_seconds;
@@ -349,17 +350,6 @@ impl<T: Transport> StrongSecretChatManager<T> {
         if caller.is_some_and(|id| self.inner.manager.inner.dispatch.is_draining(id)) {
             return Ok(());
         }
-        self.inner.ingress.fence()?;
-        self.inner.stopping.store(true, Ordering::Release);
-        self.inner.manager.fence_runtime();
-        if caller.is_some_and(|id| {
-            self.inner.replay.lock().is_ok_and(|r| {
-                r.as_ref()
-                    .is_some_and(|r| r.id == id && !done(&r.completion))
-            })
-        }) {
-            return Err(Error::IngressUnavailable);
-        }
         if let Some(id) = caller {
             self.inner
                 .manager
@@ -373,12 +363,23 @@ impl<T: Transport> StrongSecretChatManager<T> {
             set: &self.inner.manager.inner.stop_callers,
             id: caller,
         };
+        self.inner.ingress.fence()?;
+        self.inner.stopping.store(true, Ordering::Release);
+        self.inner.manager.fence_runtime();
+        if caller.is_some_and(|id| {
+            self.inner.replay.lock().is_ok_and(|r| {
+                r.as_ref()
+                    .is_some_and(|r| r.id == id && !done(&r.completion))
+            })
+        }) {
+            return Err(Error::IngressUnavailable);
+        }
         let job = {
             let mut slot = self.inner.shutdown.lock().map_err(|_| Error::Storage)?;
             if let Some(job) = slot.as_ref().filter(|job| !done(job)) {
                 Arc::clone(job)
             } else {
-                let job = completion();
+                let job = completion(self.inner.manager.inner.generation.load(Ordering::Acquire));
                 let finished = Arc::clone(&job);
                 let manager = self.clone();
                 tokio::spawn(async move {

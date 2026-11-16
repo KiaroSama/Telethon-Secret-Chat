@@ -1,4 +1,4 @@
-use super::{EncryptingReader, MediaReference, SourceReader};
+use super::{MediaReference, SourceReader};
 use crate::{
     error::{Error, Result},
     files::FileKey,
@@ -14,9 +14,8 @@ pub async fn upload_file(
     source: &mut SourceReader,
     key: &FileKey,
 ) -> Result<tl::enums::InputEncryptedFile> {
-    let size = source.size;
     let name = source.name.clone();
-    let mut reader = EncryptingReader::new(source.reader.clone(), size, key.clone())?;
+    let mut reader = source.encrypting_reader(key.clone())?;
     let encrypted_size = usize::try_from(reader.size).map_err(|_| Error::Media)?;
     let uploaded = client
         .upload_stream(&mut reader, encrypted_size, name)

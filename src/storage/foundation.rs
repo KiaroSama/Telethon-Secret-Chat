@@ -98,6 +98,40 @@ pub(super) fn missing_parent_is_created_for_persistent_state() {
                 "retry must synchronize the ancestor entry left by the failed open"
             );
         });
+        let complete_retry = directory.path().join("complete-retry/child/state.json");
+        let containing = directory.path().join("complete-retry");
+        super::directory::FAIL_NEXT_PARENT.with(|path| {
+            *path.borrow_mut() = Some(containing.clone());
+        });
+        assert!(FileStorage::open(&complete_retry).is_err());
+        assert!(complete_retry.parent().unwrap().is_dir());
+        assert_eq!(std::fs::read_dir(&containing).unwrap().count(), 2);
+        super::directory::SYNCED_PARENTS.with(|paths| paths.borrow_mut().clear());
+        let reopened = FileStorage::open(&complete_retry).unwrap();
+        super::directory::SYNCED_PARENTS.with(|paths| {
+            assert!(paths.borrow().contains(&containing));
+        });
+        assert_eq!(std::fs::read_dir(&containing).unwrap().count(), 1);
+        drop(reopened);
+        let restricted = directory.path().join("search-only");
+        let owned = restricted.join("owned");
+        std::fs::create_dir_all(&owned).unwrap();
+        std::fs::set_permissions(&restricted, std::fs::Permissions::from_mode(0o111)).unwrap();
+        super::directory::SYNCED_PARENTS.with(|paths| paths.borrow_mut().clear());
+        let opened = (|| -> kiaro_secret_chat::error::Result<()> {
+            let mut store = FileStorage::open(owned.join("state.json"))?;
+            store.commit(&state())?;
+            assert_eq!(store.load()?.unwrap().version, 1);
+            Ok(())
+        })();
+        std::fs::set_permissions(&restricted, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(opened.is_ok(), "existing ancestors need search access only");
+        super::directory::SYNCED_PARENTS.with(|paths| {
+            assert!(
+                !paths.borrow().contains(&restricted),
+                "unmodified existing ancestors must not be opened for syncing"
+            );
+        });
     }
 }
 pub(super) fn malformed_store_refuses_start() {

@@ -8,8 +8,9 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
             return Err(Error::ManagerStopping);
         }
         let _start = self.inner.start_lock.lock().await;
+        let mut admitted = self.inner.generation.load(Ordering::Acquire);
         if self.inner.stopping.load(Ordering::Acquire) {
-            self.stop().await?;
+            admitted = self.stop_barrier(Some(admitted)).await?;
         }
         let running = self.inner.running.load(Ordering::Acquire);
         if running && self.inner.startup_complete.load(Ordering::Acquire) {
@@ -18,19 +19,21 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
         if !running {
             self.inner.transport.resume_io()?;
             self.protocol(|protocol| {
+                if self.inner.generation.load(Ordering::Acquire) != admitted {
+                    return Err(Error::ManagerStopping);
+                }
                 if !protocol.is_running() {
                     let _ = protocol.start()?;
                 }
                 Ok(())
             })?;
-            let generation = self.inner.generation.load(Ordering::Acquire);
             self.ensure_binding().await?;
             let _publication = self
                 .inner
                 .runtime_state
                 .lock()
                 .map_err(|_| Error::Storage)?;
-            if self.inner.generation.load(Ordering::Acquire) != generation {
+            if self.inner.generation.load(Ordering::Acquire) != admitted {
                 return Err(Error::ManagerStopping);
             }
             let mode = self.protocol(|protocol| Ok(protocol.mode()))?;
@@ -83,6 +86,7 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
                 .creation_cancel
                 .lock()
                 .map_err(|_| Error::Storage)? = Arc::default();
+            self.inner.dispatch.resume()?;
             self.inner.stopping.store(false, Ordering::Release);
             self.inner.running.store(true, Ordering::Release);
             self.start_expiry_watch()?;
@@ -132,9 +136,12 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
     }
     /// Coordinate one cancellation-isolated shutdown; a later start retries a failed save.
     pub async fn stop(&self) -> Result<()> {
+        self.stop_barrier(None).await.map(|_| ())
+    }
+    async fn stop_barrier(&self, expected: Option<u64>) -> Result<u64> {
         let caller = tokio::task::try_id();
         if caller.is_some_and(|id| self.inner.dispatch.is_draining(id)) {
-            return Ok(());
+            return Ok(self.inner.generation.load(Ordering::Acquire));
         }
         if let Some(id) = caller {
             self.inner
@@ -153,19 +160,18 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
                 shutdown.result.lock().is_ok_and(|result| result.is_none())
             });
             if reusable {
-                slot.as_ref().cloned().ok_or(Error::Storage)?
-            } else if !self.protocol(|p| Ok(p.is_running()))? {
-                if let Some(id) = caller {
-                    self.inner
-                        .stop_callers
-                        .lock()
-                        .map_err(|_| Error::Storage)?
-                        .remove(&id);
+                let shutdown = slot.as_ref().cloned().ok_or(Error::Storage)?;
+                if expected.is_some_and(|generation| generation != shutdown.generation) {
+                    return Err(Error::ManagerStopping);
                 }
-                return Ok(());
+                shutdown
             } else {
-                self.fence_runtime();
+                let generation = match expected {
+                    Some(expected) => self.fence_runtime_from(expected)?,
+                    None => self.fence_runtime(),
+                };
                 let shutdown = Arc::new(Shutdown {
+                    generation,
                     result: Mutex::new(None),
                     notify: Notify::new(),
                 });
@@ -196,7 +202,7 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
                 .map_err(|_| Error::Storage)?
                 .remove(&id);
         }
-        result
+        result.map(|_| shutdown.generation)
     }
     async fn finish_stop(&self) -> Result<()> {
         let mut failure = self.stop_expiry_watch().await.err();
@@ -226,28 +232,27 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
                 false
             }
         };
-        // Keep the protocol writer owned when an uncooperative blocking reader
-        // outlives bounded cleanup. A subsequent stop can complete the join.
-        if io_finished && let Err(error) = self.protocol(Protocol::stop) {
-            failure.get_or_insert(error);
-        }
         let exempt = self
             .inner
             .stop_callers
             .lock()
             .map_err(|_| Error::Storage)?
             .clone();
-        self.inner
-            .dispatch
-            .drain(
-                &exempt,
-                self.inner
-                    .work
-                    .policy
-                    .map(|p| Duration::from_secs_f64(p.cleanup_seconds))
-                    .unwrap_or(self.inner.options.handler_cleanup_timeout),
-            )
-            .await;
+        let callbacks_finished = match self.inner.dispatch.drain(&exempt, cleanup).await {
+            Ok(()) => true,
+            Err(error) => {
+                failure.get_or_insert(error);
+                false
+            }
+        };
+        // Both blocking I/O and returned callback children retain the protocol
+        // writer until their actual owners finish. A later stop retries cleanup.
+        if io_finished
+            && callbacks_finished
+            && let Err(error) = self.protocol(Protocol::stop)
+        {
+            failure.get_or_insert(error);
+        }
         self.inner.early.lock().map_err(|_| Error::Storage)?.clear();
         self.inner.running.store(false, Ordering::Release);
         self.inner.stopping.store(true, Ordering::Release);

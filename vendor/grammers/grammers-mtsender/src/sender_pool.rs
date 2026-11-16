@@ -142,8 +142,10 @@ impl SenderPoolHandle {
         if boundary.started || boundary.dispatched || boundary.receiver || boundary.hook.is_some() {
             return Err(IngressRefused);
         }
+        let executor = crate::durable_ingress::DurableWorker::new(Arc::clone(&hook))?;
         hook.prepare_attachment()?;
         boundary.hook = Some(hook);
+        boundary.executor = Some(executor);
         Ok(())
     }
     pub(crate) fn durable_worker(

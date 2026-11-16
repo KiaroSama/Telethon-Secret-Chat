@@ -49,6 +49,12 @@ fn is(v: &Value, expected: &str) -> bool {
             .is_some_and(|c| c.eq_ignore_ascii_case(&expected[..1]))
             && name.get(1..) == expected.get(1..)
 }
+fn image_dimensions(value: &Value) -> Option<(u32, u32)> {
+    // Telegram dimensions are positive TL ints, including when read from JSON.
+    let width = i32::try_from(integer(value, "w")).ok()?;
+    let height = i32::try_from(integer(value, "h")).ok()?;
+    (width > 0 && height > 0).then_some((width as u32, height as u32))
+}
 pub fn parse_max_image(photo: &Value, suggested: &str) -> Image {
     let mut result = Image::default();
     result.file.suggested_path = suggested.into();
@@ -60,8 +66,9 @@ pub fn parse_max_image(photo: &Value, suggested: &str) -> Image {
         {
             continue;
         }
-        let w = integer(size, "w").max(0) as u32;
-        let h = integer(size, "h").max(0) as u32;
+        let Some((w, h)) = image_dimensions(size) else {
+            continue;
+        };
         let area = u64::from(w) * u64::from(h);
         if area <= max_area {
             continue;
@@ -215,27 +222,21 @@ pub fn document_folder(data: &Document) -> &'static str {
     }
 }
 pub fn parse_document_thumb(document: &Value, path: &str) -> Image {
-    let Some(best) = array(document, "thumbs").iter().max_by_key(|s| {
-        if ["PhotoSizeEmpty", "PhotoStrippedSize", "PhotoPathSize"]
-            .iter()
-            .any(|k| is(s, k))
-        {
-            0
-        } else {
-            integer(s, "w") * integer(s, "h")
-        }
-    }) else {
+    let best = array(document, "thumbs")
+        .iter()
+        .filter(|size| {
+            !["PhotoSizeEmpty", "PhotoStrippedSize", "PhotoPathSize"]
+                .iter()
+                .any(|kind| is(size, kind))
+        })
+        .filter_map(|size| image_dimensions(size).map(|(width, height)| (size, width, height)))
+        .max_by_key(|(_, width, height)| u64::from(*width) * u64::from(*height));
+    let Some((best, width, height)) = best else {
         return Image::default();
     };
-    if ["PhotoSizeEmpty", "PhotoStrippedSize", "PhotoPathSize"]
-        .iter()
-        .any(|k| is(best, k))
-    {
-        return Image::default();
-    }
     let mut result = Image {
-        width: integer(best, "w").max(0) as u32,
-        height: integer(best, "h").max(0) as u32,
+        width,
+        height,
         ..Default::default()
     };
     result.file.location = FileLocation {

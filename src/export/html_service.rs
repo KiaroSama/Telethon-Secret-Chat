@@ -150,7 +150,7 @@ pub fn service_text(
                 "when you added it in the attachment menu.".into()
             } else if d.from_request {
                 "in his web-app.".into()
-            } else if d.app.is_empty() {
+            } else if !d.app.is_empty() {
                 format!("when you opened {}", serialize_string(&d.app))
             } else {
                 format!("when you logged in on {}", serialize_string(&d.domain))

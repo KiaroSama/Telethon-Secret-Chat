@@ -48,6 +48,10 @@ Caller-issued account/channel difference responses are captured whole before the
 RPC result is returned, including qts-less secret messages and slices.
 
 Operational SDK callbacks run on one ordered blocking worker per original pool.
+The pool owns that thread independently of its callers' Tokio runtimes. RPC
+permit cleanup is queued on the same executor when its guard is dropped, so
+destroying a short-lived runtime cannot strand an issued request or bypass
+callback ordering.
 The worker owns its serial permit until the synchronous callback actually ends,
 including after cancellation of its async waiter. The receiver's checkpoint read,
 state transition and commit share one operation, so a caller-issued difference

@@ -86,8 +86,8 @@ invoke the application's installed panic hook; return `Err` for expected
 recoverable failures. The library does not replace a process-global panic hook.
 
 `stop().await` coordinates one shutdown independently of a canceled waiter. It
-cancels and joins owned file downloads, saves protocol state, releases the storage
-owner and drains handler tasks. A handler may call `stop` and complete its tail;
+cancels and joins owned file downloads and handler tasks, then saves protocol
+state and releases the storage owner. A handler may call `stop` and complete its tail;
 its task is not canceled by its own shutdown. `start` and `stop` are idempotent.
 A later `start` first completes a failed shutdown before recovery. Uploads from
 an older run cannot mutate the new run, and the new run does not inherit their
@@ -96,8 +96,8 @@ outbound locks. `active_handler_tasks()` reports active owned handler tasks.
 callback task. Finite modes apply their operation and cleanup deadlines. Use
 `on_async_with_cleanup` or `on_task_with_cleanup` for asynchronous cancellation
 cleanup; dropping a Rust future itself cannot await cleanup.
-Finite deadlines drop the owned transport future and release its local
-reservations. An RPC already queued in grammers may still execute remotely;
+Finite deadlines drop the owned transport future. Reservations remain charged
+while an accepted worker or callback still owns the corresponding payload. An RPC already queued in grammers may still execute remotely;
 retained identities and generation checks remain necessary. Custom transport
 futures must yield, and their destructors must complete promptly.
 
@@ -234,7 +234,16 @@ synchronous `Read` implementation must eventually return: Rust cannot forcibly
 interrupt an arbitrary blocking read or destructor. If that prevents bounded
 cleanup, shutdown reports failure and retains the worker owner; startup refuses
 new I/O until those workers actually finish. An RPC already queued in grammers
-may still execute after its awaiting future is canceled. A canceled borrowed
+may still execute after its awaiting future is canceled.
+
+Callback admission and registration share a shutdown barrier. Already returned
+callback tasks keep their task permit, payload reservation and registry owner
+until the actual task finishes, including when its original Tokio runtime is
+lost. If a running callback cannot be canceled before the cleanup deadline,
+shutdown reports failure and keeps the protocol writer owned; a later stop can
+finish the join. Cancelable cleanup after a child finishes remains bounded by
+its cleanup deadline. Diagnostic task callbacks after shutdown still have their
+returned handles retrieved, canceled and observed. A canceled borrowed
 upload retains the caller's original reader and its current cursor; reads already
-performed are not undone. After accepted workers have drained, the caller can
-explicitly rewind the source for another attempt.
+performed are not undone. A synchronous rewind waits for all accepted refills,
+including queued workers, before resetting the cursor for another attempt.

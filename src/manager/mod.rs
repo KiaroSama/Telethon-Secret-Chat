@@ -58,6 +58,7 @@ impl Default for Options {
     }
 }
 struct Shutdown {
+    generation: u64,
     result: Mutex<Option<Result<()>>>,
     notify: Notify,
 }

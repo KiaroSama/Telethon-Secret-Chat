@@ -77,20 +77,12 @@ impl Drop for InvocationPermit {
         if !self.armed {
             return;
         }
-        let worker = self.worker.clone();
         let permit = self.permit;
-        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
-            runtime.spawn(async move {
-                let _ = worker
-                    .run(move |hook| {
-                        hook.cancel_request(permit);
-                        Ok(())
-                    })
-                    .await;
-            });
-        } else {
-            worker.hook.cancel_request(permit);
-        }
+        // Queue cleanup synchronously on the same executor as every callback.
+        // A caller may destroy its Tokio runtime immediately after this drop.
+        let _ = self.worker.executor.send(Box::new(move |hook| {
+            hook.cancel_request(permit);
+        }));
     }
 }
 /// One ordered blocking operation per original pool. Cancellation cannot release
@@ -98,24 +90,78 @@ impl Drop for InvocationPermit {
 #[derive(Clone)]
 pub(crate) struct DurableWorker {
     pub(crate) hook: Arc<dyn DurableIngressHook>,
+    executor: Arc<Executor>,
+}
+struct Executor {
+    queue: Option<std::sync::mpsc::Sender<Work>>,
     serial: Arc<tokio::sync::Semaphore>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+type Work = Box<dyn FnOnce(&dyn DurableIngressHook) + Send + 'static>;
+impl Executor {
+    fn send(self: &Arc<Self>, operation: Work) -> Result<(), IngressRefused> {
+        let owner = Arc::clone(self);
+        self.queue
+            .as_ref()
+            .ok_or(IngressRefused)?
+            .send(Box::new(move |hook| {
+                // In-flight work owns the executor, so dropping a cancelled
+                // caller never joins a thread still performing filesystem I/O.
+                let _owner = owner;
+                operation(hook);
+            }))
+            .map_err(|_| IngressRefused)
+    }
+}
+impl Drop for Executor {
+    fn drop(&mut self) {
+        self.queue.take();
+        if let Some(thread) = self.thread.take()
+            && thread.thread().id() != std::thread::current().id()
+        {
+            // With no queued work this releases the idle hook and its storage
+            // handles before the pool's last owner finishes dropping.
+            let _ = thread.join();
+        }
+    }
 }
 impl DurableWorker {
+    pub(crate) fn new(hook: Arc<dyn DurableIngressHook>) -> Result<Self, IngressRefused> {
+        let (queue, receive) = std::sync::mpsc::channel::<Work>();
+        let working_hook = Arc::clone(&hook);
+        let thread = std::thread::Builder::new()
+            .name("grammers-durable-ingress".into())
+            .spawn(move || {
+                for operation in receive {
+                    operation(working_hook.as_ref());
+                }
+            })
+            .map_err(|_| IngressRefused)?;
+        Ok(Self {
+            hook,
+            executor: Arc::new(Executor {
+                queue: Some(queue),
+                serial: Arc::new(tokio::sync::Semaphore::new(1)),
+                thread: Some(thread),
+            }),
+        })
+    }
     pub(crate) async fn run<T: Send + 'static>(
         &self,
         operation: impl FnOnce(&dyn DurableIngressHook) -> Result<T, IngressRefused> + Send + 'static,
     ) -> Result<T, IngressRefused> {
-        let permit = Arc::clone(&self.serial)
+        let permit = Arc::clone(&self.executor.serial)
             .acquire_owned()
             .await
             .map_err(|_| IngressRefused)?;
-        let hook = Arc::clone(&self.hook);
-        tokio::task::spawn_blocking(move || {
-            let _permit = permit;
-            operation(hook.as_ref())
-        })
-        .await
-        .map_err(|_| IngressRefused)?
+        let (send, response) = tokio::sync::oneshot::channel();
+        self.executor
+            .send(Box::new(move |hook| {
+                let _permit = permit;
+                let _ = send.send(operation(hook));
+            }))
+            .map_err(|_| IngressRefused)?;
+        response.await.map_err(|_| IngressRefused)?
     }
 }
 pub(crate) struct Boundary {
@@ -123,7 +169,7 @@ pub(crate) struct Boundary {
     pub(crate) dispatched: bool,
     pub(crate) receiver: bool,
     pub(crate) hook: Option<Arc<dyn DurableIngressHook>>,
-    serial: Arc<tokio::sync::Semaphore>,
+    pub(crate) executor: Option<DurableWorker>,
 }
 impl Default for Boundary {
     fn default() -> Self {
@@ -132,16 +178,13 @@ impl Default for Boundary {
             dispatched: false,
             receiver: false,
             hook: None,
-            serial: Arc::new(tokio::sync::Semaphore::new(1)),
+            executor: None,
         }
     }
 }
 impl Boundary {
     pub(crate) fn worker(&self) -> Option<DurableWorker> {
-        self.hook.as_ref().map(|hook| DurableWorker {
-            hook: Arc::clone(hook),
-            serial: Arc::clone(&self.serial),
-        })
+        self.executor.clone()
     }
 }
 pub(crate) type SharedBoundary = Arc<Mutex<Boundary>>;

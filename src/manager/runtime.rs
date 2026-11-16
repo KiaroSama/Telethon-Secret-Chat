@@ -289,15 +289,42 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
             self.inner.dispatch.cancel_chat(id);
         }
     }
-    pub(crate) fn fence_runtime(&self) {
+    pub(crate) fn fence_runtime(&self) -> u64 {
         let _publication = self
             .inner
             .runtime_state
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .unwrap_or_else(|poison| poison.into_inner());
+        self.fence_runtime_locked()
+    }
+    pub(crate) fn fence_runtime_from(&self, expected: u64) -> Result<u64> {
+        let _publication = self
+            .inner
+            .runtime_state
+            .lock()
+            .map_err(|_| Error::Storage)?;
+        if self.inner.generation.load(Ordering::Acquire) != expected {
+            return Err(Error::ManagerStopping);
+        }
+        Ok(self.fence_runtime_locked())
+    }
+    // Both callers hold runtime_state; the returned generation belongs to this
+    // precise fence, rather than a later concurrently observed shutdown.
+    fn fence_runtime_locked(&self) -> u64 {
         self.inner.startup_complete.store(false, Ordering::Release);
+        let exempt = self
+            .inner
+            .stop_callers
+            .lock()
+            .map(|ids| ids.clone())
+            .unwrap_or_default();
+        self.inner.dispatch.fence_except(&exempt);
         self.inner.stopping.store(true, Ordering::Release);
-        self.inner.generation.fetch_add(1, Ordering::AcqRel);
+        let generation = self
+            .inner
+            .generation
+            .fetch_add(1, Ordering::AcqRel)
+            .wrapping_add(1);
         if let Ok(token) = self.inner.creation_cancel.lock() {
             token.cancel();
         }
@@ -306,6 +333,7 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
                 token.cancel();
             }
         }
+        generation
     }
     fn cancellation(&self, id: i32) -> Result<Arc<Cancellation>> {
         if !self.protocol(|p| Ok(p.snapshot(id).is_ok()))? {
@@ -415,6 +443,7 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
             } else {
                 id.map(|id| self.cancellation(id)).transpose()?
             };
+            self.check_generation(generation)?;
             if cancellation
                 .as_ref()
                 .is_some_and(|c| c.cancelled.load(Ordering::Acquire))

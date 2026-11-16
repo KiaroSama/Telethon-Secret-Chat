@@ -250,6 +250,7 @@ fn model_59de3e8a1b0ba5c7() {
 }
 #[test]
 fn model_9053a6455b2dae38() {
+    review::thumbnail_dimensions();
     run("9053a6455b2dae38.json");
 }
 #[test]

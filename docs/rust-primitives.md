@@ -40,6 +40,13 @@ The visualization renderer is isolated from key derivation and needs only Rust's
 
 File save tests exercise real encrypted sources, staging files, fingerprint-before-write refusals, truncated and extended input, preserved destinations and cleanup. The interrupted-sync case writes and decrypts a real staging file, injects an I/O error at the private synchronization boundary and checks that neither the target nor plaintext temporary file survives. The public save function always supplies `File::sync_all`; no public bypass of durability was introduced.
 
+On Unix, storage initialization records an empty, private
+`.kiaro-mkdir-<digest>.pending` intent before creating each missing directory.
+It synchronizes the containing directory before removing that intent. A failed
+initialization leaves a recognizable intent for retry, including when the
+directory already exists. Existing ancestors without an intent only need search
+permission; initialization does not open unrelated ancestors for reading.
+
 All thirteen service actions retain their closed classification, wire encoding and real manager application callback. Incoming TTL changes, optional outbound actions, retained-message self-deletion, ordered file uploads and concurrent inbound traffic use native managers with deterministic fake transports. Entity conversion accepts both API and secret-schema entities, filters unsupported negotiated layers and uses the native Grammers Markdown parser by default at the manager boundary.
 
 `generate-schema` is a native Rust CLI. It renders the four official generator buffers into one Rust module, formats a sibling staging file and publishes atomically only after successful formatting and synchronization. `--check` compares without changing the published output; a missing output remains absent. Formatter failure preserves the earlier module and removes staging files. Cargo's build-time schema generation remains a separate disposable build-artifact step.

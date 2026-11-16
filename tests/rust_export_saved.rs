@@ -498,6 +498,38 @@ fn invalid_media_string() {
 }
 #[test]
 fn overlap_refusal_preserves_source() {
+    // Both entrypoints normalize a populated destination to a fresh subdirectory.
+    // An archived attachment called result.json must remain byte-for-byte intact.
+    let direct = tempfile::tempdir().unwrap();
+    let original = direct.path().join("result.json");
+    let original_bytes = b"public archived attachment, never an export output";
+    fs::write(&original, original_bytes).unwrap();
+    let (owner, other) = users();
+    let rows = [photo_row(
+        1,
+        BASE,
+        Some(&original),
+        original_bytes.len() as u64,
+    )];
+    let mut settings = options(direct.path());
+    settings.format = Format::Json;
+    let exported =
+        export_saved_records(&rows, direct.path(), &owner, &other, &settings, None).unwrap();
+    assert_ne!(exported.path, direct.path());
+    assert!(exported.path.join("result.json").is_file());
+    assert_eq!(fs::read(&original).unwrap(), original_bytes);
+    let exported = export_saved_chat(
+        &rows,
+        &settings,
+        &mut export::json_writer::JsonWriter::new(),
+        &owner,
+        &other,
+        &Environment::default(),
+    )
+    .unwrap();
+    assert_ne!(exported.path, direct.path());
+    assert!(exported.path.join("result.json").is_file());
+    assert_eq!(fs::read(&original).unwrap(), original_bytes);
     let d = tempfile::tempdir().unwrap();
     let (_, source, before) = fixture(d.path());
     let (own, peer) = users();

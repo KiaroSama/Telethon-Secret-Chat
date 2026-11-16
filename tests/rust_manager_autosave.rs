@@ -100,6 +100,7 @@ async fn files_both_directions_are_saved_decrypted_without_keys() {
 }
 #[tokio::test]
 async fn deleting_saved_conversation_removes_only_selected_folder() {
+    archive_review::missing_alias_root_keeps_worker_generation();
     deletion_invalidates_accepted_workers().await;
     let (a, _b, _world, id, folder) = saving().await;
     a.send_message(id, "x", None, None).await.unwrap();

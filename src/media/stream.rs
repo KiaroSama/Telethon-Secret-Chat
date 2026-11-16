@@ -111,6 +111,7 @@ impl<R: Read> Read for CipherReader<R> {
 pub struct EncryptingReader<R> {
     state: Option<CipherReader<R>>,
     pending: Option<super::blocking::Blocking<(CipherReader<R>, io::Result<()>)>>,
+    coordination: Option<std::sync::Arc<super::source::RefillCoord>>,
     pub size: u64,
 }
 impl<R: Read> EncryptingReader<R> {
@@ -120,6 +121,7 @@ impl<R: Read> EncryptingReader<R> {
             size: state.size,
             state: Some(state),
             pending: None,
+            coordination: None,
         })
     }
     /// Use exactly the final block's padding for reproducible wire vectors.
@@ -129,20 +131,31 @@ impl<R: Read> EncryptingReader<R> {
             size: state.size,
             state: Some(state),
             pending: None,
+            coordination: None,
         })
+    }
+    pub(crate) fn with_coordination(
+        mut self,
+        coordination: std::sync::Arc<super::source::RefillCoord>,
+    ) -> Self {
+        self.coordination = Some(coordination);
+        self
     }
 }
 impl<R: Read> Read for EncryptingReader<R> {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
-        self.state
-            .as_mut()
-            .ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::WouldBlock,
-                    "an asynchronous source read is pending",
-                )
-            })?
-            .read(buffer)
+        let state = self.state.as_mut().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "an asynchronous source read is pending",
+            )
+        })?;
+        let _lease = self
+            .coordination
+            .as_ref()
+            .map(|coordination| coordination.reserve()?.enter())
+            .transpose()?;
+        state.read(buffer)
     }
 }
 impl<R: Read + Send + Unpin + 'static> AsyncRead for EncryptingReader<R> {
@@ -177,6 +190,15 @@ impl<R: Read + Send + Unpin + 'static> AsyncRead for EncryptingReader<R> {
                 state.offset += count;
                 return Poll::Ready(Ok(()));
             }
+            let lease = match this
+                .coordination
+                .as_ref()
+                .map(|coordination| coordination.reserve())
+                .transpose()
+            {
+                Ok(lease) => lease,
+                Err(error) => return Poll::Ready(Err(error)),
+            };
             let Some(mut state) = this.state.take() else {
                 return Poll::Ready(Err(io::Error::other("encrypted source is unavailable")));
             };
@@ -187,7 +209,23 @@ impl<R: Read + Send + Unpin + 'static> AsyncRead for EncryptingReader<R> {
                         "source read was cancelled",
                     ))
                 } else {
-                    state.refill()
+                    match lease.map(|lease| lease.enter()).transpose() {
+                        Ok(active) => {
+                            let result = if cancelled.load(std::sync::atomic::Ordering::Acquire) {
+                                Err(io::Error::new(
+                                    io::ErrorKind::Interrupted,
+                                    "source read was cancelled",
+                                ))
+                            } else {
+                                state.refill()
+                            };
+                            // Release cursor custody in this worker, before
+                            // returning state to any asynchronous monitor.
+                            drop(active);
+                            result
+                        }
+                        Err(error) => Err(error),
+                    }
                 };
                 (state, result)
             }) {
