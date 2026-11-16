@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
-#[path = "tests885.rs"]
+#[path = "../../../tests/support_manager/runtime_review.rs"]
 mod review885;
 use crate::test_support::support;
 use crate::{

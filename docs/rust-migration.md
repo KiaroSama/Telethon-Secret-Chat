@@ -76,10 +76,20 @@ A portable-AES leg executes the same inventory. See [verification](../migration/
 Current upstream references reviewed:
 
 - [Telegram e2e](https://core.telegram.org/api/end-to-end) and [secret schema](https://core.telegram.org/schema/end-to-end)
-- [TDLib SecretChatActor](https://github.com/tdlib/td/blob/c8828d50f5eac2fc7089ce1089d7ce9095c61b5e/td/telegram/SecretChatActor.cpp)
+- [TDLib SecretChatActor](https://github.com/tdlib/td/blob/ba976cb4aba53a82eff425db2f85e2741774c944/td/telegram/SecretChatActor.cpp)
 - [grammers pinned source](https://codeberg.org/Lonami/grammers/commit/e61cf8585e1e9969ab81eda9fb4725a1500e2d86)
 - [Archived implementation](https://github.com/painor/telethon-secret-chat/tree/32e7585ba4f5dbb2c6f025047c11fa52cf55d071)
 - [Rust CodeQL support](https://codeql.github.com/docs/codeql-overview/supported-languages-and-frameworks/)
+
+The 32 TDLib commits after the earlier `c8828d5` reference were reviewed on
+2026-11-16. Its immediate PFS response fix is already enforced here: protocol
+transactions save the key and retained response before returning effects, and
+the manager sends those effects before callbacks or autosave. Transfers own
+their cursors and drain cancelled workers before reuse; archive publication
+also checks the generation invalidated by deletion. The other changes concern
+TDLib's C++ actors, cloud UI, internal database and build machinery, which this
+Rust library does not depend on. Historical protocol citations and baseline
+fixtures remain immutable.
 
 No real account run is implied by offline evidence. The live tier is explicitly
 opt-in. `telegram-mcp` remains a future, separately requested integration.
