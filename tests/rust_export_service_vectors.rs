@@ -1,5 +1,7 @@
-#![allow(clippy::unwrap_used)]
 //! Every original service sentence and channel/group variation.
+#![allow(clippy::unwrap_used)]
+#[path = "rust_export_support/desktop744.rs"]
+mod current;
 use kiaro_secret_chat::export::{
     format::DateContext, html_service, html_text::PeersMap, model_dialogs::DialogInfo,
     model_message::Message,
@@ -52,7 +54,10 @@ fn run(name: &str) {
         };
         assert_eq!(
             Value::String(result),
-            trace["result"],
+            trace
+                .get("current_result")
+                .unwrap_or(&trace["result"])
+                .clone(),
             "{}: {function}",
             case["legacy_case"]
         );
@@ -324,6 +329,7 @@ fn service_1b7ec52e8d6d9f2d() {
 }
 #[test]
 fn service_87080b2156cbb956() {
+    current::html_safety();
     run("87080b2156cbb956.json");
 }
 #[test]

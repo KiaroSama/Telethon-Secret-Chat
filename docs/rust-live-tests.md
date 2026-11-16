@@ -56,6 +56,8 @@ actual file for the incoming-file case. `TSC_TEST_MEDIA_DIR` can supply real med
 fixtures for additional kinds; generated PNG/JPEG/document fixtures need no codec
 process. `TSC_TEST_NONCE` optionally supplies a short ASCII test marker; otherwise
 it is random. Prompts print test instructions/markers, not authorization material.
+After media upload, reply with the exact fresh `opened-...` challenge displayed
+by the harness; this confirmation always uses new randomness.
 
 Paired cases exercise ordered traffic both ways, PFS key agreement, streamed
 small/multipart files, restart on the same client/receiver, peer-close update sync,

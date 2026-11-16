@@ -71,7 +71,11 @@ fn run(name: &str) {
             _ => panic!("Unregistered native vector function: {function}"),
         };
         assert_eq!(
-            result, trace["result"],
+            result,
+            trace
+                .get("current_result")
+                .unwrap_or(&trace["result"])
+                .clone(),
             "{}: {function}",
             case["legacy_case"]
         );

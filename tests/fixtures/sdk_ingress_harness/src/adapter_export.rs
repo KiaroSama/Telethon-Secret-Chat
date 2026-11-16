@@ -36,6 +36,48 @@ pub async fn run(client: Client, model: &Arc<Mutex<Server>>) {
     ] {
         export.request(Default::default(), request).await.unwrap();
     }
+    // Exercise the date count, initial ascending page and following page using
+    // real SDK request serialization, including takeout/range wrappers.
+    for (offset, date, add, limit) in [(0, 100, 0, 1), (0, 100, -100, 100), (25, 0, -100, 100)] {
+        let result = export.request(
+            RequestScope {
+                takeout: Some(44),
+                range: Some(json!({"_":"MessageRange","min_id":1,"max_id":20})),
+            },
+            json!({"_":"messages.GetHistory","peer":{"_":"InputPeerSelf"},"offset_id":offset,"offset_date":date,"add_offset":add,"limit":limit,"max_id":0,"min_id":0,"hash":0}),
+        ).await.unwrap();
+        if date != 0 && limit == 1 {
+            assert_eq!(result["count"], 131);
+            assert_eq!(result["offset_id_offset"], 131);
+        } else if offset == 25 {
+            assert_eq!(result["count"], 131);
+            assert_eq!(result["offset_id_offset"], 100);
+            assert_eq!(result["pts"], 9);
+        }
+    }
+    export
+        .request(
+            RequestScope {
+                takeout: Some(44),
+                range: None,
+            },
+            json!({"_":"messages.GetChats","id":[999]}),
+        )
+        .await
+        .unwrap();
+    {
+        let server = model.lock().unwrap();
+        assert_eq!(
+            server.history_queries,
+            [
+                (0, 0, 0, 1),
+                (0, 100, 0, 1),
+                (0, 100, -100, 100),
+                (25, 0, -100, 100)
+            ]
+        );
+        assert_eq!(server.chat_queries, [vec![7], vec![999]]);
+    }
     assert!(
         export
             .request(Default::default(), json!({"_":"users.GetUsers","id":false}))

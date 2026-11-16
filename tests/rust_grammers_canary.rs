@@ -1,6 +1,8 @@
 #![allow(clippy::unwrap_used)]
 #[path = "support_compat/mod.rs"]
 mod compat;
+#[path = "support_compat/export_example.rs"]
+mod export_example;
 #[path = "support_sources/mod.rs"]
 mod source_files;
 #[path = "support_manager/mod.rs"]
@@ -55,6 +57,10 @@ fn binary_cursor_and_primitive_decoder_remain_public() {
 }
 #[test]
 fn all_referenced_tl_requests_and_types_compile_on_one_graph() {
+    let _ = export_example::example;
+    let snippet =
+        include_str!("support_compat/export_example.rs").replace("pub fn example", "fn example");
+    assert!(include_str!("../docs/rust-export.md").contains(snippet.trim()));
     use std::collections::BTreeSet;
     struct Paths(BTreeSet<String>);
     impl<'a> syn::visit::Visit<'a> for Paths {

@@ -12,6 +12,23 @@ struct Ledger {
     cases: Vec<String>,
     mappings: BTreeMap<String, String>,
 }
+pub fn check_partitions(
+    aggregate: &BTreeMap<String, String>,
+    partitions: &[BTreeMap<String, String>],
+) -> Result<(), &'static str> {
+    let mut union = BTreeMap::new();
+    for partition in partitions {
+        for (case, target) in partition {
+            if union.insert(case.clone(), target.clone()).is_some() {
+                return Err("A legacy identity appears in multiple owner ledgers");
+            }
+        }
+    }
+    if &union != aggregate {
+        return Err("Owner ledgers disagree with the aggregate migration mapping");
+    }
+    Ok(())
+}
 fn main() -> ExitCode {
     match audit() {
         Ok(complete) => {
@@ -29,6 +46,19 @@ fn main() -> ExitCode {
 }
 fn audit() -> Result<bool, Box<dyn std::error::Error>> {
     let ledger: Ledger = serde_json::from_str(include_str!("../../migration/legacy-cases.json"))?;
+    let partitions = [
+        include_str!("../../migration/core-mappings.json"),
+        include_str!("../../migration/manager-mappings.json"),
+        include_str!("../../migration/export-mappings.json"),
+        include_str!("../../migration/primitive-mappings.json"),
+        include_str!("../../migration/rekey-mappings.json"),
+        include_str!("../../migration/security-mappings.json"),
+        include_str!("../../migration/ci-mappings.json"),
+    ]
+    .map(serde_json::from_str)
+    .into_iter()
+    .collect::<Result<Vec<BTreeMap<String, String>>, _>>()?;
+    check_partitions(&ledger.mappings, &partitions)?;
     let cases = ledger.cases.iter().collect::<BTreeSet<_>>();
     let rust_cases: BTreeSet<String> =
         serde_json::from_str(include_str!("../../migration/rust-cases.json"))?;

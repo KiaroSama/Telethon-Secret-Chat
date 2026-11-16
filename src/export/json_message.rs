@@ -15,8 +15,8 @@ fn location(context: &JsonContext, point: &GeoPoint) -> Vec<u8> {
     serialize_object(
         context,
         &[
-            ("latitude", number(point.latitude)),
-            ("longitude", number(point.longitude)),
+            ("latitude", float_allow_null(point.latitude)),
+            ("longitude", float_allow_null(point.longitude)),
         ],
     )
 }

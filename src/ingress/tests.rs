@@ -223,11 +223,21 @@ async fn caller_difference_wakes_receiver_already_waiting_for_live_input() {
     ingress
         .guard_result(permit, 2, &request, &response)
         .unwrap();
-    assert!(
-        tokio::time::timeout(Duration::from_millis(100), receive)
-            .await
-            .is_ok(),
-        "durable RPC receipt must wake the original update owner"
+    let received = tokio::time::timeout(Duration::from_millis(100), receive)
+        .await
+        .expect("durable RPC receipt must wake the original update owner")
+        .expect("the original receiver must deliver the committed difference");
+    assert_eq!(received.0.len(), 2);
+    assert_eq!(
+        received
+            .0
+            .iter()
+            .map(|(update, _)| match update {
+                tl::enums::Update::NewEncryptedMessage(update) => update.message.random_id(),
+                _ => panic!("expected the two committed encrypted difference messages"),
+            })
+            .collect::<Vec<_>>(),
+        [51, 52]
     );
     capture(
         &mut receiver,

@@ -318,7 +318,13 @@
         },
         "https://t.me/",
         ""
-      ]
+      ],
+      "current_result": "Ann Lee added &quot;&lt;b&gt;&quot; to the poll.",
+      "current_reference": {
+        "desktop_tag": "v7.4.4",
+        "commit": "bf4f714036f21c750d535dab199c811b3f9bfdd4",
+        "reason": "Intentional upstream JSON-validity or HTML-escaping fix; original baseline result retained"
+      }
     }
   ]
 }

@@ -3,12 +3,38 @@
 #[path = "../src/bin/matrix-evidence.rs"]
 mod gate;
 #[allow(dead_code)]
+#[path = "../src/bin/migration-audit.rs"]
+mod migration;
+#[allow(dead_code)]
 #[path = "../tools/secret-scan/src/main.rs"]
 mod scanner;
 #[path = "support_ci/mod.rs"]
 mod support;
+#[allow(dead_code)]
+mod support_live;
+#[allow(dead_code)]
+mod support_live_harness;
 #[test]
 fn complete_identical_matrix_is_accepted() {
+    let one: std::collections::BTreeMap<String, String> =
+        std::collections::BTreeMap::from([("legacy-a".into(), "native-a".into())]);
+    let two: std::collections::BTreeMap<String, String> =
+        std::collections::BTreeMap::from([("legacy-b".into(), "native-b".into())]);
+    let all: std::collections::BTreeMap<String, String> = one
+        .iter()
+        .chain(&two)
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    assert!(migration::check_partitions(&all, &[one.clone(), two.clone()]).is_ok());
+    assert!(migration::check_partitions(&all, std::slice::from_ref(&one)).is_err());
+    assert!(migration::check_partitions(&all, &[one.clone(), two.clone(), one.clone()]).is_err());
+    let mut changed = two.clone();
+    changed.insert("legacy-b".into(), "wrong-target".into());
+    assert!(migration::check_partitions(&all, &[one.clone(), changed]).is_err());
+    let mut changed = two;
+    changed.remove("legacy-b");
+    changed.insert("different-legacy-id".into(), "native-b".into());
+    assert!(migration::check_partitions(&all, &[one, changed]).is_err());
     support::coverage::valid();
     let report = scanner::report::validate_report(b"[]", 0).unwrap();
     assert!(report.is_empty());
@@ -107,6 +133,9 @@ fn summary_counts_actual_live_skips() {
 }
 #[test]
 fn live_case_list_matches_ignored_interop_tier() {
+    tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(support_live_harness::Pump::verify_cancelled_pause_aborts_task());
     let source = syn::parse_file(
         &std::fs::read_to_string(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/rust_live_interop.rs"),

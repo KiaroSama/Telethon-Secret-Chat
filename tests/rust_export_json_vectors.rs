@@ -1,9 +1,12 @@
 #![allow(clippy::unwrap_used)]
+#[path = "rust_export_support/desktop744.rs"]
+mod current;
 #[path = "rust_export_support/json_dispatch.rs"]
 mod dispatcher;
 use dispatcher::run;
 #[test]
 fn json_6c1809304683449d() {
+    current::json_safety();
     run("6c1809304683449d.json");
 }
 #[test]

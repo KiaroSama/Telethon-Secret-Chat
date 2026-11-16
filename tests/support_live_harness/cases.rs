@@ -229,10 +229,14 @@ async fn media_out(a: &Account, id: i32) -> TestResult {
             "No real audio/video sample directory was supplied; this run covers JPEG, PNG, text and binary files."
         );
     }
-    println!("OPEN every test file in the official client, then REPLY with the single word: ok");
-    let event=a.recorder.wait_for("MessageReceived",HUMAN,|event|matches!(event,Event::MessageReceived(message) if message.chat_id==id&&!message.text.trim().is_empty())).await?;
+    let confirmation = format!(
+        "opened-{}",
+        hex::encode(kiaro_secret_chat::crypto::random_bytes::<16>()?)
+    );
+    println!("OPEN every test file in the official client, then REPLY exactly: {confirmation}");
+    let event=a.recorder.wait_for("MessageReceived",HUMAN,|event|matches!(event,Event::MessageReceived(message) if message.chat_id==id&&message.text.trim()==confirmation.as_str())).await?;
     require(
-        matches!(event,Event::MessageReceived(message) if message.text.trim().eq_ignore_ascii_case("ok")),
+        matches!(event,Event::MessageReceived(message) if message.text.trim()==confirmation.as_str()),
         "The operator did not confirm that every actual file opened",
     )
 }

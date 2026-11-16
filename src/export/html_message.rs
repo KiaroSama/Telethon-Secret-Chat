@@ -5,6 +5,7 @@ use super::{
     html_media::prepare_media_data_with_countries,
     html_rich::render_rich_message,
     html_rich_media::NativeRichMedia,
+    html_safe::safe_message_href,
     html_service::service_text,
     html_text::*,
     model::*,
@@ -383,9 +384,11 @@ impl WrapBase {
             for (index, button) in row.iter().enumerate() {
                 let url = button.r#type == MarkupButtonType::Url;
                 let href = if url {
-                    std::str::from_utf8(&button.data)
-                        .map_err(|_| ExportError::InvalidRecord)?
-                        .into()
+                    safe_message_href(
+                        std::str::from_utf8(&button.data)
+                            .map_err(|_| ExportError::InvalidRecord)?,
+                    )
+                    .unwrap_or_default()
                 } else {
                     String::new()
                 };

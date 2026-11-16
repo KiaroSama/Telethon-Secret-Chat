@@ -117,7 +117,10 @@ pub(super) fn run(name: &str) {
         };
         assert_eq!(
             encode(result),
-            trace["result"],
+            trace
+                .get("current_result")
+                .unwrap_or(&trace["result"])
+                .clone(),
             "{}: {function} byte output",
             case["legacy_case"]
         );

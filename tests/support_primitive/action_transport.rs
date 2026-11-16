@@ -83,16 +83,34 @@ pub async fn run(case: &str) {
             assert_eq!(a.status(id).unwrap().ttl, 0);
         }
         "test_every_action_reaches_the_application" => {
-            let action_name = if param == "decryptedMessageActionResend" {
-                "decryptedMessageActionNoop"
+            let replay = if param == "decryptedMessageActionResend" {
+                a.send_message(id, "retained resend fixture", None, None)
+                    .await
+                    .unwrap();
+                let out_seq_no = chat(&sa, id).out_seq_no;
+                let world = world.lock().unwrap();
+                Some((
+                    world.sent.len(),
+                    world.sent.last().unwrap().outgoing.clone(),
+                    out_seq_no,
+                ))
             } else {
-                param
+                None
+            };
+            let action = if let Some((_, original, _)) = &replay {
+                types::DecryptedMessageActionResend {
+                    start_seq_no: original.seq_no,
+                    end_seq_no: original.seq_no,
+                }
+                .into()
+            } else {
+                action_cases::action(param, false)
             };
             let seen = service_log(&a);
             let c = chat(&sb, id);
             let service: enums::DecryptedMessage = types::DecryptedMessageService {
                 random_id: 1,
-                action: action_cases::action(action_name, false),
+                action,
             }
             .into();
             let wrapper = framing::wrap(
@@ -109,7 +127,28 @@ pub async fn run(case: &str) {
             )
             .unwrap();
             a.handle_update(&update(id, frame)).await;
-            let mut expected = action_name.to_owned();
+            if let Some((before, original, out_seq_no)) = replay {
+                let world = world.lock().unwrap();
+                assert_eq!(
+                    world.sent.len(),
+                    before + 1,
+                    "the Resend scenario must retransmit a retained row"
+                );
+                let retransmitted = &world.sent[before].outgoing;
+                assert_eq!(retransmitted.seq_no, original.seq_no);
+                assert_eq!(retransmitted.random_id, original.random_id);
+                assert_eq!(retransmitted.frame, original.frame);
+                drop(world);
+                assert_eq!(chat(&sa, id).out_seq_no, out_seq_no);
+            }
+            // Resend is answered immediately, then the retained ordered action
+            // becomes Noop so replay cannot interpret the request twice.
+            let mut expected = if param == "decryptedMessageActionResend" {
+                "decryptedMessageActionNoop"
+            } else {
+                param
+            }
+            .to_owned();
             expected[..1].make_ascii_uppercase();
             assert_eq!(*seen.lock().unwrap(), [expected]);
         }

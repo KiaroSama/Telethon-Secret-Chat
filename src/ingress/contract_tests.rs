@@ -128,11 +128,51 @@ async fn impossible_live_gap_is_held_without_inventing_qts() {
     tx.send(live(42, 2, b"public gap fixture".to_vec()))
         .await
         .unwrap();
-    // The real receiver waits for recovery instead of yielding a fabricated row.
-    let _ = tokio::time::timeout(Duration::from_millis(25), receiver.next()).await;
+    // The pinned SDK emits an empty metadata tuple for a buffered possible gap.
+    // Consume that documented result, rejecting any invented update or peer.
+    let buffered = tokio::time::timeout(Duration::from_secs(1), receiver.next())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(buffered.0.is_empty());
+    assert!(buffered.1.is_empty());
+    assert!(buffered.2.is_empty());
+    // The next receive must actually wait for recovery rather than immediately
+    // yielding another tuple or refusing the otherwise healthy receiver.
+    assert!(
+        tokio::time::timeout(Duration::from_millis(25), receiver.next())
+            .await
+            .is_err()
+    );
     assert_eq!(qts(&ingress), 40);
     assert!(ingress.guard_request(2, &request(42).to_bytes()).is_err());
     assert_eq!(ingress.pending_batches().unwrap().len(), 1);
+    tx.send(live(41, 2, b"missing predecessor fixture".to_vec()))
+        .await
+        .unwrap();
+    let recovered = tokio::time::timeout(Duration::from_secs(1), receiver.next())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        recovered
+            .0
+            .iter()
+            .map(|(update, _)| match update {
+                tl::enums::Update::NewEncryptedMessage(update) => update.message.random_id(),
+                _ => panic!("expected the actual predecessor and held encrypted update"),
+            })
+            .collect::<Vec<_>>(),
+        [41, 42]
+    );
+    assert_eq!(qts(&ingress), 42);
+    let permit = ingress
+        .guard_request(
+            2,
+            &tl::functions::messages::ReceivedQueue { max_qts: 42 }.to_bytes(),
+        )
+        .unwrap();
+    ingress.cancel_request(permit);
 }
 #[tokio::test]
 async fn acknowledged_receipt_reconstructs_before_consumer_application() {

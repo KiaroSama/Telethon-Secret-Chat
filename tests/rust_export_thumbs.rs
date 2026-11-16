@@ -245,6 +245,16 @@ fn jpeg_comments_use_qt_key_order_and_utf8() {
 }
 #[test]
 fn non_srgb_thumbnail_matches_exact_qt_oracle() {
+    // Current Desktop explicitly rejects SVG/SVGZ before thumbnail decoding.
+    // The native raster reader refuses both without invoking a vector renderer.
+    let folder = tempfile::tempdir().unwrap();
+    let svg = b"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"8\" height=\"8\"><rect width=\"8\" height=\"8\"/></svg>";
+    for (name, bytes) in [("untrusted.svg", svg.as_slice()), ("untrusted.svgz", b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x02\x03\xb3\x29\x2e\x4b\x57\xa8\xc8\xcd\xc9\x2b\xb6\x55\xca\x28\x29\x29\xb0\xd2\xd7\x2f\x2f\x2f\xd7\x2b\x37\xd6\xcb\x2f\x4a\xd7\x37\x32\x30\x30\xd0\x07\xaa\x50\x52\x28\xcf\x4c\x29\xc9\xb0\x55\xb2\x50\x52\xc8\x48\xcd\x4c\xcf\x28\x01\x31\xed\x6c\x8a\x52\x93\x4b\xb0\x4a\xe9\xdb\xd9\x80\xf4\xd9\x01\x00\x40\x2f\xca\x35\x5f\x00\x00\x00".as_slice())] {
+        fs::write(folder.path().join(name), bytes).unwrap();
+        assert_eq!(write_image_thumb(folder.path(), name, |_| (8,8), &ThumbnailOptions::default()), (String::new(), (0,0)));
+        assert!(!folder.path().join(name.replace('.', "_thumb.")).exists());
+    }
+
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tdexport_icc");
     let source = fs::read(root.join("adobe-thumbnail.source.jpg")).unwrap();
     let expected = fs::read(root.join("adobe-thumbnail.expected.jpg")).unwrap();

@@ -1,6 +1,8 @@
 #![allow(clippy::unwrap_used)]
 #[path = "rust_export_support/tl_contract.rs"]
 mod tl_contract;
+#[path = "rust_export_support/fetch_upstream.rs"]
+mod upstream;
 use kiaro_secret_chat::export::{
     self,
     fetch::*,
@@ -83,6 +85,9 @@ fn validate_request(request: &Value) {
         "messages.GetMessages" => {
             check!(f::messages::GetMessages)
         }
+        "messages.GetChats" => {
+            check!(f::messages::GetChats)
+        }
         "channels.GetChannels" => {
             check!(f::channels::GetChannels)
         }
@@ -162,7 +167,13 @@ impl ExportClient for Fake {
                         &self.history
                     };
                     let offset = integer(&request, "offset_id");
-                    let index = if offset == 0 {
+                    let offset_date = integer(&request, "offset_date");
+                    let index = if offset_date > 0 {
+                        ordered
+                            .iter()
+                            .position(|m| integer(m, "date") <= offset_date)
+                            .unwrap_or(ordered.len())
+                    } else if offset == 0 {
                         0
                     } else {
                         ordered
@@ -176,7 +187,11 @@ impl ExportClient for Fake {
                     let rows = ordered
                         .get(start.min(ordered.len())..end.min(ordered.len()))
                         .unwrap_or(&[]);
-                    json!({"_":"MessagesSlice","count":ordered.len(),"messages":rows,"users":[{"_":"User","id":100,"first_name":"Peer"}],"chats":[]})
+                    let mut result = json!({"_":"MessagesSlice","count":ordered.len(),"messages":rows,"users":[{"_":"User","id":100,"first_name":"Peer"}],"chats":[]});
+                    if offset_date > 0 {
+                        result["offset_id_offset"] = index.into();
+                    }
+                    result
                 }
                 _ => panic!("unexpected scripted request {}", kind(&request)),
             })
@@ -411,6 +426,7 @@ async fn split_ranges_oldest_first() {
 }
 #[tokio::test]
 async fn date_limits_leave_outside_files_alone() {
+    upstream::date_requests_and_counts().await;
     let d = tempfile::tempdir().unwrap();
     let c = Fake::new(vec![
         photo(1, BASE),
@@ -422,13 +438,18 @@ async fn date_limits_leave_outside_files_alone() {
     s.single_peer_till = BASE + 2 * DAY;
     let (_, w) = run(&c, &s).await;
     let rows = w.messages();
-    for index in [0, 2] {
-        assert_eq!(rows[index].file().skip_reason, SkipReason::None);
-        assert_eq!(rows[index].file().relative_path, "");
-    }
+    assert_eq!(rows.iter().map(|m| m.id).collect::<Vec<_>>(), [2, 3]);
+    assert_eq!(w.dialog.messages_count_per_split, [2]);
+    assert_eq!(rows[1].file().skip_reason, SkipReason::None);
+    assert_eq!(rows[1].file().relative_path, "");
+    assert!(
+        !d.path()
+            .join("photos/photo_1@14-11-2023_22-13-20.jpg")
+            .exists()
+    );
     assert_eq!(
-        rows[1].file().relative_path,
-        "photos/photo_2@15-11-2023_22-13-20.jpg"
+        rows[0].file().relative_path,
+        "photos/photo_1@15-11-2023_22-13-20.jpg"
     );
     assert_eq!(
         c.downloads
@@ -578,6 +599,7 @@ async fn populated_destination_chooses_chat_subfolder() {
 }
 #[tokio::test]
 async fn migrated_group_old_chat_first() {
+    upstream::migration_history_fallback().await;
     let d = tempfile::tempdir().unwrap();
     let mut c = Fake::new(vec![]);
     c.takeout_error = Some(export::ExportError::InvalidOptions.into());

@@ -57,7 +57,10 @@ pub fn format_custom_emoji(emoji: &str, text: &str, base: &str) -> String {
     } else if emoji == TextPart::UNAVAILABLE_EMOJI {
         "<a href=\"\" onclick=\"return ShowNotAvailableEmoji();\">".into()
     } else {
-        format!("<a href = \"{base}{emoji}\">")
+        format!(
+            "<a href = \"{}\">",
+            serialize_string(&format!("{base}{emoji}"))
+        )
     };
     format!("{start}{text}</a>")
 }
@@ -67,7 +70,7 @@ pub fn format_text(data: &[TextPart], domain: &str, base: &str) -> Vec<u8> {
         let text = serialize_string(&part.text);
         use TextType as T;
         let fragment = match part.kind {
-            T::Text | T::Unknown | T::BankCard => text,
+            T::Text | T::Unknown | T::BankCard | T::TonAddress => text,
             T::Mention => {
                 result.extend_from_slice(format!("<a href=\"{domain}").as_bytes());
                 result.extend(byte_mid(&text, 1));

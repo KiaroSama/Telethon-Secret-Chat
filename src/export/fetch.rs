@@ -247,16 +247,66 @@ async fn collect_dialogs<C: ExportClient>(
                 array(&full, "chats"),
             )?
         } else {
-            DialogsInfo::default()
+            migrated_from_history(files, &source, last).await?
         };
     }
     Ok(result)
 }
+async fn migrated_from_history<C: ExportClient>(
+    files: &MessageFiles<'_, C>,
+    source: &DialogInfo,
+    split: i64,
+) -> FetchResult<DialogsInfo> {
+    let response = files
+        .split(split, json!({"_":"messages.GetHistory","peer":source.input,"offset_id":1,"offset_date":0,"add_offset":-1,"limit":1,"max_id":0,"min_id":0,"hash":0}))
+        .await;
+    let response = match response {
+        Ok(response) => response,
+        Err(FetchError::Rpc { .. }) => return Ok(DialogsInfo::default()),
+        Err(error) => return Err(error),
+    };
+    let id = array(&response, "messages")
+        .iter()
+        .filter(|message| type_is(message, "MessageService"))
+        .filter_map(|message| {
+            let action = &message["action"];
+            type_is(action, "MessageActionChannelMigrateFrom").then(|| integer(action, "chat_id"))
+        })
+        .next_back()
+        .unwrap_or(0);
+    if id <= 0 {
+        return Ok(DialogsInfo::default());
+    }
+    let chats = match files.main(json!({"_":"messages.GetChats","id":[id]})).await {
+        Ok(chats) => chats,
+        Err(FetchError::Rpc { .. }) => return Ok(DialogsInfo::default()),
+        Err(error) => return Err(error),
+    };
+    let mut result = parse_dialogs_info_chats(
+        &json!({"_":"InputPeerChat","chat_id":id}),
+        array(&chats, "chats"),
+    )?;
+    let destination = peer_to_channel(source.peer_id);
+    result
+        .chats
+        .retain(|chat| chat.migrated_to_channel_id == destination);
+    Ok(result)
+}
+
+fn from_date_offset(settings: &Settings) -> FetchResult<i32> {
+    if settings.single_peer_from > 0 {
+        i32::try_from(settings.single_peer_from - 1).map_err(|_| ExportError::InvalidOptions.into())
+    } else {
+        Ok(0)
+    }
+}
+
 async fn history<C: ExportClient>(
     files: &mut MessageFiles<'_, C>,
     info: &mut DialogInfo,
     local: usize,
     offset: i64,
+    offset_date: i32,
     add: i64,
     limit: i64,
 ) -> FetchResult<Value> {
@@ -275,7 +325,7 @@ async fn history<C: ExportClient>(
         let request = if info.only_my_messages {
             json!({"_":"messages.Search","peer":peer,"q":"","from_id":if type_is(&info.monoforum_broadcast_input,"InputPeerEmpty"){json!({"_":"InputPeerSelf"})}else{info.monoforum_broadcast_input.clone()},"filter":{"_":"InputMessagesFilterEmpty"},"min_date":0,"max_date":0,"offset_id":offset,"add_offset":add,"limit":limit,"max_id":0,"min_id":0,"hash":0})
         } else {
-            json!({"_":"messages.GetHistory","peer":peer,"offset_id":offset,"offset_date":0,"add_offset":add,"limit":limit,"max_id":0,"min_id":0,"hash":0})
+            json!({"_":"messages.GetHistory","peer":peer,"offset_id":if offset_date != 0 {0} else {offset},"offset_date":offset_date,"add_offset":add,"limit":limit,"max_id":0,"min_id":0,"hash":0})
         };
         match files.split(real_split, request).await {
             Err(e)
@@ -296,7 +346,7 @@ async fn export_dialog<C: ExportClient>(
     dates: &DateContext,
 ) -> FetchResult<()> {
     for local in 0..info.splits.len() {
-        let result = history(files, &mut info, local, 0, 0, 1).await?;
+        let result = history(files, &mut info, local, 0, 0, 0, 1).await?;
         if type_is(&result, "MessagesNotModified") {
             return Err(ExportError::InvalidRecord.into());
         }
@@ -307,10 +357,19 @@ async fn export_dialog<C: ExportClient>(
         };
         if !single_message_after(&result, files.settings.single_peer_from) {
             count = 0;
-        } else if files.settings.single_peer_till != 0 {
-            let first = history(files, &mut info, local, 1, -1, 1).await?;
-            if !single_message_before(&first, files.settings.single_peer_till) {
-                count = 0;
+        } else {
+            if files.settings.single_peer_from > 0 && !info.only_my_messages {
+                let offset_date = from_date_offset(&files.settings)?;
+                let from = history(files, &mut info, local, 0, offset_date, 0, 1).await?;
+                if type_is(&from, "MessagesSlice") || type_is(&from, "ChannelMessages") {
+                    count = from["offset_id_offset"].as_i64().unwrap_or(count);
+                }
+            }
+            if files.settings.single_peer_till != 0 {
+                let first = history(files, &mut info, local, 1, 0, -1, 1).await?;
+                if !single_message_before(&first, files.settings.single_peer_till) {
+                    count = 0;
+                }
             }
         }
         info.messages_count_per_split[local] = count;
@@ -326,7 +385,12 @@ async fn export_dialog<C: ExportClient>(
             let (mut slice, last) = if info.messages_count_per_split[local] == 0 {
                 (MessagesSlice::default(), true)
             } else {
-                let result = history(files, &mut info, local, next, -100, 100).await?;
+                let offset_date = if next == 1 && !info.only_my_messages {
+                    from_date_offset(&files.settings)?
+                } else {
+                    0
+                };
+                let result = history(files, &mut info, local, next, offset_date, -100, 100).await?;
                 if type_is(&result, "MessagesNotModified") {
                     return Err(ExportError::InvalidRecord.into());
                 }

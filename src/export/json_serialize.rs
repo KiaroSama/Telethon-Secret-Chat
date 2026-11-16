@@ -1,4 +1,4 @@
-//! Desktop JSON byte serialization, including its historical control-byte quirks.
+//! Desktop JSON byte serialization, including current valid Unicode escapes.
 use super::{
     error::Result,
     format::{DateContext, DesktopNumber, iso_date_time},
@@ -17,6 +17,13 @@ pub struct JsonContext {
 pub fn number(value: impl DesktopNumber) -> Vec<u8> {
     value.desktop_number().into_bytes()
 }
+pub fn float_allow_null(value: f64) -> Vec<u8> {
+    if value.is_finite() {
+        number(value)
+    } else {
+        b"null".to_vec()
+    }
+}
 pub fn u64_value(value: i64) -> u64 {
     value as u64
 }
@@ -34,7 +41,6 @@ pub fn serialize_string(value: impl AsRef<[u8]>) -> Vec<u8> {
             } else {
                 b"\\u2029"
             });
-            result.extend_from_slice(&bytes[i + 1..i + 3]);
             i += 3;
             continue;
         }
@@ -46,7 +52,8 @@ pub fn serialize_string(value: impl AsRef<[u8]>) -> Vec<u8> {
             b'\\' => result.extend_from_slice(b"\\\\"),
             0..=31 => {
                 const HEX: &[u8; 16] = b"0123456789ABCDEF";
-                result.extend([b'\\', b'x', HEX[(b >> 4) as usize], HEX[(b & 15) as usize]]);
+                result.extend_from_slice(b"\\u00");
+                result.extend([HEX[(b >> 4) as usize], HEX[(b & 15) as usize]]);
             }
             _ => result.push(b),
         }
@@ -138,6 +145,7 @@ pub fn text_type_name(kind: TextType) -> &'static str {
         TextType::Strike => "strikethrough",
         TextType::Blockquote => "blockquote",
         TextType::BankCard => "bank_card",
+        TextType::TonAddress => "ton_address",
         TextType::Spoiler => "spoiler",
         TextType::CustomEmoji => "custom_emoji",
     }

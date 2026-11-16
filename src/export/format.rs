@@ -177,8 +177,8 @@ pub fn format_image_size_text(width: u32, height: u32) -> String {
     format!("{width}×{height}")
 }
 pub use super::format_money::{
-    CurrencyRule, fill_amount_and_currency, format_money_amount, format_with_separators,
-    lookup_currency_rule,
+    CurrencyRule, fill_amount_and_currency, format_grams_amount, format_money_amount,
+    format_with_separators, lookup_currency_rule,
 };
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct CallingCodeInfo {

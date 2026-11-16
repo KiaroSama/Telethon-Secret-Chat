@@ -568,7 +568,12 @@ async fn gap_payload_stays_volatile_until_retention_expiry_suspends() {
             .unwrap()
             .contains("second synthetic gap")
     );
-    tokio::time::sleep(Duration::from_millis(550)).await;
+    soon(async {
+        while !a.is_suspended(id).unwrap() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
     assert!(
         a.is_suspended(id).unwrap(),
         "the owned expiry timer acts without another public operation"

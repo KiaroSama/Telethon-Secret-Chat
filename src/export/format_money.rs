@@ -1,4 +1,21 @@
 //! Desktop currency table and amount formatting.
+pub fn format_grams_amount(nanos: i64) -> String {
+    const NANOS: u64 = 1_000_000_000;
+    let absolute = nanos.unsigned_abs();
+    let fraction = format!("{:09}", absolute % NANOS);
+    let fraction = fraction.trim_end_matches('0');
+    format!(
+        "{}{}{} {}",
+        if nanos < 0 { "-" } else { "" },
+        absolute / NANOS,
+        if fraction.is_empty() {
+            String::new()
+        } else {
+            format!(".{fraction}")
+        },
+        if absolute == NANOS { "Gram" } else { "Grams" }
+    )
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CurrencyRule {
     pub international: &'static str,

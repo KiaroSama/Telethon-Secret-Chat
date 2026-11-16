@@ -103,7 +103,12 @@ fn build() -> Harness {
         .unwrap_or_else(|| root.join("target"));
     let mut build = Command::new(env!("CARGO"));
     build
-        .args(["build", "--offline", "--manifest-path"])
+        .args([
+            "build",
+            "--offline",
+            "--message-format=json",
+            "--manifest-path",
+        ])
         .arg(fixture.join("Cargo.toml"))
         .env("CARGO_TARGET_DIR", &target)
         .env("SDK_FIXTURE_ORIGIN", root);
@@ -141,17 +146,28 @@ fn build() -> Harness {
         "Offline SDK fixture build failed: {}",
         String::from_utf8(output.stderr).expect("UTF-8 Cargo output")
     );
-    let name = if cfg!(windows) {
-        "kiaro-sdk-ingress-harness.exe"
-    } else {
-        "kiaro-sdk-ingress-harness"
-    };
-    let binary = target.join("debug").join(name);
+    let binary = compiler_executable(&output.stdout)
+        .expect("Cargo must report the just-built native SDK fixture executable");
     assert!(binary.is_file());
     Harness {
         _directory: directory,
         binary,
     }
+}
+pub(crate) fn compiler_executable(output: &[u8]) -> Option<PathBuf> {
+    std::str::from_utf8(output).ok()?.lines().find_map(|line| {
+        let message: serde_json::Value = serde_json::from_str(line).ok()?;
+        if message["reason"] != "compiler-artifact"
+            || message["target"]["name"] != "kiaro-sdk-ingress-harness"
+            || !message["target"]["kind"]
+                .as_array()?
+                .iter()
+                .any(|kind| kind == "bin")
+        {
+            return None;
+        }
+        message["executable"].as_str().map(PathBuf::from)
+    })
 }
 pub fn run(scenario: &str) {
     let harness = HARNESS.get_or_init(build);

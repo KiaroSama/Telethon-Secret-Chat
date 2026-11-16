@@ -169,7 +169,7 @@ fn assets_are_copied_like_tdesktop() {
     let hashes: BTreeMap<String, String> = serde_json::from_slice(
         &fs::read(
             Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("tests/fixtures/tdexport_assets_sha256.json"),
+                .join("tests/fixtures/tdexport_assets_sha256_current.json"),
         )
         .unwrap(),
     )
@@ -403,8 +403,13 @@ fn output_file_creates_folder_and_truncates() {
     output.write_block(b"ab").unwrap();
     output.write_block(b"c").unwrap();
     output.close();
-    assert_eq!(fs::read(path).unwrap(), b"abc");
+    assert_eq!(fs::read(&path).unwrap(), b"abc");
     assert_eq!(output.size(), 3);
+    fs::write(&path, b"abc stale tail").unwrap();
+    output.write_block(b"d").unwrap();
+    output.close();
+    assert_eq!(fs::read(&path).unwrap(), b"abcd");
+    assert_eq!(output.size(), 4);
     let mut fresh = OutputFile::new(folder.path().join("new/x.json"));
     fresh.write_block(b"1").unwrap();
     fresh.close();

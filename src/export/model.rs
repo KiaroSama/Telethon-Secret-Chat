@@ -213,6 +213,7 @@ pub enum TextType {
     Strike,
     Blockquote,
     BankCard,
+    TonAddress,
     Spoiler,
     CustomEmoji,
 }
@@ -282,6 +283,7 @@ pub fn parse_text(text: &str, entities: &[Value]) -> Vec<TextPart> {
             "Strike" => TextType::Strike,
             "Blockquote" => TextType::Blockquote,
             "BankCard" => TextType::BankCard,
+            "TonAddress" => TextType::TonAddress,
             "Spoiler" => TextType::Spoiler,
             "CustomEmoji" => TextType::CustomEmoji,
             _ => TextType::Unknown,

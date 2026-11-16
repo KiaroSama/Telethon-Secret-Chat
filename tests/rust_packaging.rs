@@ -36,7 +36,7 @@ fn installed_consumer_exports_resolve_and_execute() {
     let p = package::installed();
     assert!(p.installed && p.canonical_sdk && p.no_source_stubs && p.standalone_tools);
     let golden: serde_json::Value =
-        serde_json::from_str(include_str!("fixtures/tdexport_assets_sha256.json")).unwrap();
+        serde_json::from_str(include_str!("fixtures/tdexport_assets_sha256_current.json")).unwrap();
     for (name, sha) in golden.as_object().unwrap() {
         assert_eq!(
             p.assets.get(name).map(String::as_str),
