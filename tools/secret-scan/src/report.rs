@@ -52,7 +52,7 @@ pub fn validate_report(bytes: &[u8], code: i32) -> Result<Vec<Value>> {
     Ok(findings.clone())
 }
 pub fn summary(findings: &[Value], scope: &str) -> String {
-    let mut lines=vec!["## Gitleaks".to_owned(),String::new(),format!("Scanner: **{}**",super::VERSION),String::new(),format!("Scope: **{scope}**"),String::new(),"Rules: Pinned built-in Gitleaks rules with standard exclusions. Full history describes revision coverage, not universal byte or credential coverage.".into(),String::new()];
+    let mut lines=vec!["## Gitleaks".to_owned(),String::new(),format!("Scanner: **{}**",super::VERSION),String::new(),format!("Scope: **{scope}**"),String::new(),"Rules: Pinned built-in Gitleaks rules with standard exclusions and four exact public-fixture/source-checksum exemptions. Full history describes revision coverage, not universal byte or credential coverage.".into(),String::new()];
     if findings.is_empty() {
         lines.push("No matching secrets were found in the scanned Git history.".into());
     } else {
