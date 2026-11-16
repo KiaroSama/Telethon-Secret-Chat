@@ -167,6 +167,19 @@ pub fn run() {
                     parse_markdown_message(&generate_markdown_message("a b", &separate)),
                     ("a b".into(), separate.to_vec())
                 );
+                for character in ["a", "😀"] {
+                    let width = character.encode_utf16().count() as i32;
+                    for count in [128, 256, 512] {
+                        let text = character.repeat(count);
+                        let ranges = (0..count)
+                            .map(|index| entity(index as i32 * width, width))
+                            .collect::<Vec<_>>();
+                        assert_eq!(
+                            parse_markdown_message(&generate_markdown_message(&text, &ranges)),
+                            (text, vec![entity(0, count as i32 * width)])
+                        );
+                    }
+                }
             }
         }),
         ("markdown_adjacent_emphasis_preserves_links", || {

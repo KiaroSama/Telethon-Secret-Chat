@@ -242,35 +242,37 @@ fn emphasis_delimiters(message: &str, start: i32, end: i32) -> (bool, bool) {
     (asterisk, underscore)
 }
 
+fn emitted_entity_range(message: &str, entity: &tl::enums::MessageEntity) -> Option<(i32, i32)> {
+    use tl::enums::MessageEntity as ME;
+    match entity {
+        ME::Bold(e) => emphasis_range(message, e.offset, e.length)
+            .filter(|(start, end)| emphasis_delimiters(message, *start, *end).0),
+        ME::Italic(e) => emphasis_range(message, e.offset, e.length)
+            .filter(|(start, end)| emphasis_delimiters(message, *start, *end).0),
+        ME::Code(_) | ME::Pre(_) | ME::TextUrl(_) | ME::MentionName(_)
+            if entity.offset() >= 0 && entity.length() > 0 =>
+        {
+            entity
+                .offset()
+                .checked_add(entity.length())
+                .map(|end| (entity.offset(), end))
+        }
+        _ => None,
+    }
+}
+
 fn merge_preserves_entities(
-    message: &str,
-    entities: &[tl::enums::MessageEntity],
+    emitted_ranges: &[Option<(i32, i32)>],
     removed: &[bool],
     prior: usize,
     current: usize,
     combined: std::ops::Range<i32>,
 ) -> bool {
-    use tl::enums::MessageEntity as ME;
-    entities.iter().enumerate().all(|(index, entity)| {
+    emitted_ranges.iter().enumerate().all(|(index, range)| {
         if index == prior || index == current || removed[index] {
             return true;
         }
-        let range = match entity {
-            ME::Bold(e) => emphasis_range(message, e.offset, e.length)
-                .filter(|(start, end)| emphasis_delimiters(message, *start, *end).0),
-            ME::Italic(e) => emphasis_range(message, e.offset, e.length)
-                .filter(|(start, end)| emphasis_delimiters(message, *start, *end).0),
-            ME::Code(_) | ME::Pre(_) | ME::TextUrl(_) | ME::MentionName(_)
-                if entity.offset() >= 0 && entity.length() > 0 =>
-            {
-                entity
-                    .offset()
-                    .checked_add(entity.length())
-                    .map(|end| (entity.offset(), end))
-            }
-            _ => None,
-        };
-        let Some((start, end)) = range else {
+        let Some((start, end)) = *range else {
             return true;
         };
         if combined.start < start && start < combined.end && combined.end < end
@@ -297,6 +299,12 @@ fn merge_adjacent_inline(
     use tl::enums::MessageEntity as ME;
     let mut normalized = entities.to_vec();
     let mut removed = vec![false; normalized.len()];
+    // Pairwise checks use cached boundaries, without repeating UTF-16 scans.
+    // A successful merge refreshes only its surviving entity.
+    let mut emitted_ranges = normalized
+        .iter()
+        .map(|entity| emitted_entity_range(message, entity))
+        .collect::<Vec<_>>();
     macro_rules! merge {
         ($variant:ident) => {{
             let mut indexes = normalized
@@ -322,8 +330,7 @@ fn merge_adjacent_inline(
                     && let Some(combined_length) = prior.length.checked_add(length)
                     && let Some(end) = offset.checked_add(length)
                     && merge_preserves_entities(
-                        message,
-                        &normalized,
+                        &emitted_ranges,
                         &removed,
                         previous_index,
                         index,
@@ -334,6 +341,8 @@ fn merge_adjacent_inline(
                         unreachable!()
                     };
                     prior.length = combined_length;
+                    emitted_ranges[previous_index] =
+                        emitted_entity_range(message, &normalized[previous_index]);
                     removed[index] = true;
                     continue;
                 }
