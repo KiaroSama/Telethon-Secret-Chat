@@ -11,9 +11,10 @@ pub fn run() {
         1
     );
     assert_eq!(sdk_utils::random_id_seed(epoch), 1);
+    // Windows SystemTime uses 100 ns units; one microsecond is exactly representable.
     assert_eq!(
-        sdk_utils::random_id_seed(epoch + std::time::Duration::from_nanos(123)),
-        123
+        sdk_utils::random_id_seed(epoch + std::time::Duration::from_micros(1)),
+        1_000
     );
     let probes: &[(&str, fn())] = &[
         ("markdown_link_destination", || {
