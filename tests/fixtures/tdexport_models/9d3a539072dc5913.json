@@ -1,0 +1,35 @@
+{
+  "legacy_case": "tests/test_tdexport_rich_parse.py::test_inline_button_actions[data0-expected0]",
+  "traces": [
+    {
+      "function": "model_rich_parse.parse_inline_button_action",
+      "args": [
+        {
+          "_": "InlineButtonTypeUrl",
+          "url": "https://u"
+        }
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": {
+        "url": "https://u",
+        "forward_text": null,
+        "callback_data": [],
+        "query": "",
+        "peer_types": null,
+        "copy_text": "",
+        "user_id": 0,
+        "button_id": 0,
+        "type": "Url",
+        "requires_password": false,
+        "same_peer": false
+      },
+      "after": [
+        {
+          "_": "InlineButtonTypeUrl",
+          "url": "https://u"
+        }
+      ]
+    }
+  ]
+}

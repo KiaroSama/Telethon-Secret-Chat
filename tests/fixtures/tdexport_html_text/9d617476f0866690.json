@@ -1,0 +1,155 @@
+{
+  "legacy_case": "tests/test_tdexport_html_text.py::test_rich_action_values",
+  "traces": [
+    {
+      "function": "html_safe.is_hashtag_action",
+      "args": [
+        "tag_1́"
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": true,
+      "after": [
+        "tag_1́"
+      ]
+    },
+    {
+      "function": "html_safe.is_hashtag_action",
+      "args": [
+        "tag@bot"
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": true,
+      "after": [
+        "tag@bot"
+      ]
+    },
+    {
+      "function": "html_safe.is_hashtag_action",
+      "args": [
+        "123"
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": false,
+      "after": [
+        "123"
+      ]
+    },
+    {
+      "function": "html_safe.is_hashtag_action",
+      "args": [
+        "a"
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": false,
+      "after": [
+        "a"
+      ]
+    },
+    {
+      "function": "html_safe.is_hashtag_action",
+      "args": [
+        "tag@a@b"
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": false,
+      "after": [
+        "tag@a@b"
+      ]
+    },
+    {
+      "function": "html_safe.is_bot_command_action",
+      "args": [
+        "start@botname"
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": true,
+      "after": [
+        "start@botname"
+      ]
+    },
+    {
+      "function": "html_safe.is_bot_command_action",
+      "args": [
+        "start@bot"
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": false,
+      "after": [
+        "start@bot"
+      ]
+    },
+    {
+      "function": "html_safe.is_cashtag_action",
+      "args": [
+        "USD"
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": true,
+      "after": [
+        "USD"
+      ]
+    },
+    {
+      "function": "html_safe.is_cashtag_action",
+      "args": [
+        "usd"
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": false,
+      "after": [
+        "usd"
+      ]
+    },
+    {
+      "function": "html_safe.safe_action_data",
+      "args": [
+        "#tag",
+        "#"
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": "tag",
+      "after": [
+        "#tag",
+        "#"
+      ]
+    },
+    {
+      "function": "html_safe.safe_action_data",
+      "args": [
+        "#",
+        "#"
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": null,
+      "after": [
+        "#",
+        "#"
+      ]
+    },
+    {
+      "function": "html_safe.safe_action_data",
+      "args": [
+        "/x",
+        "#"
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": null,
+      "after": [
+        "/x",
+        "#"
+      ]
+    }
+  ]
+}

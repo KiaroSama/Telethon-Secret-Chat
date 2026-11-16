@@ -1,50 +1,24 @@
 //! Synchronous durable protocol transitions. An application executes returned
 //! effects only after the corresponding snapshot is committed successfully.
+mod access;
+mod actions;
+mod custody;
+mod effects;
+pub(crate) use actions::prepare_action;
+use actions::{apply_action, prepare};
+pub use effects::{Effects, Event, SendEffect, ServiceEvent};
+mod withdrawal;
 use crate::{
     Serializable,
-    chat::{Chat, ChatSnapshot, ChatState, DhRecord, Envelope, Outgoing},
-    crypto::{SharedKey, decrypt_frame, encrypt_frame, random_id},
+    chat::{Chat, ChatSnapshot, ChatState, DhRecord, Envelope},
+    crypto::{SharedKey, decrypt_frame, random_id},
     enums,
     error::{Error, Result},
     framing, sequence,
     storage::{State, Storage},
     types,
 };
-
-/// A network effect carries protected bytes and intentionally has no Debug.
-#[derive(Clone)]
-pub struct SendEffect {
-    pub chat_id: i32,
-    pub access_hash: i64,
-    pub outgoing: Outgoing,
-}
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Event {
-    MessageAvailable {
-        chat_id: i32,
-        sequence: i32,
-        random_id: i64,
-    },
-    MessageAcknowledged {
-        chat_id: i32,
-        random_ids: Vec<i64>,
-    },
-    ChatClosed {
-        chat_id: i32,
-    },
-    LayerChanged {
-        chat_id: i32,
-        layer: i32,
-    },
-    DecryptFailed {
-        chat_id: i32,
-    },
-}
-#[derive(Default)]
-pub struct Effects {
-    pub sends: Vec<SendEffect>,
-    pub events: Vec<Event>,
-}
+pub(crate) use withdrawal::rewrite_retained_as_deletes;
 
 pub struct Protocol<S: Storage> {
     storage: S,
@@ -52,7 +26,7 @@ pub struct Protocol<S: Storage> {
     running: bool,
 }
 impl<S: Storage> Protocol<S> {
-    pub fn open(storage: S, authorization: String) -> Result<Self> {
+    pub fn open(mut storage: S, authorization: String) -> Result<Self> {
         let state = match storage.load()? {
             Some(state) => {
                 if state.authorization != authorization {
@@ -62,7 +36,10 @@ impl<S: Storage> Protocol<S> {
             }
             None => State::empty(authorization)?,
         };
-        state.validate()?;
+        state.validate_restored()?;
+        if storage.repair_pending() {
+            storage.commit(&state)?;
+        }
         Ok(Self {
             storage,
             state,
@@ -72,6 +49,13 @@ impl<S: Storage> Protocol<S> {
     pub fn start(&mut self) -> Result<Vec<SendEffect>> {
         if self.running {
             return Err(Error::ChatState);
+        }
+        if let Some(state) = self.storage.resume_storage()? {
+            if state.authorization != self.state.authorization {
+                return Err(Error::Authorization);
+            }
+            state.validate()?;
+            self.state = state;
         }
         self.state.validate()?;
         self.running = true;
@@ -94,7 +78,26 @@ impl<S: Storage> Protocol<S> {
             .collect())
     }
     pub fn stop(&mut self) -> Result<()> {
-        self.storage.commit(&self.state)?;
+        if !self.running {
+            return Ok(());
+        }
+        if self.state.mode == crate::storage::StoreMode::Protected {
+            let mut state = self.state.clone();
+            for chat in state.chats.values_mut() {
+                chat.state = ChatState::Suspended;
+                chat.paused = true;
+                chat.outbox.clear();
+                chat.gaps.clear();
+                chat.deliveries.clear();
+                chat.service_deliveries.clear();
+            }
+            crate::custody::transient::suspend_requests(&mut state);
+            self.storage.commit(&state)?;
+            self.state = self.storage.committed_view().unwrap_or(state);
+        } else {
+            self.storage.commit(&self.state)?;
+        }
+        self.storage.suspend_storage()?;
         self.running = false;
         Ok(())
     }
@@ -109,16 +112,29 @@ impl<S: Storage> Protocol<S> {
     pub fn snapshots(&self) -> Vec<ChatSnapshot> {
         self.state.chats.values().map(Chat::snapshot).collect()
     }
-    fn transaction<T>(&mut self, f: impl FnOnce(&mut State) -> Result<T>) -> Result<T> {
+    pub(crate) fn transaction<T>(&mut self, f: impl FnOnce(&mut State) -> Result<T>) -> Result<T> {
         if !self.running {
             return Err(Error::NotRunning);
         }
         let mut next = self.state.clone();
         let result = f(&mut next)?;
         next.validate()?;
-        self.storage.commit(&next)?;
-        self.state = next;
+        if let Err(error) = self.storage.commit(&next) {
+            if let Some(view) = self.storage.committed_view() {
+                self.state = view;
+            }
+            return Err(error);
+        }
+        self.state = self.storage.committed_view().unwrap_or(next);
         Ok(result)
+    }
+    fn ingress_transaction<T>(
+        &mut self,
+        id: i32,
+        kind: crate::ingress::application::Kind,
+        f: impl FnOnce(&mut State) -> Result<T>,
+    ) -> Result<T> {
+        crate::ingress::application::transition(kind, id, || self.transaction(f))
     }
     /// Install an already-validated handshake. The transport driver must compare
     /// the server's claimed fingerprint before calling this method.
@@ -138,7 +154,7 @@ impl<S: Storage> Protocol<S> {
                 return Err(Error::ChatState);
             }
             chat.dh = Some(dh);
-            chat.adopt_key(key);
+            chat.adopt_key(key)?;
             chat.state = ChatState::Ready;
             chat.rekeyed_at = now;
             let effect = prepare_action(
@@ -156,6 +172,7 @@ impl<S: Storage> Protocol<S> {
         entities: Option<Vec<enums::MessageEntity>>,
         reply_to: Option<i64>,
     ) -> Result<SendEffect> {
+        self.admit(Some(id), crate::storage::Operation::Send, text.len())?;
         if text.len() > 1024 * 1024 {
             return Err(Error::Capacity);
         }
@@ -181,30 +198,44 @@ impl<S: Storage> Protocol<S> {
         id: i32,
         action: enums::DecryptedMessageAction,
     ) -> Result<SendEffect> {
+        self.admit(
+            Some(id),
+            crate::storage::Operation::Send,
+            action.to_bytes().len(),
+        )?;
         self.transaction(|state| {
             prepare_action(state.chats.get_mut(&id).ok_or(Error::ChatState)?, action)
         })
     }
     pub fn rekey(&mut self, id: i32) -> Result<Option<SendEffect>> {
+        self.admit(Some(id), crate::storage::Operation::Rekey, 0)?;
         self.transaction(|state| {
             crate::rekey::start(state.chats.get_mut(&id).ok_or(Error::ChatState)?)
         })
     }
-    pub fn confirm_sent(&mut self, id: i32, seq_no: i32, random_id: i64) -> Result<()> {
+    /// Confirm only the exact effect that completed. A late response cannot
+    /// confirm replacement ciphertext produced by a concurrent withdrawal.
+    pub fn confirm_sent(&mut self, effect: &SendEffect) -> Result<()> {
         self.transaction(|state| {
-            let chat = state.chats.get_mut(&id).ok_or(Error::ChatState)?;
+            let Some(chat) = state.chats.get_mut(&effect.chat_id) else {
+                return Ok(());
+            };
             // A peer acknowledgement can remove the retained row before its RPC
             // response arrives; that response then has nothing left to mark.
-            if let Some(item) = chat.outbox.get_mut(&seq_no) {
-                if item.random_id != random_id {
-                    return Err(Error::Sequence);
-                }
+            if let Some(item) = chat.outbox.get_mut(&effect.outgoing.seq_no)
+                && chat.access_hash == effect.access_hash
+                && item.random_id == effect.outgoing.random_id
+                && item.frame == effect.outgoing.frame
+                && item.service == effect.outgoing.service
+                && item.file == effect.outgoing.file
+            {
                 item.pending = false;
             }
             Ok(())
         })
     }
-    pub fn retry_pending(&self, id: i32) -> Result<Vec<SendEffect>> {
+    pub fn retry_pending(&mut self, id: i32) -> Result<Vec<SendEffect>> {
+        self.admit(Some(id), crate::storage::Operation::Retry, 0)?;
         if !self.running {
             return Err(Error::NotRunning);
         }
@@ -229,6 +260,11 @@ impl<S: Storage> Protocol<S> {
         file: Option<Vec<u8>>,
         date: i32,
     ) -> Result<Effects> {
+        // Telegram's ordinary encrypted envelope represents no attachment as an
+        // EncryptedFile::Empty object. Normalize it before mailbox validation.
+        let file = file
+            .filter(|value| value != &grammers_tl_types::enums::EncryptedFile::Empty.to_bytes());
+        self.admit(Some(id), crate::storage::Operation::Receive, frame.len())?;
         let chat = self.state.chats.get(&id).ok_or(Error::ChatState)?;
         chat.require_ready()?;
         let fingerprint = i64::from_le_bytes(
@@ -238,56 +274,108 @@ impl<S: Storage> Protocol<S> {
                 .try_into()
                 .map_err(|_| Error::FrameRejected)?,
         );
-        let pending = match &chat.exchange {
-            Some(crate::chat::Exchange::Accepted { key, .. }) => Some(key),
-            _ => None,
-        };
-        let key = [chat.key.as_ref(), pending, chat.previous_key.as_ref()]
-            .into_iter()
-            .flatten()
-            .find(|key| key.fingerprint() == fingerprint)
-            .ok_or(Error::FrameRejected)?;
+        let key = crate::rekey::select_key(chat, fingerprint).ok_or(Error::FrameRejected)?;
         let body = decrypt_frame(key, frame, chat.in_direction())?;
-        let wrapper = framing::unwrap(&body)?;
-        if !sequence::preflight(chat, &wrapper)? {
-            return Ok(Effects::default());
+        let header = framing::inspect_header(&body)?;
+        if !sequence::preflight_header(chat, &header)? {
+            return self.ingress_transaction(
+                id,
+                crate::ingress::application::Kind::Message,
+                |_| Ok(Effects::default()),
+            );
         }
-        self.transaction(|state| {
+        let wrapper = framing::unwrap(&body)?;
+        self.ingress_transaction(id, crate::ingress::application::Kind::Message, |state| {
             let chat = state.chats.get_mut(&id).ok_or(Error::ChatState)?;
+            let mut wrapper = wrapper;
+            let mut answers = Vec::new();
+            let action = match &mut wrapper.message {
+                enums::DecryptedMessage::Service(service) => Some(&mut service.action),
+                enums::DecryptedMessage::ServiceLegacyaa48327d(service) => {
+                    Some(&mut service.action)
+                }
+                _ => None,
+            };
+            // Resend is an authenticated immediate protocol action, even behind
+            // its own sequence gap. Rewrite only the retained decrypted action
+            // so replay/drain cannot apply the same request twice.
+            if let Some(action) = action
+                && let enums::DecryptedMessageAction::Resend(span) = action
+            {
+                answers = sequence::answer_resend(chat, span.start_seq_no, span.end_seq_no)?;
+                *action = enums::DecryptedMessageAction::Noop;
+            }
             let accepted = sequence::accept(
                 chat,
                 Envelope {
-                    body: body.to_vec(),
+                    body: enums::DecryptedMessageLayer::from(wrapper).to_bytes(),
                     file,
                     date,
                 },
             )?;
             let mut effects = Effects::default();
-            if !accepted.acknowledged.is_empty() {
-                effects.events.push(Event::MessageAcknowledged {
-                    chat_id: id,
-                    random_ids: accepted.acknowledged,
-                });
-            }
             for (seq, envelope) in accepted.ready {
                 let wrapper = framing::unwrap(&envelope.body)?;
                 let random_id = wrapper.message.random_id();
-                match &wrapper.message {
-                    enums::DecryptedMessage::Service(service) => {
-                        apply_action(chat, &service.action, &mut effects)?
-                    }
+                let action = match &wrapper.message {
+                    enums::DecryptedMessage::Service(service) => Some(&service.action),
                     enums::DecryptedMessage::ServiceLegacyaa48327d(service) => {
-                        apply_action(chat, &service.action, &mut effects)?
+                        Some(&service.action)
                     }
-                    _ => {
-                        chat.deliveries.insert(seq, envelope);
-                        effects.events.push(Event::MessageAvailable {
-                            chat_id: id,
-                            sequence: seq,
-                            random_id,
-                        });
-                    }
+                    _ => None,
+                };
+                if let Some(action) = action {
+                    // Service application is a durable mailbox step performed
+                    // in the same order as ordinary callback/autosave delivery.
+                    // Applying a later Delete/Flush here could erase an earlier
+                    // ordinary message before it ever reached the application.
+                    let _ = action;
+                    chat.service_deliveries.insert(
+                        seq,
+                        crate::chat::ServiceDelivery {
+                            envelope: envelope.clone(),
+                            applied: None,
+                        },
+                    );
+                } else {
+                    chat.deliveries.insert(seq, envelope);
+                    effects.events.push(Event::MessageAvailable {
+                        chat_id: id,
+                        sequence: seq,
+                        random_id,
+                    });
                 }
+            }
+            // Later ready acknowledgements cannot remove ciphertext needed by
+            // earlier ready actions. Consume acknowledgements only after actions.
+            let acknowledged = chat
+                .outbox
+                .keys()
+                .copied()
+                .filter(|seq| seq / 2 < chat.peer_in_seq_no)
+                .collect::<Vec<_>>();
+            let mut random_ids = Vec::new();
+            for seq in acknowledged {
+                if let Some(row) = chat.outbox.remove(&seq) {
+                    random_ids.push(row.random_id);
+                }
+            }
+            if !random_ids.is_empty() {
+                effects.events.push(Event::MessageAcknowledged {
+                    chat_id: id,
+                    random_ids,
+                });
+            }
+            // Retrying must survive a crash after consuming the Resend request,
+            // including when its requested row had already been RPC-confirmed.
+            for mut outgoing in answers {
+                outgoing.pending = true;
+                chat.outbox.insert(outgoing.seq_no, outgoing.clone());
+                effects.sends.push(SendEffect {
+                    chat_id: id,
+                    access_hash: chat.access_hash,
+                    outgoing,
+                });
             }
             if let Some((start, end)) = accepted.resend {
                 effects.sends.push(prepare_action(
@@ -300,11 +388,21 @@ impl<S: Storage> Protocol<S> {
                 )?);
                 chat.resend_due = None;
             }
-            crate::rekey::observe_key(chat, fingerprint, u64::try_from(date).unwrap_or(0));
+            chat.messages_since_rekey = chat.messages_since_rekey.saturating_add(1);
+            let adopted_at = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|_| Error::ChatState)?
+                .as_secs();
+            if crate::rekey::observe_key(chat, fingerprint, adopted_at)? {
+                effects
+                    .sends
+                    .push(prepare_action(chat, enums::DecryptedMessageAction::Noop)?);
+            }
             crate::rekey::retire_if_settled(chat);
             Ok(effects)
         })
     }
+
     pub fn delivery(&self, id: i32, sequence: i32) -> Result<Option<Envelope>> {
         Ok(self
             .state
@@ -355,128 +453,40 @@ impl<S: Storage> Protocol<S> {
         })
     }
     pub fn close(&mut self, id: i32) -> Result<()> {
-        self.transaction(|state| {
-            state.chats.get_mut(&id).ok_or(Error::ChatState)?.close();
+        self.close_with_reason(id, crate::error::CloseReason::Application)
+    }
+    pub fn close_with_reason(&mut self, id: i32, reason: crate::error::CloseReason) -> Result<()> {
+        if matches!(
+            self.mode(),
+            crate::storage::StoreMode::Bounded | crate::storage::StoreMode::Ingress
+        ) {
+            crate::ingress::application::transition(
+                crate::ingress::application::Kind::Terminal,
+                id,
+                || self.storage.mark_nonresumable(id),
+            )?;
+            if let Some(view) = self.storage.committed_view() {
+                self.state = view;
+            }
+        }
+        self.ingress_transaction(id, crate::ingress::application::Kind::Terminal, |state| {
+            let mode = state.mode;
+            let chat = state.chats.get_mut(&id).ok_or(Error::ChatState)?;
+            match mode {
+                crate::storage::StoreMode::Durable => chat.close_with_reason(reason),
+                crate::storage::StoreMode::Protected => {
+                    chat.state = ChatState::Suspended;
+                    chat.paused = true;
+                    chat.gaps.clear();
+                    chat.outbox.clear();
+                    chat.deliveries.clear();
+                    chat.service_deliveries.clear();
+                }
+                crate::storage::StoreMode::Bounded | crate::storage::StoreMode::Ingress => {
+                    chat.paused = true;
+                }
+            }
             Ok(())
         })
     }
-}
-fn prepare(
-    chat: &mut Chat,
-    message: enums::DecryptedMessage,
-    service: bool,
-    file: Option<Vec<u8>>,
-) -> Result<SendEffect> {
-    chat.require_ready()?;
-    let random_id = message.random_id();
-    let sequence = framing::transform_out_seq_no(chat.out_seq_no, chat.is_outbound)?;
-    let wrapper = framing::wrap(
-        message,
-        framing::outgoing_layer(chat.capability_layer),
-        framing::transform_in_seq_no(chat.in_seq_no, chat.is_outbound)?,
-        sequence,
-    )?;
-    let frame = encrypt_frame(
-        chat.key.as_ref().ok_or(Error::ChatState)?,
-        &wrapper.to_bytes(),
-        chat.out_direction(),
-    )?;
-    let outgoing = Outgoing {
-        seq_no: sequence,
-        random_id,
-        frame,
-        service,
-        file,
-        pending: true,
-    };
-    chat.out_seq_no = chat
-        .out_seq_no
-        .checked_add(1)
-        .filter(|n| *n <= i32::MAX / 2)
-        .ok_or(Error::Sequence)?;
-    chat.messages_since_rekey = chat.messages_since_rekey.saturating_add(1);
-    chat.outbox.insert(sequence, outgoing.clone());
-    Ok(SendEffect {
-        chat_id: chat.id,
-        access_hash: chat.access_hash,
-        outgoing,
-    })
-}
-pub(crate) fn prepare_action(
-    chat: &mut Chat,
-    action: enums::DecryptedMessageAction,
-) -> Result<SendEffect> {
-    if let enums::DecryptedMessageAction::SetMessageTtl(ttl) = &action {
-        if ttl.ttl_seconds < 0 {
-            return Err(Error::Media);
-        }
-        chat.ttl = ttl.ttl_seconds;
-    }
-    if matches!(action, enums::DecryptedMessageAction::FlushHistory) {
-        chat.deliveries.clear();
-    }
-    let message = types::DecryptedMessageService {
-        random_id: random_id()?,
-        action,
-    };
-    prepare(chat, message.into(), true, None)
-}
-fn apply_action(
-    chat: &mut Chat,
-    action: &enums::DecryptedMessageAction,
-    effects: &mut Effects,
-) -> Result<()> {
-    if matches!(
-        action,
-        enums::DecryptedMessageAction::RequestKey(_)
-            | enums::DecryptedMessageAction::AcceptKey(_)
-            | enums::DecryptedMessageAction::CommitKey(_)
-            | enums::DecryptedMessageAction::AbortKey(_)
-    ) {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|_| Error::ChatState)?
-            .as_secs();
-        crate::rekey::handle(chat, action, effects, now)?;
-        return Ok(());
-    }
-    match action {
-        enums::DecryptedMessageAction::NotifyLayer(layer) => {
-            if layer.layer < 0 {
-                return Err(Error::WrapperRejected);
-            }
-            chat.capability_layer = chat.capability_layer.max(layer.layer);
-            effects.events.push(Event::LayerChanged {
-                chat_id: chat.id,
-                layer: chat.capability_layer,
-            });
-        }
-        enums::DecryptedMessageAction::SetMessageTtl(ttl) => chat.ttl = ttl.ttl_seconds.max(0),
-        enums::DecryptedMessageAction::Resend(span) => {
-            for outgoing in sequence::answer_resend(chat, span.start_seq_no, span.end_seq_no)? {
-                effects.sends.push(SendEffect {
-                    chat_id: chat.id,
-                    access_hash: chat.access_hash,
-                    outgoing,
-                });
-            }
-        }
-        enums::DecryptedMessageAction::FlushHistory => chat.deliveries.clear(),
-        enums::DecryptedMessageAction::DeleteMessages(delete) => {
-            let mut removed = Vec::new();
-            for (seq, envelope) in &chat.deliveries {
-                if delete
-                    .random_ids
-                    .contains(&framing::unwrap(&envelope.body)?.message.random_id())
-                {
-                    removed.push(*seq);
-                }
-            }
-            for seq in removed {
-                chat.deliveries.remove(&seq);
-            }
-        }
-        _ => {}
-    }
-    Ok(())
 }

@@ -21,6 +21,17 @@ fn check_order(chat: &Chat, wrapper: &DecryptedMessageLayer) -> Result<()> {
     Ok(())
 }
 pub fn preflight(chat: &Chat, wrapper: &DecryptedMessageLayer) -> Result<bool> {
+    preflight_header(
+        chat,
+        &crate::framing::Header {
+            layer: wrapper.layer,
+            in_seq_no: wrapper.in_seq_no,
+            out_seq_no: wrapper.out_seq_no,
+            body_offset: 0,
+        },
+    )
+}
+pub fn preflight_header(chat: &Chat, wrapper: &crate::framing::Header) -> Result<bool> {
     if wrapper.in_seq_no < 0
         || wrapper.out_seq_no < 0
         || wrapper.in_seq_no % 2 != i32::from(chat.is_outbound)
@@ -32,7 +43,12 @@ pub fn preflight(chat: &Chat, wrapper: &DecryptedMessageLayer) -> Result<bool> {
     if raw < chat.in_seq_no || chat.gaps.contains_key(&raw) {
         return Ok(false);
     }
-    check_order(chat, wrapper)?;
+    if wrapper.in_seq_no / 2 < chat.peer_in_seq_no
+        || wrapper.in_seq_no / 2 > chat.out_seq_no
+        || wrapper.layer < chat.wrapper_layer
+    {
+        return Err(Error::Sequence);
+    }
     if raw - chat.in_seq_no > MAX_RESEND_COUNT
         || (raw > chat.in_seq_no && chat.gaps.len() >= MAX_RESEND_COUNT as usize)
     {
@@ -41,15 +57,15 @@ pub fn preflight(chat: &Chat, wrapper: &DecryptedMessageLayer) -> Result<bool> {
     Ok(true)
 }
 pub fn accept(chat: &mut Chat, envelope: Envelope) -> Result<Accepted> {
-    let wrapper = crate::framing::unwrap(&envelope.body)?;
     let mut result = Accepted {
         ready: Vec::new(),
         resend: None,
         acknowledged: Vec::new(),
     };
-    if !preflight(chat, &wrapper)? {
+    if !preflight_header(chat, &crate::framing::inspect_header(&envelope.body)?)? {
         return Ok(result);
     }
+    let wrapper = crate::framing::unwrap(&envelope.body)?;
     chat.capability_layer = chat.capability_layer.max(wrapper.layer);
     let raw = wrapper.out_seq_no / 2;
     if raw > chat.in_seq_no {
@@ -78,17 +94,6 @@ pub fn accept(chat: &mut Chat, envelope: Envelope) -> Result<Accepted> {
             .ok_or(Error::Sequence)?;
         result.ready.push((sequence, envelope));
         current = chat.gaps.remove(&chat.in_seq_no);
-    }
-    let acknowledged = chat
-        .outbox
-        .keys()
-        .copied()
-        .filter(|seq| seq / 2 < chat.peer_in_seq_no)
-        .collect::<Vec<_>>();
-    for seq in acknowledged {
-        if let Some(item) = chat.outbox.remove(&seq) {
-            result.acknowledged.push(item.random_id);
-        }
     }
     if chat.gaps.is_empty() {
         chat.gap_end = None;

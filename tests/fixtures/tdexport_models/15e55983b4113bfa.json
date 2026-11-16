@@ -1,0 +1,112 @@
+{
+  "legacy_case": "tests/test_tdexport_model.py::test_empty_document_media_is_default_document",
+  "traces": [
+    {
+      "function": "model_media.parse_media",
+      "args": [
+        {
+          "self_peer_id": 0,
+          "photos": 0,
+          "audios": 0,
+          "videos": 0,
+          "files": 0,
+          "contacts": 0,
+          "bot_id": 0
+        },
+        {
+          "_": "MessageMediaDocument",
+          "nopremium": null,
+          "spoiler": true,
+          "video": null,
+          "round": null,
+          "voice": null,
+          "document": null,
+          "alt_documents": null,
+          "video_cover": null,
+          "video_timestamp": null,
+          "ttl_seconds": null
+        },
+        "",
+        0
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": {
+        "content": {
+          "Document": {
+            "id": 0,
+            "date": 0,
+            "file": {
+              "location": {
+                "dc_id": 0,
+                "data": null
+              },
+              "size": 0,
+              "content": [],
+              "suggested_path": "",
+              "relative_path": "",
+              "skip_reason": "None"
+            },
+            "thumb": {
+              "width": 0,
+              "height": 0,
+              "file": {
+                "location": {
+                  "dc_id": 0,
+                  "data": null
+                },
+                "size": 0,
+                "content": [],
+                "suggested_path": "",
+                "relative_path": "",
+                "skip_reason": "None"
+              }
+            },
+            "name": "",
+            "mime": "",
+            "width": 0,
+            "height": 0,
+            "sticker_emoji": "",
+            "song_performer": "",
+            "song_title": "",
+            "duration": 0,
+            "is_sticker": false,
+            "is_animated": false,
+            "is_video_message": false,
+            "is_voice_message": false,
+            "is_video_file": false,
+            "is_audio_file": false,
+            "spoilered": true
+          }
+        },
+        "ttl": 0
+      },
+      "after": [
+        {
+          "self_peer_id": 0,
+          "photos": 0,
+          "audios": 0,
+          "videos": 0,
+          "files": 0,
+          "contacts": 0,
+          "bot_id": 0
+        },
+        {
+          "_": "MessageMediaDocument",
+          "nopremium": null,
+          "spoiler": true,
+          "video": null,
+          "round": null,
+          "voice": null,
+          "document": null,
+          "alt_documents": null,
+          "video_cover": null,
+          "video_timestamp": null,
+          "ttl_seconds": null
+        },
+        "",
+        0
+      ]
+    }
+  ]
+}

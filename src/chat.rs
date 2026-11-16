@@ -1,8 +1,9 @@
 //! Persisted conversation state; public snapshots omit shared keys and payloads.
+mod validation;
 use crate::{
     crypto::{Direction, SharedKey},
     dh::SecretExponent,
-    error::{Error, Result},
+    error::{CloseReason, Error, Result},
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -35,6 +36,10 @@ pub struct Outgoing {
     pub seq_no: i32,
     pub random_id: i64,
     pub frame: Vec<u8>,
+    #[serde(default)]
+    pub body: Vec<u8>,
+    #[serde(default)]
+    pub failures: u8,
     pub service: bool,
     pub file: Option<Vec<u8>>,
     pub pending: bool,
@@ -48,7 +53,21 @@ pub struct Envelope {
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct ServiceDelivery {
+    pub envelope: Envelope,
+    pub applied: Option<bool>,
+}
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Chat {
+    #[serde(default)]
+    pub created_at: u64,
+    #[serde(default)]
+    pub admin_id: Option<i64>,
+    #[serde(default)]
+    pub participant_id: Option<i64>,
+    #[serde(default)]
+    pub closed_reason: Option<CloseReason>,
     pub id: i32,
     pub access_hash: i64,
     pub peer_user_id: i64,
@@ -57,9 +76,12 @@ pub struct Chat {
     pub key: Option<SharedKey>,
     pub previous_key: Option<SharedKey>,
     pub dh: Option<DhRecord>,
+    #[serde(default)]
     pub handshake_secret: Option<SecretExponent>,
+    #[serde(default)]
     pub peer_public: Option<Vec<u8>>,
     pub exchange: Option<Exchange>,
+    #[serde(default)]
     pub initial_key_hash: Option<Vec<u8>>,
     pub in_seq_no: i32,
     pub out_seq_no: i32,
@@ -67,14 +89,18 @@ pub struct Chat {
     pub capability_layer: i32,
     pub wrapper_layer: i32,
     pub ttl: i32,
+    #[serde(default)]
     pub gap_end: Option<i32>,
     pub resend_due: Option<(i32, i32)>,
+    #[serde(default)]
     pub new_key_confirmed: bool,
     pub rekeyed_at: u64,
     pub messages_since_rekey: u64,
     pub gaps: BTreeMap<i32, Envelope>,
     pub outbox: BTreeMap<i32, Outgoing>,
     pub deliveries: BTreeMap<i32, Envelope>,
+    #[serde(default)]
+    pub service_deliveries: BTreeMap<i32, ServiceDelivery>,
     pub paused: bool,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -100,6 +126,10 @@ impl Chat {
         state: ChatState,
     ) -> Self {
         Self {
+            created_at: 0,
+            admin_id: None,
+            participant_id: None,
+            closed_reason: None,
             id,
             access_hash,
             peer_user_id,
@@ -126,8 +156,69 @@ impl Chat {
             gaps: BTreeMap::new(),
             outbox: BTreeMap::new(),
             deliveries: BTreeMap::new(),
+            service_deliveries: BTreeMap::new(),
             paused: false,
         }
+    }
+    /// Create a chat in the initial state corresponding to its role.
+    pub fn for_role(id: i32, access_hash: i64, peer_user_id: i64, is_outbound: bool) -> Self {
+        Self::new(
+            id,
+            access_hash,
+            peer_user_id,
+            is_outbound,
+            if is_outbound {
+                ChatState::Requested
+            } else {
+                ChatState::Waiting
+            },
+        )
+    }
+    pub fn transition_to(&mut self, target: ChatState) -> Result<()> {
+        if self.state == ChatState::Closed {
+            return Err(Error::ChatEnded {
+                chat_id: self.id,
+                reason: self.closed_reason.unwrap_or(CloseReason::AlreadyClosed),
+            });
+        }
+        let legal = matches!(
+            (self.state, target),
+            (
+                ChatState::Requested | ChatState::Waiting,
+                ChatState::Ready | ChatState::Closed
+            ) | (ChatState::Ready, ChatState::Rekeying | ChatState::Closed)
+                | (ChatState::Rekeying, ChatState::Ready | ChatState::Closed)
+        );
+        if !legal {
+            return Err(Error::ChatNotSendable {
+                chat_id: self.id,
+                state: self.state,
+            });
+        }
+        if target == ChatState::Closed {
+            self.close();
+        } else {
+            self.state = target;
+        }
+        Ok(())
+    }
+    pub fn require_sendable(&self) -> Result<()> {
+        if self.state == ChatState::Closed {
+            return Err(Error::ChatEnded {
+                chat_id: self.id,
+                reason: self.closed_reason.unwrap_or(CloseReason::AlreadyClosed),
+            });
+        }
+        if self.paused {
+            return Err(Error::Paused);
+        }
+        if !matches!(self.state, ChatState::Ready | ChatState::Rekeying) || self.key.is_none() {
+            return Err(Error::ChatNotSendable {
+                chat_id: self.id,
+                state: self.state,
+            });
+        }
+        Ok(())
     }
     pub fn snapshot(&self) -> ChatSnapshot {
         ChatSnapshot {
@@ -167,13 +258,35 @@ impl Chat {
         }
         Ok(())
     }
-    pub fn adopt_key(&mut self, key: SharedKey) {
+    pub fn adopt_key_bytes(&mut self, bytes: &[u8]) -> Result<()> {
+        self.adopt_key(SharedKey::from_slice(bytes)?)
+    }
+    pub fn adopt_key(&mut self, key: SharedKey) -> Result<()> {
+        if self.state == ChatState::Closed {
+            return Err(Error::ChatEnded {
+                chat_id: self.id,
+                reason: self.closed_reason.unwrap_or(CloseReason::AlreadyClosed),
+            });
+        }
         if self.initial_key_hash.is_none() {
             self.initial_key_hash = Some(crate::visualization::key_hash(&key).to_vec());
         }
         self.key = Some(key);
+        if matches!(self.state, ChatState::Requested | ChatState::Waiting) {
+            self.state = ChatState::Ready;
+        }
+        Ok(())
+    }
+    pub fn close_with_reason(&mut self, reason: CloseReason) {
+        if self.closed_reason.is_none() {
+            self.closed_reason = Some(reason);
+        }
+        self.close();
     }
     pub fn close(&mut self) {
+        if self.closed_reason.is_none() {
+            self.closed_reason = Some(CloseReason::Application);
+        }
         self.state = ChatState::Closed;
         self.key = None;
         self.previous_key = None;
@@ -184,64 +297,26 @@ impl Chat {
         self.gaps.clear();
         self.outbox.clear();
         self.deliveries.clear();
+        self.service_deliveries.clear();
         self.gap_end = None;
         self.resend_due = None;
     }
-    pub fn validate(&self) -> Result<()> {
-        if self.id <= 0
-            || self.peer_user_id <= 0
-            || self.in_seq_no < 0
-            || self.out_seq_no < 0
-            || self.peer_in_seq_no < 0
-            || self.peer_in_seq_no > self.out_seq_no
-            || self.out_seq_no > i32::MAX / 2
-            || self.in_seq_no > i32::MAX / 2
-            || self.ttl < 0
-            || self.capability_layer < 46
-            || (self.wrapper_layer != 0 && self.wrapper_layer < 46)
-            || self.wrapper_layer > self.capability_layer
-            || self.gaps.len() > 1000
-            || self
-                .initial_key_hash
-                .as_ref()
-                .is_some_and(|h| h.len() != 36)
-        {
-            return Err(Error::InvalidState);
-        }
-        if matches!(self.state, ChatState::Ready | ChatState::Rekeying)
-            && (self.key.is_none() || self.dh.is_none())
-        {
-            return Err(Error::InvalidState);
-        }
-        if self.state == ChatState::Closed
-            && (self.key.is_some()
-                || self.previous_key.is_some()
-                || self.exchange.is_some()
-                || self.handshake_secret.is_some()
-                || !self.outbox.is_empty()
-                || !self.gaps.is_empty()
-                || !self.deliveries.is_empty())
-        {
-            return Err(Error::InvalidState);
-        }
-        for (seq, item) in &self.outbox {
-            if *seq != item.seq_no
-                || *seq < 0
-                || *seq / 2 >= self.out_seq_no
-                || *seq % 2 != i32::from(self.is_outbound)
-                || item.frame.len() < 40
-                || item.frame.len() > crate::crypto::MAX_FRAME_LENGTH
-                || (item.frame.len() - 24) % 16 != 0
-            {
-                return Err(Error::InvalidState);
-            }
-        }
-        for (seq, item) in self.gaps.iter().chain(&self.deliveries) {
-            let wrapper = crate::framing::unwrap(&item.body).map_err(|_| Error::InvalidState)?;
-            if *seq < 0 || wrapper.out_seq_no / 2 != *seq {
-                return Err(Error::InvalidState);
-            }
-        }
-        Ok(())
+}
+
+impl std::fmt::Display for ChatState {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::Requested => "requested",
+            Self::Waiting => "pending",
+            Self::Ready => "ready",
+            Self::Rekeying => "rekeying",
+            Self::Suspended => "suspended",
+            Self::Closed => "closed",
+        })
+    }
+}
+impl std::fmt::Debug for Chat {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.snapshot().fmt(formatter)
     }
 }

@@ -1,4 +1,4 @@
-name: Package Validation
+name: Rust Source Package Validation
 
 on:
   pull_request:
@@ -11,75 +11,57 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: rust-source-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  # Same pin as tests.yml and python-lint-format.yml.
-  UV_VERSION: "0.12.19"
+  CARGO_PROFILE_DEV_DEBUG: '0'
+  CARGO_INCREMENTAL: '0'
 
 jobs:
-  wheel:
-    name: Installed Wheel and Offline Inputs (Python ${{ matrix.python }})
+  source:
+    name: Source and Git distribution inputs
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        python: ['3.11', '3.13']
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v7
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca
         with:
-          python-version: ${{ matrix.python }}
-      - uses: astral-sh/setup-uv@v10.3.3
-        with:
-          version: ${{ env.UV_VERSION }}
-          enable-cache: true
-      - name: Build and install outside the checkout
+          toolchain: '1.100.0'
+      # The four installed-Git-consumer cases run on all nine Rust matrix legs.
+      # This job verifies source inputs and never claims a normalized .crate is usable.
+      - name: Verify native package inputs and inherited licenses
         shell: bash
         run: |
           set -euo pipefail
-          uv build --wheel
-          python -m venv "$RUNNER_TEMP/wheel-smoke"
-          python tools/build_telethon.py --output dist/prerequisites
-          "$RUNNER_TEMP/wheel-smoke/bin/python" -m pip install dist/*.whl 'cryptography==50.0.2' dist/prerequisites/*.whl
-          cp tests/wheel_ingress_smoke.py "$RUNNER_TEMP/wheel-ingress-smoke.py"
-          cp tests/wheel_export_smoke.py "$RUNNER_TEMP/wheel-export-smoke.py"
-          cp tests/fixtures/tdexport-source.json "$RUNNER_TEMP/tdexport-source.json"
-          cd "$RUNNER_TEMP"
-          "$RUNNER_TEMP/wheel-smoke/bin/python" -c "from telethon_secret_chat import SecretChatManager, FileStorage, TransientSecretChatManager, ProtectedFileStorage, TransientLimits, BoundedSecretChatManager, CustodyLimits, ChatPaused, PauseStatus, RelayDelivery; from telethon_secret_chat.schema import secret_tl; assert TransientLimits().tasks == 8; assert callable(BoundedSecretChatManager.receive_file); assert callable(BoundedSecretChatManager.acknowledge_delivery); print('installed-wheel imports succeeded')"
-          "$RUNNER_TEMP/wheel-smoke/bin/python" "$RUNNER_TEMP/wheel-export-smoke.py" "$RUNNER_TEMP/tdexport-source.json"
-          "$RUNNER_TEMP/wheel-smoke/bin/python" "$RUNNER_TEMP/wheel-ingress-smoke.py"
-      - name: Require the licence files in the wheel
+          cargo metadata --locked --format-version 1 --no-deps > "$RUNNER_TEMP/native-package-metadata.json"
+          cargo package --list --allow-dirty > "$RUNNER_TEMP/native-package-files.txt"
+          for path in LICENSE NOTICE Cargo.lock; do
+            rg --fixed-strings --line-regexp "$path" "$RUNNER_TEMP/native-package-files.txt"
+          done
+          git ls-files > "$RUNNER_TEMP/native-source-files.txt"
+          for path in vendor/grammers/grammers-client/Cargo.toml vendor/grammers/grammers-mtsender/Cargo.toml vendor/grammers/grammers-session/Cargo.toml tools/secret-scan/Cargo.lock; do
+            git ls-files --error-unmatch "$path"
+          done
+          if rg '(^|/)\.ai/|\.(py|pyc|ps1|session|db)$' "$RUNNER_TEMP/native-source-files.txt"; then
+            exit 1
+          fi
+      - name: Archive the committed source with its checksum
         shell: bash
         run: |
           set -euo pipefail
-          listing="$(python -m zipfile -l dist/*.whl)"
-          echo "$listing"
-          grep -q 'dist-info/licenses/LICENSE' <<<"$listing"
-          grep -q 'dist-info/licenses/NOTICE' <<<"$listing"
-      # Explicit audit branches opt in; ordinary pushes do not build the bundle.
-      - name: Collect reproducible offline test inputs
-        if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'audit/')
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/offline-inputs/wheels"
-          git archive --format=tar HEAD > "$RUNNER_TEMP/offline-inputs/source.tar"
-          git rev-parse HEAD > "$RUNNER_TEMP/offline-inputs/commit.txt"
-          uv export --locked --all-groups --all-extras --no-emit-project --no-hashes --format requirements-txt > "$RUNNER_TEMP/offline-inputs/requirements.txt"
-          python -m pip wheel -r "$RUNNER_TEMP/offline-inputs/requirements.txt" --wheel-dir "$RUNNER_TEMP/offline-inputs/wheels"
-          cp dist/*.whl "$RUNNER_TEMP/offline-inputs/wheels/"
-          cd "$RUNNER_TEMP/offline-inputs"
-          sha256sum source.tar requirements.txt wheels/* > SHA256SUMS
-      - name: Upload tracked source and dependencies, never local sessions
-        if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'audit/')
-        uses: actions/upload-artifact@v7
+          mkdir -p "$RUNNER_TEMP/rust-source"
+          git archive --format=tar "--output=$RUNNER_TEMP/rust-source/kiaro-secret-chat-source.tar" HEAD
+          git rev-parse HEAD > "$RUNNER_TEMP/rust-source/commit.txt"
+          cp "$RUNNER_TEMP/native-source-files.txt" "$RUNNER_TEMP/rust-source/source-files.txt"
+          cd "$RUNNER_TEMP/rust-source"
+          sha256sum kiaro-secret-chat-source.tar commit.txt source-files.txt > SHA256SUMS
+      - name: Upload only committed source inputs
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: offline-test-inputs-py${{ matrix.python }}
-          path: ${{ runner.temp }}/offline-inputs/
+          name: source-distribution-rust
+          path: ${{ runner.temp }}/rust-source/
           if-no-files-found: error
           retention-days: 7

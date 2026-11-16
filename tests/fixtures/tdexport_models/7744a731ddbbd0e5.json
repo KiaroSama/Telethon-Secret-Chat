@@ -1,0 +1,372 @@
+{
+  "legacy_case": "tests/test_tdexport_model.py::test_reactions_keep_order_and_merge_recent",
+  "traces": [
+    {
+      "function": "model_message.parse_message",
+      "args": [
+        {
+          "self_peer_id": 0,
+          "photos": 0,
+          "audios": 0,
+          "videos": 0,
+          "files": 0,
+          "contacts": 0,
+          "bot_id": 0
+        },
+        {
+          "_": "Message",
+          "id": 1,
+          "peer_id": {
+            "_": "PeerUser",
+            "user_id": 100
+          },
+          "date": 1705053605,
+          "message": null,
+          "out": false,
+          "mentioned": null,
+          "media_unread": null,
+          "silent": null,
+          "post": null,
+          "from_scheduled": null,
+          "legacy": null,
+          "edit_hide": null,
+          "pinned": null,
+          "noforwards": null,
+          "invert_media": null,
+          "offline": null,
+          "video_processing_pending": null,
+          "paid_suggested_post_stars": null,
+          "paid_suggested_post_ton": null,
+          "from_id": null,
+          "from_boosts_applied": null,
+          "from_rank": null,
+          "saved_peer_id": null,
+          "fwd_from": null,
+          "via_bot_id": null,
+          "via_business_bot_id": null,
+          "guestchat_via_from": null,
+          "reply_to": null,
+          "media": null,
+          "reply_markup": null,
+          "entities": null,
+          "views": null,
+          "forwards": null,
+          "replies": null,
+          "edit_date": null,
+          "post_author": null,
+          "grouped_id": null,
+          "reactions": {
+            "_": "MessageReactions",
+            "results": [
+              {
+                "_": "ReactionCount",
+                "reaction": {
+                  "_": "ReactionEmoji",
+                  "emoticon": "👍"
+                },
+                "count": 2,
+                "chosen_order": null
+              },
+              {
+                "_": "ReactionCount",
+                "reaction": {
+                  "_": "ReactionCustomEmoji",
+                  "document_id": 99
+                },
+                "count": 1,
+                "chosen_order": null
+              }
+            ],
+            "min": null,
+            "can_see_list": null,
+            "reactions_as_tags": null,
+            "recent_reactions": [
+              {
+                "_": "MessagePeerReaction",
+                "peer_id": {
+                  "_": "PeerUser",
+                  "user_id": 5
+                },
+                "date": 1705053605,
+                "reaction": {
+                  "_": "ReactionEmoji",
+                  "emoticon": "👍"
+                },
+                "big": null,
+                "unread": null,
+                "my": null
+              },
+              {
+                "_": "MessagePeerReaction",
+                "peer_id": {
+                  "_": "PeerUser",
+                  "user_id": 100
+                },
+                "date": 1705053605,
+                "reaction": {
+                  "_": "ReactionPaid"
+                },
+                "big": null,
+                "unread": null,
+                "my": null
+              }
+            ],
+            "top_reactors": null
+          },
+          "restriction_reason": null,
+          "ttl_period": null,
+          "quick_reply_shortcut_id": null,
+          "effect": null,
+          "factcheck": null,
+          "report_delivery_until_date": null,
+          "paid_message_stars": null,
+          "suggested_post": null,
+          "schedule_repeat_period": null,
+          "summary_from_language": null,
+          "rich_message": null,
+          "action": null,
+          "reactions_are_possible": null,
+          "_client": null,
+          "_text": null,
+          "_file": null,
+          "_reply_message": null,
+          "_buttons": null,
+          "_buttons_flat": null,
+          "_buttons_count": null,
+          "_via_bot": null,
+          "_via_input_bot": null,
+          "_action_entities": null,
+          "_linked_chat": null,
+          "_chat_peer": {
+            "_": "PeerUser",
+            "user_id": 100
+          },
+          "_input_chat": null,
+          "_chat": null,
+          "_broadcast": null,
+          "_sender_id": 100,
+          "_sender": null,
+          "_input_sender": null,
+          "_forward": null,
+          "_reply_to_chat": null,
+          "_reply_to_sender": null
+        },
+        ""
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": {
+        "id": 1,
+        "date": 1705053605,
+        "edited": 0,
+        "from_id": 100,
+        "peer_id": 100,
+        "self_id": 0,
+        "forwarded_from_id": 0,
+        "forwarded_from_name": "",
+        "forwarded_date": 0,
+        "forwarded": false,
+        "show_forwarded_as_original": false,
+        "saved_from_chat_id": 0,
+        "signature": "",
+        "via_bot_id": 0,
+        "reply_to_msg_id": 0,
+        "reply_to_peer_id": 0,
+        "text": [],
+        "reactions": [
+          {
+            "type": "Emoji",
+            "emoji": "👍",
+            "document_id": "",
+            "count": 2,
+            "recent": [
+              {
+                "peer_id": 5,
+                "date": 1705053605
+              }
+            ]
+          },
+          {
+            "type": "CustomEmoji",
+            "emoji": "",
+            "document_id": "99",
+            "count": 1,
+            "recent": []
+          },
+          {
+            "type": "Paid",
+            "emoji": "",
+            "document_id": "",
+            "count": 0,
+            "recent": [
+              {
+                "peer_id": 100,
+                "date": 1705053605
+              }
+            ]
+          }
+        ],
+        "media": {
+          "content": null,
+          "ttl": 0
+        },
+        "action": {
+          "content": null
+        },
+        "out": false,
+        "inline_button_rows": [],
+        "rich_message": null
+      },
+      "after": [
+        {
+          "self_peer_id": 0,
+          "photos": 0,
+          "audios": 0,
+          "videos": 0,
+          "files": 0,
+          "contacts": 0,
+          "bot_id": 0
+        },
+        {
+          "_": "Message",
+          "id": 1,
+          "peer_id": {
+            "_": "PeerUser",
+            "user_id": 100
+          },
+          "date": 1705053605,
+          "message": null,
+          "out": false,
+          "mentioned": null,
+          "media_unread": null,
+          "silent": null,
+          "post": null,
+          "from_scheduled": null,
+          "legacy": null,
+          "edit_hide": null,
+          "pinned": null,
+          "noforwards": null,
+          "invert_media": null,
+          "offline": null,
+          "video_processing_pending": null,
+          "paid_suggested_post_stars": null,
+          "paid_suggested_post_ton": null,
+          "from_id": null,
+          "from_boosts_applied": null,
+          "from_rank": null,
+          "saved_peer_id": null,
+          "fwd_from": null,
+          "via_bot_id": null,
+          "via_business_bot_id": null,
+          "guestchat_via_from": null,
+          "reply_to": null,
+          "media": null,
+          "reply_markup": null,
+          "entities": null,
+          "views": null,
+          "forwards": null,
+          "replies": null,
+          "edit_date": null,
+          "post_author": null,
+          "grouped_id": null,
+          "reactions": {
+            "_": "MessageReactions",
+            "results": [
+              {
+                "_": "ReactionCount",
+                "reaction": {
+                  "_": "ReactionEmoji",
+                  "emoticon": "👍"
+                },
+                "count": 2,
+                "chosen_order": null
+              },
+              {
+                "_": "ReactionCount",
+                "reaction": {
+                  "_": "ReactionCustomEmoji",
+                  "document_id": 99
+                },
+                "count": 1,
+                "chosen_order": null
+              }
+            ],
+            "min": null,
+            "can_see_list": null,
+            "reactions_as_tags": null,
+            "recent_reactions": [
+              {
+                "_": "MessagePeerReaction",
+                "peer_id": {
+                  "_": "PeerUser",
+                  "user_id": 5
+                },
+                "date": 1705053605,
+                "reaction": {
+                  "_": "ReactionEmoji",
+                  "emoticon": "👍"
+                },
+                "big": null,
+                "unread": null,
+                "my": null
+              },
+              {
+                "_": "MessagePeerReaction",
+                "peer_id": {
+                  "_": "PeerUser",
+                  "user_id": 100
+                },
+                "date": 1705053605,
+                "reaction": {
+                  "_": "ReactionPaid"
+                },
+                "big": null,
+                "unread": null,
+                "my": null
+              }
+            ],
+            "top_reactors": null
+          },
+          "restriction_reason": null,
+          "ttl_period": null,
+          "quick_reply_shortcut_id": null,
+          "effect": null,
+          "factcheck": null,
+          "report_delivery_until_date": null,
+          "paid_message_stars": null,
+          "suggested_post": null,
+          "schedule_repeat_period": null,
+          "summary_from_language": null,
+          "rich_message": null,
+          "action": null,
+          "reactions_are_possible": null,
+          "_client": null,
+          "_text": null,
+          "_file": null,
+          "_reply_message": null,
+          "_buttons": null,
+          "_buttons_flat": null,
+          "_buttons_count": null,
+          "_via_bot": null,
+          "_via_input_bot": null,
+          "_action_entities": null,
+          "_linked_chat": null,
+          "_chat_peer": {
+            "_": "PeerUser",
+            "user_id": 100
+          },
+          "_input_chat": null,
+          "_chat": null,
+          "_broadcast": null,
+          "_sender_id": 100,
+          "_sender": null,
+          "_input_sender": null,
+          "_forward": null,
+          "_reply_to_chat": null,
+          "_reply_to_sender": null
+        },
+        ""
+      ]
+    }
+  ]
+}

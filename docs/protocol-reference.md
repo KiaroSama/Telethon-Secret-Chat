@@ -1,5 +1,13 @@
 # Secret Chat Protocol Reference
 
+> Rust implementation note (2026-11): sections describing the archived source
+> are historical audit evidence. Current module/API ownership is in
+> [architecture](architecture.md); native cases and fixture provenance are in
+> [migration evidence](../migration/README.md). Historical Python paths do not
+> describe an installed dependency of the Rust crate. Live-capture claims below
+> apply only to the named historical experiment, not a new Rust account run.
+
+
 Engineering reference for MTProto 2.0 end-to-end encryption, written so a spec and an implementation can cite it. Constitution Principle II makes the published protocol the specification; this file is the working index into it. Section numbers are stable — cite as `protocol-reference.md §2.3`.
 
 **How to read a claim.** `[DOC:<page>]` = `https://core.telegram.org/<page>`, followed by the sentence actually read. `[TD:<path>:<line>]` = TDLib `master` (`https://github.com/tdlib/td`), path and line as of retrieval 2026-09-19, followed by what the code does there. **UNVERIFIED** = established by neither; never treat as settled — a spec decision or an oracle test must close it.

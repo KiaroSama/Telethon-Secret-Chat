@@ -1,0 +1,83 @@
+{
+  "legacy_case": "tests/test_tdexport_html_rich.py::test_united_with_empty_and_negative_rects",
+  "traces": [
+    {
+      "function": "html_layout.united",
+      "args": [
+        [
+          0,
+          0,
+          5,
+          5
+        ],
+        [
+          3,
+          3,
+          0,
+          0
+        ]
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": [
+        0,
+        0,
+        5,
+        5
+      ],
+      "after": [
+        [
+          0,
+          0,
+          5,
+          5
+        ],
+        [
+          3,
+          3,
+          0,
+          0
+        ]
+      ]
+    },
+    {
+      "function": "html_layout.united",
+      "args": [
+        [
+          10,
+          0,
+          -5,
+          2
+        ],
+        [
+          0,
+          0,
+          1,
+          1
+        ]
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": [
+        0,
+        0,
+        11,
+        2
+      ],
+      "after": [
+        [
+          10,
+          0,
+          -5,
+          2
+        ],
+        [
+          0,
+          0,
+          1,
+          1
+        ]
+      ]
+    }
+  ]
+}

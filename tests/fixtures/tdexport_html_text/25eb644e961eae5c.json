@@ -1,0 +1,17 @@
+{
+  "legacy_case": "tests/test_tdexport_html_text.py::test_serialize_string_escapes_like_tdesktop",
+  "traces": [
+    {
+      "function": "html_text.serialize_string",
+      "args": [
+        "a\n\"&'<>\t\u0001\u001f  bé"
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": "a<br>&quot;&amp;&apos;&lt;&gt;&#x09;&#x01;&#x1F;<br><br>bé",
+      "after": [
+        "a\n\"&'<>\t\u0001\u001f  bé"
+      ]
+    }
+  ]
+}

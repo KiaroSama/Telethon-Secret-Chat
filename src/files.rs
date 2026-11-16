@@ -131,19 +131,58 @@ pub fn save_file(
     key: &FileKey,
     claimed: i32,
 ) -> Result<()> {
+    save_file_with_sync(source, path, size, key, claimed, std::fs::File::sync_all)
+}
+fn save_file_with_sync(
+    source: &mut impl Read,
+    path: &std::path::Path,
+    size: u64,
+    key: &FileKey,
+    claimed: i32,
+    sync: impl FnOnce(&std::fs::File) -> std::io::Result<()>,
+) -> Result<()> {
     key.verify(claimed)?;
     let absolute = std::path::absolute(path).map_err(|_| Error::Storage)?;
     let parent = absolute.parent().ok_or(Error::Storage)?;
-    let mut temporary = tempfile::Builder::new()
-        .prefix(".secret-chat-file-")
-        .tempfile_in(parent)
-        .map_err(|_| Error::Storage)?;
+    crate::temporary::cleanup(parent, ".secret-chat-file-");
+    let mut temporary = crate::temporary::create(parent, ".secret-chat-file-")?;
     decrypt_file(source, &mut temporary, size, key)?;
-    temporary.as_file().sync_all().map_err(|_| Error::Storage)?;
+    sync(temporary.as_file()).map_err(|_| Error::Storage)?;
     temporary.persist(&absolute).map_err(|_| Error::Storage)?;
     #[cfg(unix)]
     std::fs::File::open(parent)
         .and_then(|f| f.sync_all())
         .map_err(|_| Error::Storage)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod primitive_tests {
+    use super::*;
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn interrupted_media_save_leaves_no_temp_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("out.bin");
+        let key = FileKey::generate().unwrap();
+        let data = b"secret bytes";
+        let mut encrypted = Vec::new();
+        encrypt_file(&mut &data[..], &mut encrypted, data.len() as u64, &key).unwrap();
+        let mut reached = false;
+        let failure = save_file_with_sync(
+            &mut &encrypted[..],
+            &target,
+            data.len() as u64,
+            &key,
+            key.fingerprint(),
+            |file| {
+                reached = true;
+                assert_eq!(file.metadata()?.len(), data.len() as u64);
+                Err(std::io::Error::other("synthetic fsync failure"))
+            },
+        );
+        assert!(reached, "actual decrypted staging bytes must reach fsync");
+        assert!(matches!(failure, Err(Error::Storage)));
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
+    }
 }

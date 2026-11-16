@@ -1,0 +1,137 @@
+{
+  "legacy_case": "tests/test_tdexport_model.py::test_document_folders_and_generated_names[attributes1-audio/ogg-voice_messages/audio_1]",
+  "traces": [
+    {
+      "function": "model.parse_document",
+      "args": [
+        {
+          "self_peer_id": 0,
+          "photos": 0,
+          "audios": 0,
+          "videos": 0,
+          "files": 0,
+          "contacts": 0,
+          "bot_id": 0
+        },
+        {
+          "_": "Document",
+          "id": 9,
+          "access_hash": 3,
+          "file_reference": [
+            114
+          ],
+          "date": 1705053605,
+          "mime_type": "audio/ogg",
+          "size": 1000,
+          "dc_id": 4,
+          "attributes": [
+            {
+              "_": "DocumentAttributeAudio",
+              "duration": 5,
+              "voice": true,
+              "title": null,
+              "performer": null,
+              "waveform": null
+            }
+          ],
+          "thumbs": null,
+          "video_thumbs": null
+        },
+        "",
+        1705053605
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": {
+        "id": 9,
+        "date": 1705053605,
+        "file": {
+          "location": {
+            "dc_id": 4,
+            "data": {
+              "_": "InputDocumentFileLocation",
+              "id": 9,
+              "access_hash": 3,
+              "file_reference": [
+                114
+              ],
+              "thumb_size": ""
+            }
+          },
+          "size": 1000,
+          "content": [],
+          "suggested_path": "voice_messages/audio_1@12-01-2024_10-00-05.ogg",
+          "relative_path": "",
+          "skip_reason": "None"
+        },
+        "thumb": {
+          "width": 0,
+          "height": 0,
+          "file": {
+            "location": {
+              "dc_id": 0,
+              "data": null
+            },
+            "size": 0,
+            "content": [],
+            "suggested_path": "",
+            "relative_path": "",
+            "skip_reason": "None"
+          }
+        },
+        "name": "",
+        "mime": "audio/ogg",
+        "width": 0,
+        "height": 0,
+        "sticker_emoji": "",
+        "song_performer": "",
+        "song_title": "",
+        "duration": 5,
+        "is_sticker": false,
+        "is_animated": false,
+        "is_video_message": false,
+        "is_voice_message": true,
+        "is_video_file": false,
+        "is_audio_file": false,
+        "spoilered": false
+      },
+      "after": [
+        {
+          "self_peer_id": 0,
+          "photos": 0,
+          "audios": 1,
+          "videos": 0,
+          "files": 0,
+          "contacts": 0,
+          "bot_id": 0
+        },
+        {
+          "_": "Document",
+          "id": 9,
+          "access_hash": 3,
+          "file_reference": [
+            114
+          ],
+          "date": 1705053605,
+          "mime_type": "audio/ogg",
+          "size": 1000,
+          "dc_id": 4,
+          "attributes": [
+            {
+              "_": "DocumentAttributeAudio",
+              "duration": 5,
+              "voice": true,
+              "title": null,
+              "performer": null,
+              "waveform": null
+            }
+          ],
+          "thumbs": null,
+          "video_thumbs": null
+        },
+        "",
+        1705053605
+      ]
+    }
+  ]
+}

@@ -175,3 +175,14 @@ impl<'de> serde::Deserialize<'de> for SharedKey {
         Ok(Self(*bytes))
     }
 }
+
+impl TryFrom<u8> for Direction {
+    type Error = Error;
+    fn try_from(offset: u8) -> Result<Self> {
+        match offset {
+            0 => Ok(Self::Initiator),
+            8 => Ok(Self::Responder),
+            _ => Err(Error::FrameRejected),
+        }
+    }
+}

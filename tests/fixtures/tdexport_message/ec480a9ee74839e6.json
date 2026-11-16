@@ -1,0 +1,205 @@
+{
+  "legacy_case": "tests/test_tdexport_html_message.py::test_poll_and_todo_list",
+  "traces": [
+    {
+      "function": "html_media_extra.ExtraMediaMixin.push_poll",
+      "args": [
+        {
+          "base": "",
+          "context": {
+            "tags": []
+          }
+        },
+        {
+          "id": 0,
+          "question": [
+            {
+              "text": "Q?",
+              "additional": "",
+              "kind": "text"
+            }
+          ],
+          "answers": [
+            {
+              "text": [
+                {
+                  "text": "A",
+                  "additional": "",
+                  "kind": "text"
+                }
+              ],
+              "option": [],
+              "votes": 2,
+              "my": true
+            },
+            {
+              "text": [
+                {
+                  "text": "B",
+                  "additional": "",
+                  "kind": "text"
+                }
+              ],
+              "option": [],
+              "votes": 1,
+              "my": false
+            },
+            {
+              "text": [
+                {
+                  "text": "C",
+                  "additional": "",
+                  "kind": "text"
+                }
+              ],
+              "option": [],
+              "votes": 0,
+              "my": false
+            }
+          ],
+          "total_votes": 3,
+          "closed": false
+        },
+        "https://t.me/",
+        ""
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "link_kind": null,
+      "result": "\n<div class=\"media_wrap clearfix\">\n\n <div class=\"media_poll\">\n\n  <div class=\"question bold\">\nQ?\n  </div>\n\n  <div class=\"details\">\nAnonymous poll\n  </div>\n\n  <div class=\"answer\">\n- A <span class=\"details\">2 votes, chosen vote</span>\n  </div>\n\n  <div class=\"answer\">\n- B <span class=\"details\">1 vote</span>\n  </div>\n\n  <div class=\"answer\">\n- C\n  </div>\n\n  <div class=\"total details&#x09;\">\n3 votes\n  </div>\n\n </div>\n\n</div>\n",
+      "after": [
+        {
+          "base": "",
+          "context": {
+            "tags": []
+          }
+        },
+        {
+          "id": 0,
+          "question": [
+            {
+              "text": "Q?",
+              "additional": "",
+              "kind": "text"
+            }
+          ],
+          "answers": [
+            {
+              "text": [
+                {
+                  "text": "A",
+                  "additional": "",
+                  "kind": "text"
+                }
+              ],
+              "option": [],
+              "votes": 2,
+              "my": true
+            },
+            {
+              "text": [
+                {
+                  "text": "B",
+                  "additional": "",
+                  "kind": "text"
+                }
+              ],
+              "option": [],
+              "votes": 1,
+              "my": false
+            },
+            {
+              "text": [
+                {
+                  "text": "C",
+                  "additional": "",
+                  "kind": "text"
+                }
+              ],
+              "option": [],
+              "votes": 0,
+              "my": false
+            }
+          ],
+          "total_votes": 3,
+          "closed": false
+        },
+        "https://t.me/",
+        ""
+      ]
+    },
+    {
+      "function": "html_media_extra.ExtraMediaMixin.push_todo_list",
+      "args": [
+        {
+          "base": "",
+          "context": {
+            "tags": []
+          }
+        },
+        {
+          "others_can_append": false,
+          "others_can_complete": false,
+          "title": [
+            {
+              "text": "T",
+              "additional": "",
+              "kind": "text"
+            }
+          ],
+          "items": [
+            {
+              "text": [
+                {
+                  "text": "x",
+                  "additional": "",
+                  "kind": "text"
+                }
+              ],
+              "id": 0
+            }
+          ]
+        },
+        "",
+        ""
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "link_kind": null,
+      "result": "\n<div class=\"media_wrap clearfix\">\n\n <div class=\"media_poll\">\n\n  <div class=\"question bold\">\nT\n  </div>\n\n  <div class=\"details\">\nTo-do List\n  </div>\n\n  <div class=\"answer\">\n- x\n  </div>\n\n </div>\n\n</div>\n",
+      "after": [
+        {
+          "base": "",
+          "context": {
+            "tags": []
+          }
+        },
+        {
+          "others_can_append": false,
+          "others_can_complete": false,
+          "title": [
+            {
+              "text": "T",
+              "additional": "",
+              "kind": "text"
+            }
+          ],
+          "items": [
+            {
+              "text": [
+                {
+                  "text": "x",
+                  "additional": "",
+                  "kind": "text"
+                }
+              ],
+              "id": 0
+            }
+          ]
+        },
+        "",
+        ""
+      ]
+    }
+  ]
+}

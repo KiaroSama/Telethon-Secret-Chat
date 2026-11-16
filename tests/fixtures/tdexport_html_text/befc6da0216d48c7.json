@@ -1,0 +1,17 @@
+{
+  "legacy_case": "tests/test_tdexport_html_text.py::test_safe_message_href_follows_qurl[https://user:pw@a.com:8080/-https://user:pw@a.com:8080/]",
+  "traces": [
+    {
+      "function": "html_safe.safe_message_href",
+      "args": [
+        "https://user:pw@a.com:8080/"
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": "https://user:pw@a.com:8080/",
+      "after": [
+        "https://user:pw@a.com:8080/"
+      ]
+    }
+  ]
+}

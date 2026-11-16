@@ -2,7 +2,7 @@
 //! adoption and retention of that ciphertext commit as one state transition.
 use crate::{
     chat::{Chat, ChatState, Exchange},
-    crypto::random_id,
+    crypto::{SharedKey, random_id},
     dh::{DhConfig, SecretExponent, verify_fingerprint},
     enums::DecryptedMessageAction as Action,
     error::{Error, Result},
@@ -23,6 +23,25 @@ pub fn resolve_collision(mine: i64, theirs: i64) -> Collision {
         std::cmp::Ordering::Less => Collision::JoinTheirs,
         std::cmp::Ordering::Equal => Collision::AbortBoth,
     }
+}
+/// An accepted or committed exchange has crossed the local point of no return.
+pub fn may_abort(chat: &Chat) -> bool {
+    chat.state != ChatState::Closed
+        && chat.exchange.is_some()
+        && chat.previous_key.is_none()
+        && !matches!(chat.exchange, Some(Exchange::Accepted { .. }))
+}
+/// Select only held key material by the authenticated frame fingerprint. A pending
+/// accepted key can receive the first new-key packet when CommitKey was lost.
+pub fn select_key(chat: &Chat, fingerprint: i64) -> Option<&SharedKey> {
+    let pending = match &chat.exchange {
+        Some(Exchange::Accepted { key, .. }) => Some(key),
+        _ => None,
+    };
+    [chat.key.as_ref(), pending, chat.previous_key.as_ref()]
+        .into_iter()
+        .flatten()
+        .find(|key| key.fingerprint() == fingerprint)
 }
 pub fn should_rekey(chat: &Chat, now: u64) -> bool {
     chat.exchange.is_none()
@@ -62,15 +81,17 @@ fn clear(chat: &mut Chat) {
         chat.state = ChatState::Ready;
     }
 }
-fn adopt(chat: &mut Chat, key: crate::crypto::SharedKey, now: u64) {
-    chat.previous_key = chat.key.take();
-    chat.adopt_key(key);
+pub fn adopt_new_key(chat: &mut Chat, key: SharedKey, now: u64) -> Result<()> {
+    let previous = chat.key.clone();
+    chat.adopt_key(key)?;
+    chat.previous_key = previous;
     clear(chat);
     chat.messages_since_rekey = 0;
     chat.rekeyed_at = now;
     chat.new_key_confirmed = false;
+    Ok(())
 }
-pub fn observe_key(chat: &mut Chat, fingerprint: i64, now: u64) {
+pub fn observe_key(chat: &mut Chat, fingerprint: i64, now: u64) -> Result<bool> {
     let pending = match &chat.exchange {
         Some(Exchange::Accepted { key, .. }) if key.fingerprint() == fingerprint => {
             Some(key.clone())
@@ -78,8 +99,9 @@ pub fn observe_key(chat: &mut Chat, fingerprint: i64, now: u64) {
         _ => None,
     };
     if let Some(key) = pending {
-        adopt(chat, key, now);
+        adopt_new_key(chat, key, now)?;
         chat.new_key_confirmed = true;
+        return Ok(true);
     } else if chat.previous_key.is_some()
         && chat
             .key
@@ -88,6 +110,7 @@ pub fn observe_key(chat: &mut Chat, fingerprint: i64, now: u64) {
     {
         chat.new_key_confirmed = true;
     }
+    Ok(false)
 }
 pub fn retire_if_settled(chat: &mut Chat) {
     if chat.new_key_confirmed && chat.gaps.is_empty() && chat.gap_end.is_none() {
@@ -169,7 +192,7 @@ pub fn handle(chat: &mut Chat, action: &Action, effects: &mut Effects, now: u64)
                 }
                 .into(),
             )?);
-            adopt(chat, key, now);
+            adopt_new_key(chat, key, now)?;
             Ok(true)
         }
         Action::CommitKey(commit) => {
@@ -181,7 +204,7 @@ pub fn handle(chat: &mut Chat, action: &Action, effects: &mut Effects, now: u64)
             }
             verify_fingerprint(key, commit.key_fingerprint)?;
             let key = key.clone();
-            adopt(chat, key, now);
+            adopt_new_key(chat, key, now)?;
             chat.new_key_confirmed = true;
             effects.sends.push(prepare_action(chat, Action::Noop)?);
             Ok(true)

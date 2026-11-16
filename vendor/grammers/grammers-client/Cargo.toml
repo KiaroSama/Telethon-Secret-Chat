@@ -1,0 +1,44 @@
+[package]
+name = "grammers-client"
+version = "0.12.0"
+authors = ["Lonami Exo <totufals@hotmail.com>"]
+license = "MIT OR Apache-2.0"
+description = """
+A high level client to interact with Telegram's API.
+"""
+homepage = "https://codeberg.org/Lonami/grammers"
+documentation = "https://docs.rs/grammers-client"
+repository = "https://codeberg.org/Lonami/grammers"
+keywords = ["mtproto", "telegram", "tl"]
+categories = ["api-bindings"]
+edition = "2024"
+
+[features]
+markdown = ["dep:pulldown-cmark"]
+html = ["dep:html5ever"]
+proxy = ["grammers-mtsender/proxy"]
+parse_invite_link = ["dep:url"]
+fs = ["tokio/fs"]
+default = ["fs"]
+
+[dependencies]
+futures-util = { version = "0.3.34", default-features = false, features = [
+    "alloc"
+] }
+grammers-crypto = { git = "https://codeberg.org/Lonami/grammers.git", rev = "e61cf8585e1e9969ab81eda9fb4725a1500e2d86", version = "0.12.0" }
+grammers-mtsender = { path = "../grammers-mtsender", version = "0.12.0" }
+grammers-session = { path = "../grammers-session", version = "0.12.0", default-features = false }
+grammers-tl-types = { git = "https://codeberg.org/Lonami/grammers.git", rev = "e61cf8585e1e9969ab81eda9fb4725a1500e2d86", version = "0.12.0", features = [
+    "tl-mtproto",
+] }
+html5ever = { version = "0.40.1", optional = true }
+jiff = "0.2.40"
+md5 = "0.8.1"
+mime_guess = "2.0.5"
+pin-project-lite = "0.2"
+pulldown-cmark = { version = "0.13.6", default-features = false, optional = true }
+tokio = { version = "1.54.1", default-features = false, features = [
+    "rt", "macros"
+] }
+tracing = "0.1.44"
+url = { version = "2.5.8", optional = true }

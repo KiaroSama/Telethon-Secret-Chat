@@ -1,0 +1,306 @@
+{
+  "legacy_case": "tests/test_tdexport_html_media.py::test_video_and_photo_fallbacks",
+  "traces": [
+    {
+      "function": "html_media.MediaMixin.push_video_file_media",
+      "args": [
+        {
+          "base": "",
+          "context": {
+            "tags": []
+          }
+        },
+        {
+          "id": 0,
+          "date": 0,
+          "file": {
+            "location": {
+              "dc_id": 0,
+              "data": null
+            },
+            "size": 0,
+            "content": [],
+            "suggested_path": "",
+            "relative_path": "video_files/v.mp4",
+            "skip_reason": "None"
+          },
+          "thumb": {
+            "width": 0,
+            "height": 0,
+            "file": {
+              "location": {
+                "dc_id": 0,
+                "data": null
+              },
+              "size": 0,
+              "content": [],
+              "suggested_path": "",
+              "relative_path": "",
+              "skip_reason": "None"
+            }
+          },
+          "name": "",
+          "mime": "",
+          "width": 0,
+          "height": 0,
+          "sticker_emoji": "",
+          "song_performer": "",
+          "song_title": "",
+          "duration": 5,
+          "is_sticker": false,
+          "is_animated": false,
+          "is_video_message": false,
+          "is_voice_message": false,
+          "is_video_file": false,
+          "is_audio_file": false,
+          "spoilered": false
+        },
+        "$TEMP"
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "files_before": {},
+      "base_index": 2,
+      "result": "\n<div class=\"media_wrap clearfix\">\n\n <a class=\"media clearfix pull_left block_link media_video\" href=\"video_files/v.mp4\">\n\n  <div class=\"fill pull_left\">\n\n  </div>\n\n  <div class=\"body\">\n\n   <div class=\"title bold\">\nVideo file\n   </div>\n\n   <div class=\"status details\">\n00:05\n   </div>\n\n  </div>\n\n </a>\n\n</div>\n",
+      "after": [
+        {
+          "base": "",
+          "context": {
+            "tags": []
+          }
+        },
+        {
+          "id": 0,
+          "date": 0,
+          "file": {
+            "location": {
+              "dc_id": 0,
+              "data": null
+            },
+            "size": 0,
+            "content": [],
+            "suggested_path": "",
+            "relative_path": "video_files/v.mp4",
+            "skip_reason": "None"
+          },
+          "thumb": {
+            "width": 0,
+            "height": 0,
+            "file": {
+              "location": {
+                "dc_id": 0,
+                "data": null
+              },
+              "size": 0,
+              "content": [],
+              "suggested_path": "",
+              "relative_path": "",
+              "skip_reason": "None"
+            }
+          },
+          "name": "",
+          "mime": "",
+          "width": 0,
+          "height": 0,
+          "sticker_emoji": "",
+          "song_performer": "",
+          "song_title": "",
+          "duration": 5,
+          "is_sticker": false,
+          "is_animated": false,
+          "is_video_message": false,
+          "is_voice_message": false,
+          "is_video_file": false,
+          "is_audio_file": false,
+          "spoilered": false
+        },
+        "$TEMP"
+      ],
+      "files_after": {}
+    },
+    {
+      "function": "html_media.MediaMixin.push_video_file_media",
+      "args": [
+        {
+          "base": "",
+          "context": {
+            "tags": []
+          }
+        },
+        {
+          "id": 0,
+          "date": 0,
+          "file": {
+            "location": {
+              "dc_id": 0,
+              "data": null
+            },
+            "size": 10,
+            "content": [],
+            "suggested_path": "",
+            "relative_path": "",
+            "skip_reason": "FileType"
+          },
+          "thumb": {
+            "width": 0,
+            "height": 0,
+            "file": {
+              "location": {
+                "dc_id": 0,
+                "data": null
+              },
+              "size": 0,
+              "content": [],
+              "suggested_path": "",
+              "relative_path": "",
+              "skip_reason": "None"
+            }
+          },
+          "name": "",
+          "mime": "",
+          "width": 0,
+          "height": 0,
+          "sticker_emoji": "",
+          "song_performer": "",
+          "song_title": "",
+          "duration": 5,
+          "is_sticker": false,
+          "is_animated": false,
+          "is_video_message": false,
+          "is_voice_message": false,
+          "is_video_file": false,
+          "is_audio_file": false,
+          "spoilered": false
+        },
+        "$TEMP"
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "files_before": {},
+      "base_index": 2,
+      "result": "\n<div class=\"media_wrap clearfix\">\n\n <div class=\"media clearfix pull_left media_video\">\n\n  <div class=\"fill pull_left\">\n\n  </div>\n\n  <div class=\"body\">\n\n   <div class=\"title bold\">\nVideo file\n   </div>\n\n   <div class=\"description\">\nNot included, change data exporting settings to download.\n   </div>\n\n   <div class=\"status details\">\n00:05, 10 B\n   </div>\n\n  </div>\n\n </div>\n\n</div>\n",
+      "after": [
+        {
+          "base": "",
+          "context": {
+            "tags": []
+          }
+        },
+        {
+          "id": 0,
+          "date": 0,
+          "file": {
+            "location": {
+              "dc_id": 0,
+              "data": null
+            },
+            "size": 10,
+            "content": [],
+            "suggested_path": "",
+            "relative_path": "",
+            "skip_reason": "FileType"
+          },
+          "thumb": {
+            "width": 0,
+            "height": 0,
+            "file": {
+              "location": {
+                "dc_id": 0,
+                "data": null
+              },
+              "size": 0,
+              "content": [],
+              "suggested_path": "",
+              "relative_path": "",
+              "skip_reason": "None"
+            }
+          },
+          "name": "",
+          "mime": "",
+          "width": 0,
+          "height": 0,
+          "sticker_emoji": "",
+          "song_performer": "",
+          "song_title": "",
+          "duration": 5,
+          "is_sticker": false,
+          "is_animated": false,
+          "is_video_message": false,
+          "is_voice_message": false,
+          "is_video_file": false,
+          "is_audio_file": false,
+          "spoilered": false
+        },
+        "$TEMP"
+      ],
+      "files_after": {}
+    },
+    {
+      "function": "html_media.MediaMixin.push_photo_media",
+      "args": [
+        {
+          "base": "",
+          "context": {
+            "tags": []
+          }
+        },
+        {
+          "id": 0,
+          "date": 0,
+          "spoilered": false,
+          "image": {
+            "width": 3,
+            "height": 4,
+            "file": {
+              "location": {
+                "dc_id": 0,
+                "data": null
+              },
+              "size": 0,
+              "content": [],
+              "suggested_path": "",
+              "relative_path": "photos/missing.jpg",
+              "skip_reason": "None"
+            }
+          }
+        },
+        "$TEMP"
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "files_before": {},
+      "base_index": 2,
+      "result": "\n<div class=\"media_wrap clearfix\">\n\n <a class=\"media clearfix pull_left block_link media_photo\" href=\"photos/missing.jpg\">\n\n  <div class=\"fill pull_left\">\n\n  </div>\n\n  <div class=\"body\">\n\n   <div class=\"title bold\">\nPhoto\n   </div>\n\n   <div class=\"status details\">\n3×4\n   </div>\n\n  </div>\n\n </a>\n\n</div>\n",
+      "after": [
+        {
+          "base": "",
+          "context": {
+            "tags": []
+          }
+        },
+        {
+          "id": 0,
+          "date": 0,
+          "spoilered": false,
+          "image": {
+            "width": 3,
+            "height": 4,
+            "file": {
+              "location": {
+                "dc_id": 0,
+                "data": null
+              },
+              "size": 0,
+              "content": [],
+              "suggested_path": "",
+              "relative_path": "photos/missing.jpg",
+              "skip_reason": "None"
+            }
+          }
+        },
+        "$TEMP"
+      ],
+      "files_after": {}
+    }
+  ]
+}

@@ -1,0 +1,313 @@
+{
+  "legacy_case": "tests/test_tdexport_model.py::test_service_actions_quirks_ported_as_is",
+  "traces": [
+    {
+      "function": "model_actions.parse_service_action",
+      "args": [
+        {
+          "self_peer_id": 0,
+          "photos": 0,
+          "audios": 0,
+          "videos": 0,
+          "files": 0,
+          "contacts": 0,
+          "bot_id": 0
+        },
+        {
+          "_": "MessageActionPollAppendAnswer",
+          "answer": {
+            "_": "PollAnswer",
+            "text": {
+              "_": "TextWithEntities",
+              "text": "opt",
+              "entities": []
+            },
+            "option": [
+              49
+            ],
+            "media": null,
+            "added_by": null,
+            "date": null
+          }
+        },
+        "",
+        1705053605
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": {
+        "content": {
+          "PollAppendAnswer": {
+            "option": ""
+          }
+        }
+      },
+      "after": [
+        {
+          "self_peer_id": 0,
+          "photos": 0,
+          "audios": 0,
+          "videos": 0,
+          "files": 0,
+          "contacts": 0,
+          "bot_id": 0
+        },
+        {
+          "_": "MessageActionPollAppendAnswer",
+          "answer": {
+            "_": "PollAnswer",
+            "text": {
+              "_": "TextWithEntities",
+              "text": "opt",
+              "entities": []
+            },
+            "option": [
+              49
+            ],
+            "media": null,
+            "added_by": null,
+            "date": null
+          }
+        },
+        "",
+        1705053605
+      ]
+    },
+    {
+      "function": "model_actions.parse_service_action",
+      "args": [
+        {
+          "self_peer_id": 0,
+          "photos": 0,
+          "audios": 0,
+          "videos": 0,
+          "files": 0,
+          "contacts": 0,
+          "bot_id": 0
+        },
+        {
+          "_": "MessageActionPollDeleteAnswer",
+          "answer": {
+            "_": "PollAnswer",
+            "text": {
+              "_": "TextWithEntities",
+              "text": "opt",
+              "entities": []
+            },
+            "option": [
+              49
+            ],
+            "media": null,
+            "added_by": null,
+            "date": null
+          }
+        },
+        "",
+        1705053605
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": {
+        "content": {
+          "PollDeleteAnswer": {
+            "option": "opt"
+          }
+        }
+      },
+      "after": [
+        {
+          "self_peer_id": 0,
+          "photos": 0,
+          "audios": 0,
+          "videos": 0,
+          "files": 0,
+          "contacts": 0,
+          "bot_id": 0
+        },
+        {
+          "_": "MessageActionPollDeleteAnswer",
+          "answer": {
+            "_": "PollAnswer",
+            "text": {
+              "_": "TextWithEntities",
+              "text": "opt",
+              "entities": []
+            },
+            "option": [
+              49
+            ],
+            "media": null,
+            "added_by": null,
+            "date": null
+          }
+        },
+        "",
+        1705053605
+      ]
+    },
+    {
+      "function": "model_actions.parse_service_action",
+      "args": [
+        {
+          "self_peer_id": 0,
+          "photos": 0,
+          "audios": 0,
+          "videos": 0,
+          "files": 0,
+          "contacts": 0,
+          "bot_id": 0
+        },
+        {
+          "_": "MessageActionTopicEdit",
+          "title": "t",
+          "icon_emoji_id": null,
+          "closed": null,
+          "hidden": null
+        },
+        "",
+        1705053605
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": {
+        "content": {
+          "TopicEdit": {
+            "title": "t",
+            "icon_emoji_id": 0
+          }
+        }
+      },
+      "after": [
+        {
+          "self_peer_id": 0,
+          "photos": 0,
+          "audios": 0,
+          "videos": 0,
+          "files": 0,
+          "contacts": 0,
+          "bot_id": 0
+        },
+        {
+          "_": "MessageActionTopicEdit",
+          "title": "t",
+          "icon_emoji_id": null,
+          "closed": null,
+          "hidden": null
+        },
+        "",
+        1705053605
+      ]
+    },
+    {
+      "function": "model_actions.parse_service_action",
+      "args": [
+        {
+          "self_peer_id": 0,
+          "photos": 0,
+          "audios": 0,
+          "videos": 0,
+          "files": 0,
+          "contacts": 0,
+          "bot_id": 0
+        },
+        {
+          "_": "MessageActionTopicEdit",
+          "title": null,
+          "icon_emoji_id": 5,
+          "closed": null,
+          "hidden": null
+        },
+        "",
+        1705053605
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": {
+        "content": {
+          "TopicEdit": {
+            "title": "",
+            "icon_emoji_id": 5
+          }
+        }
+      },
+      "after": [
+        {
+          "self_peer_id": 0,
+          "photos": 0,
+          "audios": 0,
+          "videos": 0,
+          "files": 0,
+          "contacts": 0,
+          "bot_id": 0
+        },
+        {
+          "_": "MessageActionTopicEdit",
+          "title": null,
+          "icon_emoji_id": 5,
+          "closed": null,
+          "hidden": null
+        },
+        "",
+        1705053605
+      ]
+    },
+    {
+      "function": "model_actions.parse_service_action",
+      "args": [
+        {
+          "self_peer_id": 0,
+          "photos": 0,
+          "audios": 0,
+          "videos": 0,
+          "files": 0,
+          "contacts": 0,
+          "bot_id": 0
+        },
+        {
+          "_": "MessageActionPaymentSentMe",
+          "currency": "X",
+          "total_amount": 1,
+          "payload": [],
+          "charge": null,
+          "recurring_init": null,
+          "recurring_used": null,
+          "info": null,
+          "shipping_option_id": null,
+          "subscription_until_date": null
+        },
+        "",
+        1705053605
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": {
+        "content": null
+      },
+      "after": [
+        {
+          "self_peer_id": 0,
+          "photos": 0,
+          "audios": 0,
+          "videos": 0,
+          "files": 0,
+          "contacts": 0,
+          "bot_id": 0
+        },
+        {
+          "_": "MessageActionPaymentSentMe",
+          "currency": "X",
+          "total_amount": 1,
+          "payload": [],
+          "charge": null,
+          "recurring_init": null,
+          "recurring_used": null,
+          "info": null,
+          "shipping_option_id": null,
+          "subscription_until_date": null
+        },
+        "",
+        1705053605
+      ]
+    }
+  ]
+}
