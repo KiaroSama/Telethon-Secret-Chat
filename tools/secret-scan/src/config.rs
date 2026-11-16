@@ -3,9 +3,10 @@
 //! The two 256-byte fixture keys are arithmetic sequences, never authorization
 //! data. The other-key receive fixture is ciphertext produced with synthetic
 //! material. The final value is the SHA-256 of the unchanged official client
-//! source at e61cf8585e1e9969ab81eda9fb4725a1500e2d86.
+//! source at e61cf8585e1e9969ab81eda9fb4725a1500e2d86, recorded in both the
+//! original-source and distributed-source manifests.
 //!
-//! Require the built-in generic-api-key rule, an exact relative path, and the
+//! Require the built-in generic-api-key rule, exact relative paths, and the
 //! entire JSON field/value line. Changing a value, copying it elsewhere, or
 //! adding another credential to either file must remain detectable.
 
@@ -42,7 +43,7 @@ pub fn configuration() -> String {
             "Public deterministic independent KDF test key",
         ),
         (
-            r"^vendor/grammers/upstream-hashes\.json$",
+            r"^vendor/grammers/(upstream-hashes|local-patches)\.json$",
             r"grammers-client/src/client/auth\.rs",
             CLIENT_SOURCE_SHA256.to_owned(),
             "Verified official client source SHA-256 checksum",
