@@ -169,6 +169,122 @@ pub fn run() {
                 );
             }
         }),
+        ("markdown_adjacent_emphasis_preserves_links", || {
+            for italic in [false, true] {
+                let style = |offset, length| -> E {
+                    if italic {
+                        t::MessageEntityItalic { offset, length }.into()
+                    } else {
+                        t::MessageEntityBold { offset, length }.into()
+                    }
+                };
+                for mention in [false, true] {
+                    for (text, link_offset, link_length, spans, expected_spans) in [
+                        ("abc", 0, 2, vec![(1, 1), (2, 1)], vec![(1, 1), (2, 1)]),
+                        (
+                            "abcd",
+                            0,
+                            2,
+                            vec![(1, 1), (2, 1), (3, 1)],
+                            vec![(1, 1), (2, 2)],
+                        ),
+                        (
+                            "abc",
+                            0,
+                            2,
+                            vec![(0, 1), (1, 1), (2, 1)],
+                            vec![(0, 2), (2, 1)],
+                        ),
+                        (
+                            "abcd",
+                            1,
+                            2,
+                            vec![(0, 1), (1, 1), (2, 1), (3, 1)],
+                            vec![(0, 1), (1, 2), (3, 1)],
+                        ),
+                    ] {
+                        let link: E = if mention {
+                            t::MessageEntityMentionName {
+                                offset: link_offset,
+                                length: link_length,
+                                user_id: 42,
+                            }
+                            .into()
+                        } else {
+                            t::MessageEntityTextUrl {
+                                offset: link_offset,
+                                length: link_length,
+                                url: "https://example.com".into(),
+                            }
+                            .into()
+                        };
+                        for reverse in [false, true] {
+                            let mut ranges = spans
+                                .iter()
+                                .map(|&(offset, length)| style(offset, length))
+                                .collect::<Vec<_>>();
+                            if reverse {
+                                ranges.reverse();
+                            }
+                            ranges.insert(0, link.clone());
+                            let generated = generate_markdown_message(text, &ranges);
+                            let (parsed, mut actual) = parse_markdown_message(&generated);
+                            assert_eq!(parsed, text, "{generated:?}");
+                            let mut expected = expected_spans
+                                .iter()
+                                .map(|&(offset, length)| style(offset, length))
+                                .collect::<Vec<_>>();
+                            expected.push(link.clone());
+                            let order = |entity: &E| {
+                                (
+                                    entity.offset(),
+                                    std::cmp::Reverse(entity.length()),
+                                    if matches!(entity, E::TextUrl(_) | E::MentionName(_)) {
+                                        0
+                                    } else {
+                                        1
+                                    },
+                                )
+                            };
+                            actual.sort_by_key(order);
+                            expected.sort_by_key(order);
+                            assert_eq!(actual, expected, "{generated:?}");
+                        }
+                    }
+                }
+                let ranges = [
+                    style(0, 1),
+                    style(1, 1),
+                    t::MessageEntityUnderline {
+                        offset: 0,
+                        length: 1,
+                    }
+                    .into(),
+                ];
+                assert_eq!(
+                    parse_markdown_message(&generate_markdown_message("ab", &ranges)),
+                    ("ab".into(), vec![style(0, 2)])
+                );
+                let omitted: E = if italic {
+                    t::MessageEntityBold {
+                        offset: 0,
+                        length: 1,
+                    }
+                    .into()
+                } else {
+                    t::MessageEntityItalic {
+                        offset: 0,
+                        length: 1,
+                    }
+                    .into()
+                };
+                let ranges = [omitted, style(0, 1), style(1, 2)];
+                assert_eq!(
+                    parse_markdown_message(&generate_markdown_message("!ab", &ranges)),
+                    ("!ab".into(), vec![style(0, 3)])
+                );
+            }
+        }),
         ("markdown_link_destination_entities", || {
             for url in [
                 "https://example.com/?x=&copy;",

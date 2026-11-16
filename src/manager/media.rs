@@ -29,7 +29,7 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
     ) -> Result<i64> {
         self.with_operation(Some(id), runtime::WorkKind::File, async {
             self.sendable(id)?;
-            let precharged = match &source {
+            let known_source = match &source {
                 FileSource::Bytes { data, name } => {
                     if name.is_empty() {
                         return Err(Error::Media);
@@ -38,14 +38,9 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
                 }
                 _ => 0,
             };
-            let _opening_payload = self.reserve_payload(Some(id), precharged)?;
-            let order = self.outbound(id)?;
-            let _order = order.lock().await;
-            let source = self.open_file_source(source).await?;
-            let amount = usize::try_from(source.size)
-                .unwrap_or(usize::MAX)
-                .saturating_mul(4)
-                .saturating_add(options.caption.len())
+            let known_options = options
+                .caption
+                .len()
                 .saturating_add(options.metadata.thumbnail.as_ref().map_or(0, Vec::len))
                 .saturating_add(options.metadata.waveform.as_ref().map_or(0, Vec::len))
                 .saturating_add(options.metadata.title.as_ref().map_or(0, String::len))
@@ -53,6 +48,15 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
                 .saturating_add(options.metadata.sticker_alt.as_ref().map_or(0, String::len))
                 .saturating_add(options.mime_type.as_ref().map_or(0, String::len))
                 .saturating_add(1024);
+            let precharged = known_source.saturating_add(known_options);
+            let _opening_payload = self.reserve_payload(Some(id), precharged)?;
+            let order = self.outbound(id)?;
+            let _order = order.lock().await;
+            let source = self.open_file_source(source).await?;
+            let amount = usize::try_from(source.size)
+                .unwrap_or(usize::MAX)
+                .saturating_mul(4)
+                .saturating_add(known_options);
             let _payload = self.reserve_payload(Some(id), amount.saturating_sub(precharged))?;
             self.ensure_binding().await?;
             let witness = self.witness(id)?;

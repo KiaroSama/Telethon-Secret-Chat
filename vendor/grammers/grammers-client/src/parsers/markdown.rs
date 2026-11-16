@@ -242,7 +242,58 @@ fn emphasis_delimiters(message: &str, start: i32, end: i32) -> (bool, bool) {
     (asterisk, underscore)
 }
 
-fn merge_adjacent_inline(entities: &[tl::enums::MessageEntity]) -> Vec<tl::enums::MessageEntity> {
+fn merge_preserves_entities(
+    message: &str,
+    entities: &[tl::enums::MessageEntity],
+    removed: &[bool],
+    prior: usize,
+    current: usize,
+    combined: std::ops::Range<i32>,
+) -> bool {
+    use tl::enums::MessageEntity as ME;
+    entities.iter().enumerate().all(|(index, entity)| {
+        if index == prior || index == current || removed[index] {
+            return true;
+        }
+        let range = match entity {
+            ME::Bold(e) => emphasis_range(message, e.offset, e.length)
+                .filter(|(start, end)| emphasis_delimiters(message, *start, *end).0),
+            ME::Italic(e) => emphasis_range(message, e.offset, e.length)
+                .filter(|(start, end)| emphasis_delimiters(message, *start, *end).0),
+            ME::Code(_) | ME::Pre(_) | ME::TextUrl(_) | ME::MentionName(_)
+                if entity.offset() >= 0 && entity.length() > 0 =>
+            {
+                entity
+                    .offset()
+                    .checked_add(entity.length())
+                    .map(|end| (entity.offset(), end))
+            }
+            _ => None,
+        };
+        let Some((start, end)) = range else {
+            return true;
+        };
+        if combined.start < start && start < combined.end && combined.end < end
+            || start < combined.start && combined.start < end && end < combined.end
+        {
+            return false;
+        }
+        // At a shared endpoint, insertion order must still close the inner
+        // wrapper first. Expanding a link's child into its parent breaks this.
+        if (combined.start == start || combined.end == end)
+            && (combined.start != start || combined.end != end)
+        {
+            let combined_outer = combined.start <= start && end <= combined.end;
+            return (prior < index) == combined_outer;
+        }
+        true
+    })
+}
+
+fn merge_adjacent_inline(
+    message: &str,
+    entities: &[tl::enums::MessageEntity],
+) -> Vec<tl::enums::MessageEntity> {
     use tl::enums::MessageEntity as ME;
     let mut normalized = entities.to_vec();
     let mut removed = vec![false; normalized.len()];
@@ -266,10 +317,22 @@ fn merge_adjacent_inline(entities: &[tl::enums::MessageEntity]) -> Vec<tl::enums
                 };
                 let (offset, length) = (current.offset, current.length);
                 if let Some(previous_index) = previous
-                    && let ME::$variant(prior) = &mut normalized[previous_index]
+                    && let ME::$variant(prior) = &normalized[previous_index]
                     && prior.offset.checked_add(prior.length) == Some(offset)
                     && let Some(combined_length) = prior.length.checked_add(length)
+                    && let Some(end) = offset.checked_add(length)
+                    && merge_preserves_entities(
+                        message,
+                        &normalized,
+                        &removed,
+                        previous_index,
+                        index,
+                        prior.offset..end,
+                    )
                 {
+                    let ME::$variant(prior) = &mut normalized[previous_index] else {
+                        unreachable!()
+                    };
                     prior.length = combined_length;
                     removed[index] = true;
                     continue;
@@ -333,7 +396,7 @@ fn pre_boundaries(
 /// Plain text line endings are encoded, while fenced blocks retain CommonMark's
 /// paragraph separators.
 pub fn generate_markdown_message(message: &str, entities: &[tl::enums::MessageEntity]) -> String {
-    let entities = merge_adjacent_inline(entities);
+    let entities = merge_adjacent_inline(message, entities);
     // Getting this wrong isn't the end of the world so the wildcard pattern is used
     // (but it would still be a shame for it to be wrong).
     let mut insertions = Vec::with_capacity(

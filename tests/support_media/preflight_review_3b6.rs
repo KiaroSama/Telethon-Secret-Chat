@@ -53,6 +53,7 @@ impl Drop for GatedSource {
 }
 pub async fn opening_seek_is_owned() {
     responsive_probe(Probe::Open).await;
+    queued_options_are_charged().await;
 }
 pub async fn inferred_ogg_probe_is_owned() {
     responsive_probe(Probe::Header).await;
@@ -94,6 +95,93 @@ pub async fn protected_name_checks_keep_error_wrapper() {
         manager.stop().await.unwrap();
         peer.stop().await.unwrap();
     }
+}
+async fn queued_options_are_charged() {
+    use kiaro_secret_chat::{custody::TransientLimits, error::Error, storage::Storage};
+    struct ReleaseOnDrop(Option<mpsc::Sender<()>>);
+    impl Drop for ReleaseOnDrop {
+        fn drop(&mut self) {
+            if let Some(release) = self.0.take() {
+                let _ = release.send(());
+            }
+        }
+    }
+    let store = TestStorage::default();
+    let limits = TransientLimits {
+        bytes: 1024 * 1024,
+        frame_bytes: 4096,
+        ..Default::default()
+    };
+    let (manager, peer, world, id) = transient::pair(store.clone(), limits).await;
+    let before = store.load().unwrap().unwrap().chats[&id].out_seq_no;
+    let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+    let (worker_tx, _worker_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let release = ReleaseOnDrop(Some(release_tx));
+    let dropped = Arc::new(AtomicBool::new(false));
+    let source = GatedSource {
+        bytes: Cursor::new(vec![1]),
+        probe: Probe::Open,
+        entered: Some(entered_tx),
+        worker_entered: worker_tx,
+        release: release_rx,
+        dropped: dropped.clone(),
+    };
+    let first_manager = manager.clone();
+    let first = tokio::spawn(async move {
+        first_manager
+            .send_file(
+                id,
+                FileSource::stream(Box::new(source), "first.bin").unwrap(),
+                SendFileOptions::default(),
+            )
+            .await
+    });
+    tokio::time::timeout(Duration::from_secs(3), entered_rx)
+        .await
+        .unwrap()
+        .unwrap();
+    let second_manager = manager.clone();
+    let mut second = tokio::spawn(async move {
+        second_manager
+            .send_file(
+                id,
+                FileSource::bytes(vec![2], "second.bin").unwrap(),
+                SendFileOptions {
+                    metadata: Metadata {
+                        thumbnail: Some(vec![7; 16 * 1024 * 1024]),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            )
+            .await
+    });
+    let result = tokio::time::timeout(Duration::from_secs(1), &mut second).await;
+    let refused_while_queued = matches!(&result, Ok(Ok(Err(Error::Paused))));
+    if result.is_err() {
+        second.abort();
+        let _ = second.await;
+    }
+    let retained_before_release = !dropped.load(Ordering::Acquire);
+    first.abort();
+    let _ = first.await;
+    drop(release);
+    tokio::time::timeout(Duration::from_secs(3), manager.stop())
+        .await
+        .unwrap()
+        .unwrap();
+    peer.stop().await.unwrap();
+    assert!(
+        refused_while_queued,
+        "known options must exceed the content budget before the earlier opening gate releases"
+    );
+    assert!(retained_before_release);
+    assert!(dropped.load(Ordering::Acquire));
+    let snapshot = store.load().unwrap().unwrap();
+    assert_eq!(snapshot.chats[&id].out_seq_no, before);
+    assert!(snapshot.chats[&id].outbox.is_empty());
+    assert_eq!(world.lock().unwrap().uploads, 0);
 }
 async fn responsive_probe(probe: Probe) {
     let (manager, peer, world, id) = established().await;
