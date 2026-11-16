@@ -216,6 +216,13 @@ impl<S: Storage> Protocol<S> {
     /// Confirm only the exact effect that completed. A late response cannot
     /// confirm replacement ciphertext produced by a concurrent withdrawal.
     pub fn confirm_sent(&mut self, effect: &SendEffect) -> Result<()> {
+        self.confirm_sent_with_file(effect, None)
+    }
+    pub(crate) fn confirm_sent_with_file(
+        &mut self,
+        effect: &SendEffect,
+        returned_file: Option<Vec<u8>>,
+    ) -> Result<()> {
         self.transaction(|state| {
             let Some(chat) = state.chats.get_mut(&effect.chat_id) else {
                 return Ok(());
@@ -228,8 +235,12 @@ impl<S: Storage> Protocol<S> {
                 && item.frame == effect.outgoing.frame
                 && item.service == effect.outgoing.service
                 && item.file == effect.outgoing.file
+                && item.obligation_generation == effect.outgoing.obligation_generation
             {
                 item.pending = false;
+                if let Some(file) = returned_file {
+                    item.file = Some(file);
+                }
             }
             Ok(())
         })
@@ -370,6 +381,10 @@ impl<S: Storage> Protocol<S> {
             // including when its requested row had already been RPC-confirmed.
             for mut outgoing in answers {
                 outgoing.pending = true;
+                outgoing.obligation_generation = outgoing
+                    .obligation_generation
+                    .checked_add(1)
+                    .ok_or(Error::Capacity)?;
                 chat.outbox.insert(outgoing.seq_no, outgoing.clone());
                 effects.sends.push(SendEffect {
                     chat_id: id,

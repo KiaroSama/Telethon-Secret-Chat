@@ -324,7 +324,49 @@
           "_reply_to_sender": null
         },
         ""
-      ]
+      ],
+      "current_result": {
+        "id": 11,
+        "date": 1705053605,
+        "edited": 1705053665,
+        "from_id": 200,
+        "peer_id": 100,
+        "self_id": 1,
+        "forwarded_from_id": 562949953421367,
+        "forwarded_from_name": "",
+        "forwarded_date": 1705053600,
+        "forwarded": true,
+        "show_forwarded_as_original": true,
+        "saved_from_chat_id": 281474976710722,
+        "signature": "Author",
+        "via_bot_id": 300,
+        "reply_to_msg_id": 9,
+        "reply_to_peer_id": 0,
+        "text": [
+          {
+            "text": "hi",
+            "additional": "",
+            "kind": "text"
+          }
+        ],
+        "reactions": [],
+        "media": {
+          "content": null,
+          "ttl": 0
+        },
+        "action": {
+          "content": null
+        },
+        "out": true,
+        "inline_button_rows": [],
+        "rich_message": null
+      },
+      "current_reference": {
+        "kind": "verified project runtime correction; original baseline preserved",
+        "review_ids": [
+          80
+        ]
+      }
     },
     {
       "function": "model.peer_from_channel",

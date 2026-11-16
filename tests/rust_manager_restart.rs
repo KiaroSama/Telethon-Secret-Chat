@@ -231,15 +231,17 @@ async fn pending_request_is_announced_again_after_reopen() {
 #[tokio::test]
 async fn archive_switch_and_explicit_off_survive_file_reopen() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("a.json");
+    // Windows temp paths can use an 8.3 alias; storage reports its physical path.
+    let root = directory.path().canonicalize().unwrap();
+    let path = root.join("a.json");
     let (transport, _) = Fake::pair();
     let first = durable(transport.clone(), &path);
     first.start().await.unwrap();
     assert_eq!(
         first.auto_save_secret_chats().unwrap(),
-        Some(directory.path().join("saved-secret-chats"))
+        Some(root.join("saved-secret-chats"))
     );
-    let saved = directory.path().join("saved");
+    let saved = root.join("saved");
     first.start_auto_save_secret_chats(&saved).await.unwrap();
     first.stop().await.unwrap();
     let second = durable(transport.clone(), &path);
@@ -255,7 +257,12 @@ async fn archive_switch_and_explicit_off_survive_file_reopen() {
 #[tokio::test]
 async fn default_archive_continues_same_chat_after_restart() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("state").join("chats.json");
+    let path = directory
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("state")
+        .join("chats.json");
     let (a, b, transport, world, id) = pair(&path).await;
     assert_eq!(
         a.auto_save_secret_chats().unwrap(),
@@ -382,8 +389,9 @@ async fn relative_state_and_archive_keep_original_directory_after_cwd_change() {
     let previous = std::env::current_dir().unwrap();
     let directory = tempfile::tempdir().unwrap();
     let _restore = Restore(previous);
-    let original = directory.path().join("original");
-    let elsewhere = directory.path().join("elsewhere");
+    let root = directory.path().canonicalize().unwrap();
+    let original = root.join("original");
+    let elsewhere = root.join("elsewhere");
     std::fs::create_dir(&original).unwrap();
     std::fs::create_dir(&elsewhere).unwrap();
     std::env::set_current_dir(&original).unwrap();

@@ -180,7 +180,9 @@ fn complex(source: &[f64], average: f64, w: i64, mw: i64, sp: i64) -> Result<Vec
             diff = candidate;
         }
     }
-    let (counts, heights) = optimal.ok_or(ExportError::InvalidRecord)?;
+    let Some((counts, heights)) = optimal else {
+        return Ok(Vec::new());
+    };
     let (mut index, mut y) = (0, 0);
     let mut result = vec![];
     for (columns, line_h) in counts.into_iter().zip(heights) {

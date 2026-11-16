@@ -31,6 +31,7 @@ async fn nested_reservations_reuse_task_and_release_each_payload() {
         .unwrap()
         .len()
         * 4;
+    blocking_workers_retain_operation_leases(&manager, base).await;
     manager
         .with_payload_operation(None, WorkKind::Ordinary, 1024, async {
             manager
@@ -155,7 +156,7 @@ async fn bounded_headroom_tracks_nested_and_concurrent_owners() {
                     .lock()
                     .unwrap()
                     .values()
-                    .copied()
+                    .map(Headroom::maximum)
                     .collect::<Vec<_>>(),
                 vec![(4, 4096)]
             );
@@ -175,6 +176,26 @@ async fn bounded_headroom_tracks_nested_and_concurrent_owners() {
             assert_eq!(manager.inner.headroom.lock().unwrap().len(), 1);
             drop(outer);
             assert!(manager.inner.headroom.lock().unwrap().is_empty());
+            let first = manager.reserve_headroom(7, 4, 4096)?;
+            let second = manager.reserve_headroom(7, 2, 2048)?;
+            drop(first);
+            assert_eq!(
+                manager
+                    .inner
+                    .headroom
+                    .lock()
+                    .unwrap()
+                    .values()
+                    .map(Headroom::maximum)
+                    .collect::<Vec<_>>(),
+                vec![(2, 2048)],
+                "retained workers may release nested headroom out of stack order"
+            );
+            drop(second);
+            assert!(
+                manager.inner.headroom.lock().unwrap().is_empty(),
+                "an older lease cannot resurrect released headroom"
+            );
             Ok(())
         })
         .await
@@ -297,4 +318,56 @@ async fn interrupted_creations_keep_uncertain_identity_quarantined() {
             1
         );
     }
+}
+
+async fn blocking_workers_retain_operation_leases(
+    manager: &SecretChatManager<TransientStorage<support::TestStorage>, support::Fake>,
+    used: usize,
+) {
+    let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let worker_manager = manager.clone();
+    let operation = tokio::spawn(async move {
+        worker_manager
+            .with_payload_operation(None, WorkKind::Ordinary, 1024, async {
+                let _extra = worker_manager.reserve_payload(None, 2048)?;
+                crate::media::blocking::spawn(move |_| {
+                    let _ = entered_tx.send(());
+                    release_rx.recv().unwrap();
+                })?
+                .await
+                .map_err(|_| Error::Storage)?;
+                Ok(())
+            })
+            .await
+    });
+    tokio::time::timeout(Duration::from_secs(2), entered_rx)
+        .await
+        .unwrap()
+        .unwrap();
+    operation.abort();
+    assert!(operation.await.unwrap_err().is_cancelled());
+    assert!(
+        manager.inner.work.acquire(1).is_err(),
+        "canceling an await cannot release the task permit still owned by its worker"
+    );
+    let state = manager.protocol(|p| Ok(p.chat_records())).unwrap();
+    assert!(state.is_empty());
+    let available = 65536 - used - 1024 - 2048;
+    let spare = manager.reserve_payload(None, available).unwrap();
+    assert!(
+        manager.reserve_payload(None, 1).is_err(),
+        "worker-owned source buffers stay charged after cancellation"
+    );
+    drop(spare);
+    release_tx.send(()).unwrap();
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while manager.inner.work.active.load(Ordering::Acquire) != 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let all = manager.reserve_payload(None, 65536 - used).unwrap();
+    drop(all);
 }

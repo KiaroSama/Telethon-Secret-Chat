@@ -61,9 +61,9 @@ impl Dialog {
                 Message::from_raw(
                     client,
                     m,
-                    Some(PeerRef {
+                    peer.auth().map(|auth| PeerRef {
                         id: peer.id(),
-                        auth: peer.auth().unwrap(),
+                        auth,
                     }),
                     peers.handle(),
                 )
@@ -79,11 +79,11 @@ impl Dialog {
     }
 
     /// Cached reference to the [`Self::peer`].
-    pub fn peer_ref(&self) -> PeerRef {
-        PeerRef {
+    pub fn peer_ref(&self) -> Option<PeerRef> {
+        self.peer.auth().map(|auth| PeerRef {
             id: self.peer.id(),
-            auth: self.peer.auth().unwrap(),
-        }
+            auth,
+        })
     }
 
     /// The peer represented by this dialog.

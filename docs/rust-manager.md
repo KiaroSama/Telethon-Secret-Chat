@@ -226,3 +226,12 @@ copies. They do not log in or perform live Telegram operations. The migration
 ledger records compared, executed legacy equivalents individually; passing these
 suites does not establish parity for every legacy case. CI separately requires
 the repository's complete 1851-case migration gate.
+
+Native file transfers run synchronous source reads, AES-IGE refills, and final
+filesystem publication on Tokio's blocking pool. Cancellation fences final
+publication, and manager shutdown retains and joins accepted workers. A caller's
+synchronous `Read` implementation must eventually return: Rust cannot forcibly
+interrupt an arbitrary blocking read or destructor. If that prevents bounded
+cleanup, shutdown reports failure and retains the worker owner; startup refuses
+new I/O until those workers actually finish. An RPC already queued in grammers
+may still execute after its awaiting future is canceled.

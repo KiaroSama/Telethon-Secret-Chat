@@ -81,7 +81,25 @@ impl Session for MemorySession {
     }
 
     fn peer(&self, peer: PeerId) -> BoxFuture<'_, Result<Option<PeerInfo>, MemorySessionError>> {
-        Box::pin(async move { Ok(self.data()?.peer_infos.get(&peer).cloned()) })
+        Box::pin(async move {
+            let data = self.data()?;
+            Ok(if peer == PeerId::self_user() {
+                data.peer_infos
+                    .values()
+                    .find(|info| {
+                        matches!(
+                            info,
+                            PeerInfo::User {
+                                is_self: Some(true),
+                                ..
+                            }
+                        )
+                    })
+                    .cloned()
+            } else {
+                data.peer_infos.get(&peer).cloned()
+            })
+        })
     }
 
     fn cache_peer(&self, peer: PeerInfo) -> BoxFuture<'_, Result<(), MemorySessionError>> {

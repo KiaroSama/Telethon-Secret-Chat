@@ -106,6 +106,11 @@ impl DurableIngressHook for DurableIngress {
             Request::State => return Err(IngressRefused),
             _ => None,
         };
+        if frontier.is_some() {
+            core.ledger
+                .check_budget(&core.limits)
+                .map_err(|_| IngressRefused)?;
+        }
         if let Some(qts) = frontier
             && (!core.verified
                 || dc_id != core.backend.binding().dc_id()
@@ -145,7 +150,9 @@ impl DurableIngressHook for DurableIngress {
             MessageBoxes::from_durable_checkpoint(&before).map_err(|_| IngressRefused)?;
         let (kind, output) = match request_kind {
             Request::Difference(request) => {
-                if request.qts != machine.session_state().qts {
+                if request.qts != machine.session_state().qts
+                    || request.pts != machine.session_state().pts
+                {
                     return Err(IngressRefused);
                 }
                 let response = requests::decode::<tl::enums::updates::Difference>(response)

@@ -81,7 +81,7 @@ fn error(e: InvocationError) -> FetchError {
                 "RPCError".into()
             },
         },
-        _ => ExportError::Filesystem.into(),
+        _ => FetchError::Transport,
     }
 }
 impl ExportClient for GrammersExportClient {

@@ -1172,7 +1172,75 @@
           "available_at": 0,
           "time_zone": null
         }
-      ]
+      ],
+      "current_after": [
+        {
+          "chats": [
+            {
+              "type": "PrivateSupergroup",
+              "name": "S",
+              "last_name": "",
+              "input": {
+                "_": "InputPeerChannel",
+                "channel_id": 3,
+                "access_hash": 2
+              },
+              "top_message_id": 0,
+              "top_message_date": 0,
+              "peer_id": 562949953421315,
+              "color_index": 0,
+              "migrated_from_input": {
+                "_": "InputPeerChat",
+                "chat_id": 4
+              },
+              "migrated_to_channel_id": 0,
+              "monoforum_broadcast_input": {
+                "_": "InputPeerEmpty"
+              },
+              "splits": [
+                -2,
+                -1,
+                1
+              ],
+              "only_my_messages": false,
+              "is_left_channel": false,
+              "is_monoforum": false,
+              "relative_path": "",
+              "messages_count_per_split": [
+                3,
+                0,
+                0
+              ]
+            }
+          ],
+          "left": []
+        },
+        {
+          "path": "",
+          "force_sub_path": false,
+          "format": "html",
+          "types": 2016,
+          "full_chats": 2016,
+          "media": {
+            "types": 1,
+            "size_limit": 8388608
+          },
+          "single_peer": 0,
+          "single_peer_from": 0,
+          "single_peer_till": 0,
+          "single_topic_root_id": 0,
+          "single_topic_peer_id": 0,
+          "single_topic_title": "",
+          "available_at": 0,
+          "time_zone": null
+        }
+      ],
+      "current_reference": {
+        "kind": "verified project runtime correction; original baseline preserved",
+        "review_ids": [
+          79
+        ]
+      }
     }
   ]
 }

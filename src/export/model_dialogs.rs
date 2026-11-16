@@ -239,7 +239,20 @@ pub fn finalize_dialogs_info(info: &mut DialogsInfo, settings: &Settings) -> Res
         }
         dialog.only_my_messages =
             dialog.r#type != DialogType::Personal && (settings.full_chats & setting) != setting;
-        dialog.splits.sort();
+        if dialog.messages_count_per_split.len() == dialog.splits.len() {
+            let mut pairs = dialog
+                .splits
+                .iter()
+                .copied()
+                .zip(dialog.messages_count_per_split.iter().copied())
+                .collect::<Vec<_>>();
+            pairs.sort_by_key(|(split, _)| *split);
+            (dialog.splits, dialog.messages_count_per_split) = pairs.into_iter().unzip();
+        } else if dialog.messages_count_per_split.is_empty() {
+            dialog.splits.sort();
+        } else {
+            return Err(ExportError::InvalidRecord);
+        }
     }
     for dialog in &mut info.left {
         index += 1;

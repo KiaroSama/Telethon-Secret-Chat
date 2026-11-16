@@ -11,14 +11,18 @@ Official source: [Lonami/grammers](https://codeberg.org/Lonami/grammers) revisio
 `e61cf8585e1e9969ab81eda9fb4725a1500e2d86`, SDK 0.12.0, parser 2.0.0, API layer 233.
 Three Rust crates are bundled under `vendor/grammers`:
 
-- `grammers-client`: unchanged upstream source; its manifest selects the coherent
-  bundled sender/session graph.
+- `grammers-client`: coherent bundled sender/session graph, with local fixes for
+  request association, pagination, transfer bounds, update caching and typed
+  media/peer/parser boundaries. This alpha explicitly corrects optional-result
+  APIs rather than retaining upstream panic paths; see `rust-export.md`.
 - `grammers-session`: full bounded MessageBoxes checkpoint and envelope/output
   codecs including gaps, deadlines, counters and difference ownership.
 - `grammers-mtsender`: pre-start attachment, one update receiver, pre-ack commit,
   caller-issued difference capture and acknowledgement fencing.
 
-Original licenses and baseline source hashes are retained. Other SDK dependencies
+Original licenses and baseline source hashes are retained. `local-patches.json`
+separately records the distributed source hashes, patched upstream paths and
+added supplement files. Other SDK dependencies
 use the same official Codeberg pin. Use this crate's SDK re-exports: separately
 sourced SDK crates have different Rust types. Path dependencies work transitively
 for Git consumers without a root-only Cargo `[patch]`. Installed SDK files are

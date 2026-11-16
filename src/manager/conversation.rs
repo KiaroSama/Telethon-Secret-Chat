@@ -19,14 +19,7 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
             let _wire = wire.lock().await;
             self.ensure_binding().await?;
             self.check_generation(generation)?;
-            let current = self.protocol(|p| match p.chat_record(id) {
-                Ok(chat) if chat.require_ready().is_ok() => Ok(Some(chat)),
-                Ok(_) | Err(Error::ChatState) => Ok(None),
-                Err(error) => Err(error),
-            })?;
-            let Some(chat) = current else {
-                return Ok(());
-            };
+            let chat = self.sendable(id)?;
             if effect.outgoing.frame.len() < 40
                 || !(effect.outgoing.frame.len() - 24).is_multiple_of(16)
             {
@@ -42,6 +35,7 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
                 || row.frame != effect.outgoing.frame
                 || row.service != effect.outgoing.service
                 || row.file != effect.outgoing.file
+                || row.obligation_generation != effect.outgoing.obligation_generation
             {
                 return Ok(());
             }
@@ -60,18 +54,8 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
             match response {
                 Ok(sent) => {
                     let saved = self.protocol(|protocol| {
-                        protocol.mutate_chat(id, |chat| {
-                            if let Some(row) = chat.outbox.get_mut(&effect.outgoing.seq_no)
-                                && row.random_id == random_id
-                                && row.frame == effect.outgoing.frame
-                            {
-                                row.pending = false;
-                                if let Some(file) = sent.file {
-                                    row.file = Some(transport::file_handle(file));
-                                }
-                            }
-                            Ok(())
-                        })
+                        protocol
+                            .confirm_sent_with_file(&effect, sent.file.map(transport::file_handle))
                     });
                     if saved.is_err() {
                         return Err(Error::SendPending {

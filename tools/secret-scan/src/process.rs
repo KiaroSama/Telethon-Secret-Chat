@@ -93,13 +93,19 @@ pub fn run(
     let mut running = Running(Some(child));
     let until = Instant::now() + timeout;
     loop {
-        if let Some(status) = running
+        let completed = running
             .0
             .as_mut()
             .ok_or("The scanner process guard is unavailable.")?
             .try_wait()
-            .map_err(|_| "A scanner process could not be observed.")?
-        {
+            .map_err(|_| "A scanner process could not be observed.")?;
+        let too_large = [&stdout, &stderr]
+            .iter()
+            .any(|p| fs::metadata(p).is_ok_and(|m| m.len() > limit));
+        if too_large {
+            return Err("A scanner process exceeded its bounded deadline or output limit.");
+        }
+        if let Some(status) = completed {
             running.0 = None;
             return Ok(Captured {
                 status,
@@ -107,10 +113,7 @@ pub fn run(
                 stderr,
             });
         }
-        let too_large = [&stdout, &stderr]
-            .iter()
-            .any(|p| fs::metadata(p).is_ok_and(|m| m.len() > limit));
-        if Instant::now() >= until || too_large {
+        if Instant::now() >= until {
             return Err("A scanner process exceeded its bounded deadline or output limit.");
         }
         std::thread::sleep(Duration::from_millis(25));

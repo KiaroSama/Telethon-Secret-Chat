@@ -430,6 +430,30 @@ fn service_e5ac8d7393f1c8a2() {
 }
 #[test]
 fn service_f72d35176080059f() {
+    // Keep the capture immutable and separately distinguish sender from recipient.
+    let case: Value = serde_json::from_str(include_str!(
+        "fixtures/tdexport_service/f72d35176080059f.json"
+    ))
+    .unwrap();
+    let args = case["traces"][0]["args"].as_array().unwrap();
+    let mut message: Message = decode(&args[0]);
+    let dialog: DialogInfo = decode(&args[1]);
+    let peers: PeersMap = decode(&args[2]);
+    message.from_id = 9;
+    assert_ne!(message.from_id, dialog.peer_id);
+    let text = html_service::service_text(
+        &message,
+        &dialog,
+        &peers,
+        "https://t.me/",
+        "",
+        str::to_owned,
+        &DateContext::utc(),
+    )
+    .unwrap();
+    assert_eq!(text, b"You refunded 20 Stars for 2 messages to Ann Lee");
+    assert_eq!(case["traces"][0]["args"][0]["from_id"], 5);
+
     run("f72d35176080059f.json");
 }
 #[test]

@@ -168,7 +168,7 @@ pub fn parse_app<R: Read>(reader: &mut R, marker: Marker) -> Result<Option<AppDa
                 if buffer[0..5] == *b"JFIF\0" {
                     result = Some(AppData::Jfif);
                 // https://sno.phy.queensu.ca/~phil/exiftool/TagNames/JPEG.html#AVI1
-                } else if buffer[0..5] == *b"AVI1\0" {
+                } else if buffer[0..4] == *b"AVI1" && buffer[4] <= 2 {
                     result = Some(AppData::Avi1);
                 }
             }

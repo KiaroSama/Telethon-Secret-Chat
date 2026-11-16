@@ -73,7 +73,8 @@ async fn map_random_ids_to_messages(
                         .get(rnd)
                         .and_then(|id| id_to_msg.remove(id))
                         .or_else(|| {
-                            if id_to_msg.len() == 1 {
+                            if random_ids.len() == 1 && rnd_to_id.is_empty() && id_to_msg.len() == 1
+                            {
                                 // If there's no random_id to map from, in the common case a single message
                                 // should've been produced regardless, so try to recover by returning that.
                                 id_to_msg.drain().next().map(|(_, m)| m)
@@ -216,16 +217,16 @@ impl<R: tl::RemoteCall<Return = tl::enums::messages::Messages>> IterBuffer<R, Me
                 // When iterating newest-to-oldest, the highest fetched message ID is
                 // lower than or equal to the limit, there can't be more messages after
                 // (highest ID - limit), because the absolute lowest message ID is 1.
-                self.last_chunk =
-                    m.messages.is_empty() || (!reverse && m.messages[0].id() <= limit);
+                self.last_chunk = m.messages.is_empty()
+                    || (peer.is_some() && !reverse && m.messages[0].id() <= limit);
 
                 self.total = Some(m.count as usize);
 
                 (m.messages, m.users, m.chats, m.next_rate)
             }
             Messages::ChannelMessages(m) => {
-                self.last_chunk =
-                    m.messages.is_empty() || (!reverse && m.messages[0].id() <= limit);
+                self.last_chunk = m.messages.is_empty()
+                    || (peer.is_some() && !reverse && m.messages[0].id() <= limit);
                 self.total = Some(m.count as usize);
                 (m.messages, m.users, m.chats, None)
             }
@@ -1172,6 +1173,7 @@ impl Client {
         let peers = self.build_peer_map(users, chats).await;
         let mut map = messages
             .into_iter()
+            .filter(|message| !matches!(message, tl::enums::Message::Empty(_)))
             .map(|m| Message::from_raw(self, m, Some(peer), peers.handle()))
             .filter(|m| m.peer_id() == peer.id)
             .map(|m| (m.id(), m))
@@ -1218,6 +1220,7 @@ impl Client {
         let peers = self.build_peer_map(users, chats).await;
         Ok(messages
             .into_iter()
+            .filter(|message| !matches!(message, tl::enums::Message::Empty(_)))
             .map(|m| Message::from_raw(self, m, Some(peer), peers.handle()))
             .find(|m| m.peer_id() == peer.id))
     }
@@ -1292,13 +1295,18 @@ impl Client {
         &self,
         peer: C,
     ) -> Result<(), InvocationError> {
-        self.invoke(&tl::functions::messages::UnpinAllMessages {
+        let request = tl::functions::messages::UnpinAllMessages {
             peer: peer.into().into(),
             top_msg_id: None,
             saved_peer_id: None,
-        })
-        .await?;
-        Ok(())
+        };
+        loop {
+            let tl::enums::messages::AffectedHistory::History(result) =
+                self.invoke(&request).await?;
+            if result.offset <= 0 {
+                return Ok(());
+            }
+        }
     }
 
     /// Send reaction.

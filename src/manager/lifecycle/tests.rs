@@ -193,7 +193,106 @@ use crate::test_support::logging;
 use crate::test_support::seeded;
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cancelled_start_waiter_does_not_log_raw_shutdown_failure() {
+    cancelled_start_retries_all_retained_chats().await;
+    creation_is_guarded_through_install_commit().await;
     cancelled_lifecycle(0).await;
+}
+
+async fn cancelled_start_retries_all_retained_chats() {
+    let store = TestStorage::default();
+    let mut state = crate::storage::State::empty("11".repeat(32)).unwrap();
+    state.chats.insert(7, seeded::chat());
+    let mut second = seeded::chat();
+    second.id = 8;
+    state.chats.insert(8, second);
+    *store.state.lock().unwrap() = Some(state);
+    let (client, _) = Fake::pair();
+    let world = Arc::clone(&client.world);
+    let manager =
+        SecretChatManager::new(client, store, "11".repeat(32), Options::default()).unwrap();
+    for id in [7, 8] {
+        manager
+            .protocol(|p| p.send_message(id, "startup retry".into(), None, None))
+            .unwrap();
+    }
+    let gate = Arc::new(Gate::default());
+    world.lock().unwrap().send_gate = Some(Arc::clone(&gate));
+    let first = manager.clone();
+    let startup = tokio::spawn(async move { first.start().await });
+    tokio::time::timeout(Duration::from_secs(3), gate.entered.notified())
+        .await
+        .unwrap();
+    startup.abort();
+    assert!(startup.await.unwrap_err().is_cancelled());
+    world.lock().unwrap().send_gate = None;
+    manager.start().await.unwrap();
+    assert!(
+        world
+            .lock()
+            .unwrap()
+            .sent
+            .iter()
+            .any(|effect| effect.chat_id == 8),
+        "retrying interrupted startup must visit later retained chats"
+    );
+    assert_eq!(
+        manager.protocol(|p| p.chat_record(7)).unwrap().out_seq_no,
+        1
+    );
+    assert_eq!(
+        manager.protocol(|p| p.chat_record(8)).unwrap().out_seq_no,
+        1
+    );
+    manager.stop().await.unwrap();
+}
+
+type CommitProbe = Box<dyn Fn(&crate::storage::State) + Send + Sync>;
+#[derive(Default)]
+struct ProbeStore {
+    store: TestStorage,
+    probe: Arc<Mutex<Option<CommitProbe>>>,
+}
+impl Storage for ProbeStore {
+    fn load(&self) -> Result<Option<crate::storage::State>> {
+        self.store.load()
+    }
+    fn commit(&mut self, state: &crate::storage::State) -> Result<()> {
+        if let Some(probe) = self.probe.lock().unwrap().as_ref() {
+            probe(state);
+        }
+        self.store.commit(state)
+    }
+}
+async fn creation_is_guarded_through_install_commit() {
+    let store = ProbeStore::default();
+    let probe = Arc::clone(&store.probe);
+    let (client, _) = Fake::pair();
+    let manager =
+        SecretChatManager::new(client, store, "11".repeat(32), Options::default()).unwrap();
+    manager.start().await.unwrap();
+    let weak = Arc::downgrade(&manager.inner);
+    let observed = Arc::new(AtomicUsize::new(usize::MAX));
+    let capture = Arc::clone(&observed);
+    *probe.lock().unwrap() = Some(Box::new(move |state| {
+        if state
+            .chats
+            .values()
+            .any(|chat| chat.state == ChatState::Requested)
+        {
+            capture.store(
+                weak.upgrade().unwrap().creating.load(Ordering::Acquire),
+                Ordering::Release,
+            );
+        }
+    }));
+    manager.create(peer(2000)).await.unwrap();
+    assert_eq!(
+        observed.load(Ordering::Acquire),
+        1,
+        "the installation commit must retain the creation guard"
+    );
+    *probe.lock().unwrap() = None;
+    manager.stop().await.unwrap();
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cancelled_stop_waiter_does_not_log_raw_shutdown_failure() {

@@ -335,12 +335,11 @@ pub fn parse_message(
         result.show_forwarded_as_original = result.forwarded && result.saved_from_chat_id != 0;
     }
     result.signature = string(data, "post_author").into();
-    reply_header(&mut result, &data["reply_to"], false);
     result.via_bot_id = integer(data, "via_bot_id");
     if !data["media"].is_null() {
         context.bot_id = if result.via_bot_id != 0 {
             result.via_bot_id
-        } else if peer_is_user(result.forwarded_from_id) {
+        } else if result.forwarded_from_id != 0 && peer_is_user(result.forwarded_from_id) {
             peer_to_user(result.forwarded_from_id)
         } else {
             peer_to_user(result.from_id)

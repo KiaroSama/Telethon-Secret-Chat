@@ -1001,7 +1001,14 @@
         "https://t.me/",
         ""
       ],
-      "files_after": {}
+      "files_after": {},
+      "current_result": "<div class=\"text rich_message\" data-rich-message=\"5\" data-rich-part=\"false\" dir=\"auto\">\n <section class=\"rich_block rich_media_group\" data-rich-has-items=\"true\" data-rich-items-end-media=\"true\" data-rich-kind=\"slideshow\">\n\n  <div class=\"rich_slideshow_box\" style=\"aspect-ratio: 100 / 50\">\n\n   <div class=\"rich_slideshow_track\">\n\n    <div class=\"rich_slide\">\n\n     <figure class=\"rich_block rich_media_item\" data-photo-id=\"1\" data-rich-kind=\"photo\" data-spoiler=\"false\">\n[photo 1]\n     </figure>\n\n    </div>\n\n    <div class=\"rich_slide\">\n\n     <figure class=\"rich_block rich_media_item\" data-photo-id=\"2\" data-rich-kind=\"photo\" data-spoiler=\"false\">\n[photo 2]\n     </figure>\n\n    </div>\n\n   </div>\n<button class=\"rich_slideshow_prev\" type=\"button\">&#8592;</button><button class=\"rich_slideshow_next\" type=\"button\">&#8594;</button>\n   <div class=\"rich_slideshow_dots\">\n<button aria-label=\"Show slide 1\" class=\"rich_slideshow_dot\" type=\"button\"></button><button aria-label=\"Show slide 2\" class=\"rich_slideshow_dot\" type=\"button\"></button>\n   </div>\n\n  </div>\n\n </section>\n</div>",
+      "current_reference": {
+        "kind": "intentional project accessibility correction; original Desktop baseline preserved",
+        "review_ids": [
+          72
+        ]
+      }
     }
   ]
 }

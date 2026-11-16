@@ -2,6 +2,8 @@
 #![allow(clippy::unwrap_used)]
 #[path = "rust_export_support/desktop744.rs"]
 mod current;
+#[path = "rust_export_support/review_models.rs"]
+mod review;
 use kiaro_secret_chat::export::{
     format::DateContext, model::*, model_dialogs, model_document::*, model_message::*,
     model_peers::*, model_rich::*, parse_actions::*, parse_media::*, parse_rich::*,
@@ -180,7 +182,10 @@ fn run(name: &str) {
         );
         assert_eq!(
             json!(after),
-            trace["after"],
+            trace
+                .get("current_after")
+                .unwrap_or(&trace["after"])
+                .clone(),
             "{}: {function} mutation",
             case["legacy_case"]
         );
@@ -252,6 +257,7 @@ fn model_bb4e155ce41756ad() {
 }
 #[test]
 fn model_10b3a2ec1bc661c8() {
+    review::messages();
     run("10b3a2ec1bc661c8.json");
 }
 #[test]
@@ -565,10 +571,12 @@ fn model_2fb90460e6d94761() {
 }
 #[test]
 fn model_4d4bb95f65124fd6() {
+    review::peers();
     run("4d4bb95f65124fd6.json");
 }
 #[test]
 fn model_b397cc65a143d23c() {
+    review::split_counts();
     run("b397cc65a143d23c.json");
 }
 #[test]

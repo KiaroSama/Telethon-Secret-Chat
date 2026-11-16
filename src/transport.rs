@@ -10,12 +10,14 @@ use grammers_tl_types::{self as tl, Deserializable};
 #[derive(Clone)]
 pub struct GrammersTransport {
     client: Client,
+    pub(crate) io: std::sync::Arc<crate::media::blocking::IoTracker>,
     ingress: Option<std::sync::Arc<crate::ingress::DurableIngress>>,
 }
 impl GrammersTransport {
     pub fn new(client: Client) -> Self {
         Self {
             client,
+            io: std::sync::Arc::default(),
             ingress: None,
         }
     }
@@ -25,6 +27,7 @@ impl GrammersTransport {
     ) -> Self {
         Self {
             client,
+            io: std::sync::Arc::default(),
             ingress: Some(ingress),
         }
     }

@@ -111,6 +111,38 @@ pub fn smooth_scale(
     {
         return Err(ExportError::Image);
     }
+    // Include source, i64 expansion, intermediate, i64 result, final bytes and taps.
+    const MAX_WORKING_BYTES: usize = 400 * 1024 * 1024;
+    let intermediate = if width >= source_width {
+        source_width.checked_mul(height)
+    } else {
+        width.checked_mul(source_height)
+    };
+    let output = width
+        .checked_mul(height)
+        .and_then(|n| n.checked_mul(channels));
+    let working = intermediate
+        .and_then(|n| n.checked_mul(channels))
+        .and_then(|n| n.checked_mul(8))
+        .and_then(|n| {
+            pixels
+                .len()
+                .checked_mul(9)
+                .and_then(|source| n.checked_add(source))
+        })
+        .and_then(|n| {
+            output
+                .and_then(|samples| samples.checked_mul(9))
+                .and_then(|bytes| n.checked_add(bytes))
+        })
+        .and_then(|n| {
+            (source_width + source_height + width + height)
+                .checked_mul(128)
+                .and_then(|taps| n.checked_add(taps))
+        });
+    if working.is_none_or(|bytes| bytes > MAX_WORKING_BYTES) {
+        return Err(ExportError::Image);
+    }
     let source = pixels.iter().map(|n| i64::from(*n)).collect::<Vec<_>>();
     let x_up = width >= source_width;
     let y_up = height >= source_height;

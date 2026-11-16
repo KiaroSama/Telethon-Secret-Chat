@@ -212,9 +212,9 @@ impl Ledger {
                 return Err(Error::InvalidState);
             }
         }
-        self.check_budget(limits)
+        self.check_size(limits)
     }
-    pub fn check_budget(&self, limits: &IngressLimits) -> Result<()> {
+    pub fn check_size(&self, limits: &IngressLimits) -> Result<()> {
         if self.batches.len() + self.inputs.len() > limits.records
             || serde_json::to_vec(self)
                 .map_err(|_| Error::InvalidState)?
@@ -223,6 +223,10 @@ impl Ledger {
         {
             return Err(Error::Capacity);
         }
+        Ok(())
+    }
+    pub fn check_budget(&self, limits: &IngressLimits) -> Result<()> {
+        self.check_size(limits)?;
         let timestamp = now()?;
         if self.batches.iter().any(|batch| {
             timestamp.saturating_sub(batch.created_ms) as f64 >= limits.age_seconds * 1000.0
@@ -257,8 +261,23 @@ impl Ledger {
         if self.paused || before != self.checkpoint()? {
             return Err(Error::Paused);
         }
+        let retained = kind == IngressReceiptKind::Machine
+            || kind == IngressReceiptKind::Live
+                && self
+                    .inputs
+                    .iter()
+                    .any(|input| input.envelope.as_bytes() == envelope);
+        if retained {
+            self.check_size(limits)?;
+        } else {
+            self.check_budget(limits)?;
+        }
         let next = MessageBoxes::from_durable_checkpoint(after).map_err(|_| Error::InvalidState)?;
-        if next.session_state().qts < self.frontier()? {
+        let previous =
+            MessageBoxes::from_durable_checkpoint(before).map_err(|_| Error::InvalidState)?;
+        if next.session_state().qts < self.frontier()?
+            || next.session_state().pts < previous.session_state().pts
+        {
             return Err(Error::Sequence);
         }
         if kind == IngressReceiptKind::Machine {
@@ -269,7 +288,7 @@ impl Ledger {
                 return Err(Error::InvalidState);
             }
             self.checkpoint = Some(SecretRecord::new(after.to_vec()));
-            self.check_budget(limits)?;
+            self.check_size(limits)?;
             return Ok(None);
         }
         if envelope.len() > limits.batch_bytes {
@@ -285,10 +304,29 @@ impl Ledger {
             None
         };
         let identity = identity(kind, envelope, request);
-        if let Some(batch) = self.batches.iter().find(|batch| batch.identity == identity) {
-            self.receipt_frontier = Some(next.session_state().qts);
-            self.checkpoint = Some(SecretRecord::new(after.to_vec()));
-            return Ok(Some(batch.id));
+        let encoded = durable::encode_output(output).map_err(|_| Error::InvalidState)?;
+        let mut original_age = None;
+        if let Some(index) = self
+            .batches
+            .iter()
+            .position(|batch| batch.identity == identity)
+        {
+            let batch = &self.batches[index];
+            if output.0.is_empty() || batch.output.as_bytes() == encoded {
+                self.receipt_frontier = Some(next.session_state().qts);
+                self.checkpoint = Some(SecretRecord::new(after.to_vec()));
+                return Ok(Some(batch.id));
+            }
+            if !batch.updates()?.0.is_empty() {
+                // No checkpoint may advance past an ambiguous replacement of
+                // already-held output. The owning transaction retains its input.
+                return Err(Error::Sequence);
+            }
+            // The earlier possible-gap receipt had no updates. Give recovered
+            // output a fresh receipt ID so receivers that saw its empty tuple
+            // replay the newly materialized events as well.
+            original_age = Some(batch.created_ms);
+            self.batches.remove(index);
         }
         let id = self.next_id;
         self.next_id = id.checked_add(1).ok_or(Error::Capacity)?;
@@ -300,16 +338,15 @@ impl Ledger {
             request: SecretRecord::new(request.to_vec()),
             before: SecretRecord::new(before.to_vec()),
             after: SecretRecord::new(after.to_vec()),
-            output: SecretRecord::new(
-                durable::encode_output(output).map_err(|_| Error::InvalidState)?,
-            ),
+            output: SecretRecord::new(encoded),
             cursor: 0,
             applied: BTreeSet::new(),
-            created_ms: input.map_or_else(now, |row| Ok(row.created_ms))?,
+            created_ms: original_age
+                .map_or_else(|| input.map_or_else(now, |row| Ok(row.created_ms)), Ok)?,
         });
         self.receipt_frontier = Some(next.session_state().qts);
         self.checkpoint = Some(SecretRecord::new(after.to_vec()));
-        self.check_budget(limits)?;
+        self.check_size(limits)?;
         Ok(Some(id))
     }
     pub fn mark(&mut self, id: u64, index: usize, hash: &[u8; 32]) -> Result<()> {

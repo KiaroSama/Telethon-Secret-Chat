@@ -24,6 +24,9 @@ pub trait ExportWriter: Send {
     fn write_dialog_end(&mut self) -> Result<()>;
     fn write_dialogs_end(&mut self) -> Result<()>;
     fn finish(&mut self) -> Result<()>;
+    /// Abandon partial output and release resources without replacing the original error.
+    /// Writers that hold no resources need no cleanup.
+    fn abort(&mut self) {}
     fn main_file_path(&self) -> PathBuf;
 }
 pub struct HtmlAndJsonWriter {
@@ -72,6 +75,11 @@ impl ExportWriter for HtmlAndJsonWriter {
     }
     fn finish(&mut self) -> Result<()> {
         self.invoke(|w| w.finish())
+    }
+    fn abort(&mut self) {
+        for writer in &mut self.writers {
+            writer.abort();
+        }
     }
     fn main_file_path(&self) -> PathBuf {
         self.writers[0].main_file_path()

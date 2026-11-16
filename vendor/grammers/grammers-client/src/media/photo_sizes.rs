@@ -381,7 +381,7 @@ impl PathSize {
                 } else if num >= 64 {
                     path.push('-');
                 }
-                path.push((num & 63) as char);
+                path.push_str(&(num & 63).to_string());
             }
         }
         path.push('z');

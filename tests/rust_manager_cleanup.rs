@@ -147,8 +147,38 @@ async fn start_completes_failed_shutdown_before_recovery() {
     pump(&a, &b, &world).await;
     b.accept(id).await.unwrap();
     pump(&a, &b, &world).await;
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let signal = Arc::clone(&entered);
+    let cleaned = Arc::new(AtomicBool::new(false));
+    let done = Arc::clone(&cleaned);
+    a.on_async_with_cleanup(
+        "MessageReceived",
+        "failed_save_cleanup",
+        move |_| {
+            let signal = Arc::clone(&signal);
+            async move {
+                signal.notify_one();
+                std::future::pending::<Result<()>>().await
+            }
+        },
+        move |_| {
+            let done = Arc::clone(&done);
+            async move {
+                done.store(true, Ordering::Release);
+                Ok(())
+            }
+        },
+    )
+    .unwrap();
+    b.send_message(id, "callback alive at failed shutdown", None, None)
+        .await
+        .unwrap();
+    pump(&a, &b, &world).await;
+    bounded(entered.notified()).await;
     failures.store(1, Ordering::Release);
     assert!(matches!(a.stop().await, Err(Error::Storage)));
+    assert_eq!(a.active_handler_tasks(), 0);
+    assert!(cleaned.load(Ordering::Acquire));
     assert!(matches!(
         a.send_message(id, "blocked", None, None).await,
         Err(Error::ManagerStopping)

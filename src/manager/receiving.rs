@@ -122,17 +122,36 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
         .await
     }
     pub(crate) async fn drain_deliveries(&self, id: i32) -> Result<()> {
+        let owner = Arc::new(());
         {
             let mut delivering = self.inner.delivering.lock().map_err(|_| Error::Storage)?;
-            if !delivering.insert(id) {
+            if let Some((_, requested)) = delivering.get_mut(&id) {
+                *requested = true;
                 return Ok(());
             }
+            delivering.insert(id, (Arc::clone(&owner), false));
         }
         let _guard = DeliveryGuard {
             set: &self.inner.delivering,
             id,
+            owner,
         };
-        self.deliver_pending(id).await
+        loop {
+            let result = self.deliver_pending(id).await;
+            let mut delivering = self.inner.delivering.lock().map_err(|_| Error::Storage)?;
+            let Some((current, requested)) = delivering.get_mut(&id) else {
+                return result;
+            };
+            if !Arc::ptr_eq(current, &_guard.owner) {
+                return result;
+            }
+            if result.is_ok() && std::mem::take(requested) {
+                drop(delivering);
+                continue;
+            }
+            delivering.remove(&id);
+            return result;
+        }
     }
     pub(crate) async fn close_failed_protocol(&self, id: i32, reason: &'static str) -> Result<()> {
         let generation = self.generation()?;
@@ -316,7 +335,14 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
                         }
                     }
                     self.save_received(&event);
-                    self.emit(Event::MessageReceived(Box::new(event)));
+                    if !self.emit(Event::MessageReceived(Box::new(event))) {
+                        self.inner
+                            .delivered
+                            .lock()
+                            .map_err(|_| Error::Storage)?
+                            .remove(&(id, seq));
+                        return Err(Error::Capacity);
+                    }
                 }
                 let mode = self.protocol(|p| Ok(p.mode()))?;
                 if mode == StoreMode::Protected && self.require_chat(id)?.paused {
@@ -371,12 +397,17 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
 }
 
 struct DeliveryGuard<'a> {
-    set: &'a Mutex<HashSet<i32>>,
+    set: &'a Mutex<BTreeMap<i32, (Arc<()>, bool)>>,
     id: i32,
+    owner: Arc<()>,
 }
 impl Drop for DeliveryGuard<'_> {
     fn drop(&mut self) {
-        if let Ok(mut set) = self.set.lock() {
+        if let Ok(mut set) = self.set.lock()
+            && set
+                .get(&self.id)
+                .is_some_and(|(owner, _)| Arc::ptr_eq(owner, &self.owner))
+        {
             set.remove(&self.id);
         }
     }

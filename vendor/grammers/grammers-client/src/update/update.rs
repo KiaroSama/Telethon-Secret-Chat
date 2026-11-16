@@ -109,11 +109,21 @@ impl Update {
                     state,
                 })
             }
-            tl::enums::Update::EditChannelMessage(raw) => Self::MessageEdited(Message {
-                msg: crate::message::Message::from_raw(client, raw.message.clone(), None, peers),
-                raw: update,
-                state,
-            }),
+            tl::enums::Update::EditChannelMessage(raw) => {
+                if utils::peer_from_message(&raw.message).is_none() {
+                    return Self::Raw(Raw { raw: update, state });
+                }
+                Self::MessageEdited(Message {
+                    msg: crate::message::Message::from_raw(
+                        client,
+                        raw.message.clone(),
+                        None,
+                        peers,
+                    ),
+                    raw: update,
+                    state,
+                })
+            }
 
             // MessageDeleted
             tl::enums::Update::DeleteMessages(_) => {
@@ -156,23 +166,36 @@ impl Update {
             }),
 
             // GuestChatQuery
-            tl::enums::Update::BotGuestChatQuery(raw) => Self::GuestChatQuery(GuestChatQuery {
-                message: crate::message::Message::from_raw(
-                    client,
-                    raw.message.clone(),
-                    None,
-                    peers.clone(),
-                ),
-                reference_messages: raw
-                    .reference_messages
-                    .clone()
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(|msg| crate::message::Message::from_raw(client, msg, None, peers.clone()))
-                    .collect(),
-                raw: update,
-                state,
-            }),
+            tl::enums::Update::BotGuestChatQuery(raw) => {
+                if utils::peer_from_message(&raw.message).is_none()
+                    || raw.reference_messages.as_ref().is_some_and(|messages| {
+                        messages
+                            .iter()
+                            .any(|message| utils::peer_from_message(message).is_none())
+                    })
+                {
+                    return Self::Raw(Raw { raw: update, state });
+                }
+                Self::GuestChatQuery(GuestChatQuery {
+                    message: crate::message::Message::from_raw(
+                        client,
+                        raw.message.clone(),
+                        None,
+                        peers.clone(),
+                    ),
+                    reference_messages: raw
+                        .reference_messages
+                        .clone()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|msg| {
+                            crate::message::Message::from_raw(client, msg, None, peers.clone())
+                        })
+                        .collect(),
+                    raw: update,
+                    state,
+                })
+            }
 
             // Raw
             _ => Self::Raw(Raw { raw: update, state }),

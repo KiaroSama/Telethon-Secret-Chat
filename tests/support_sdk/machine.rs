@@ -56,6 +56,17 @@ pub fn live_codec_retains_complete_envelope_and_peers() {
     }));
     let bytes = grammers_session::updates::durable::encode_live(&update).unwrap();
     let decoded = grammers_session::updates::durable::decode_live(&bytes).unwrap();
+    match (&update, &decoded) {
+        (UpdatesLike::Updates(original), UpdatesLike::Updates(restored)) => {
+            use grammers_tl_types::Serializable;
+            assert_eq!(
+                original.to_bytes(),
+                restored.to_bytes(),
+                "the original TL body and every peer must survive the codec"
+            );
+        }
+        _ => panic!("the codec changed the original envelope kind"),
+    }
     assert_eq!(
         grammers_session::updates::durable::encode_live(&decoded).unwrap(),
         bytes

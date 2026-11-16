@@ -210,6 +210,28 @@ fn photo_row(id: i64, date: i64, source: Option<&Path>, size: u64) -> Value {
 }
 #[test]
 fn copies_media_policy_and_collision() {
+    let bounded = tempfile::tempdir().unwrap();
+    let actual = bounded.path().join("actual");
+    fs::write(&actual, [7; 32]).unwrap();
+    let (owner, other) = users();
+    let mut limit = options(&bounded.path().join("out"));
+    limit.media.size_limit = 8;
+    let mut output = Recorder::default();
+    let result = export_saved_chat(
+        &[photo_row(1, BASE, Some(&actual), 1)],
+        &limit,
+        &mut output,
+        &owner,
+        &other,
+        &Environment::default(),
+    )
+    .unwrap();
+    assert_eq!(result.files, 0);
+    assert_eq!(
+        output.slices[0].list[0].media.file().skip_reason,
+        SkipReason::FileSize
+    );
+
     let d = tempfile::tempdir().unwrap();
     let source = d.path().join("saved");
     fs::write(&source, b"sssss").unwrap();
@@ -274,6 +296,67 @@ fn copies_media_policy_and_collision() {
 }
 #[test]
 fn saved_dates_handed_to_writer() {
+    let unsorted = tempfile::tempdir().unwrap();
+    let (owner, other) = users();
+    let rows = [
+        message(1, BASE + 100),
+        message(2, BASE + 300),
+        message(3, BASE + 200),
+    ];
+    let mut bounded = options(&unsorted.path().join("out"));
+    bounded.single_peer_from = BASE + 250;
+    let mut output = Recorder::default();
+    assert_eq!(
+        export_saved_chat(
+            &rows,
+            &bounded,
+            &mut output,
+            &owner,
+            &other,
+            &Environment::default()
+        )
+        .unwrap()
+        .messages,
+        3
+    );
+    assert_eq!(
+        output.slices[0]
+            .list
+            .iter()
+            .map(|m| m.date)
+            .collect::<Vec<_>>(),
+        [BASE + 100, BASE + 300, BASE + 200]
+    );
+    bounded.path = unsorted.path().join("inclusive");
+    bounded.single_peer_from = BASE + 300;
+    assert_eq!(
+        export_saved_chat(
+            &rows[1..2],
+            &bounded,
+            &mut Recorder::default(),
+            &owner,
+            &other,
+            &Environment::default()
+        )
+        .unwrap()
+        .messages,
+        1
+    );
+
+    let destination = unsorted.path().join("actual-json");
+    let settings = Settings {
+        format: Format::Json,
+        single_peer_from: BASE + 250,
+        ..Default::default()
+    };
+    export::export_saved_records(&rows, &destination, &owner, &other, &settings, None).unwrap();
+    let result: Value =
+        serde_json::from_slice(&fs::read(destination.join("result.json")).unwrap()).unwrap();
+    assert_eq!(result["messages"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        result["messages"][0]["date_unixtime"],
+        (BASE + 300).to_string()
+    );
     let d = tempfile::tempdir().unwrap();
     let source = d.path().join("saved");
     fs::write(&source, b"sssss").unwrap();
@@ -472,16 +555,18 @@ fn copy_failure_closes_output_handles() {
         );
         assert_eq!(result.unwrap_err(), ExportError::Filesystem);
         assert!(out.join("result.json").is_file());
-    }
-    let output = out.join("result.json");
-    let moved = out.join("closed.json");
-    fs::rename(&output, &moved).unwrap();
-    fs::remove_file(moved).unwrap();
-    #[cfg(target_os = "linux")]
-    for entry in fs::read_dir("/proc/self/fd").unwrap() {
-        if let Ok(target) = fs::read_link(entry.unwrap().path()) {
-            assert!(!target.starts_with(&out), "leaked export file descriptor");
+        let output = out.join("result.json");
+        let moved = out.join("closed.json");
+        fs::rename(&output, &moved).unwrap();
+        fs::remove_file(moved).unwrap();
+        #[cfg(target_os = "linux")]
+        for entry in fs::read_dir("/proc/self/fd").unwrap() {
+            if let Ok(target) = fs::read_link(entry.unwrap().path()) {
+                assert!(!target.starts_with(&out), "leaked export file descriptor");
+            }
         }
+        assert!(w.main_file_path().ends_with("messages.html"));
+        assert_eq!(w.write_dialog_end(), Err(ExportError::WriterState));
     }
     assert_eq!(fs::read(photo).unwrap(), b"synthetic copy failure input");
     assert_eq!(fs::read(source).unwrap(), before);

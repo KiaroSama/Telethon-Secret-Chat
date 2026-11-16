@@ -62,7 +62,7 @@ pub struct Chat {
 }
 impl Chat {
     pub fn id(&self) -> i64 {
-        if self.is_broadcast || self.is_supergroup {
+        if self.is_broadcast || self.is_supergroup || kind(&self.input) == "InputPeerChannel" {
             peer_from_channel(self.bare_id)
         } else {
             peer_from_chat(self.bare_id)
@@ -171,6 +171,7 @@ pub fn parse_user(data: &Value) -> PeerUser {
         r.input =
             json!({"_":"InputUser","user_id":r.bare_id,"access_hash":integer(data,"access_hash")});
     } else if type_is(data, "UserEmpty") {
+        r.bare_id = integer(data, "id");
         r.input = json!({"_":"InputUser","user_id":integer(data,"id"),"access_hash":0});
     }
     r
@@ -262,6 +263,10 @@ pub fn parse_peers_lists(users: &[Value], chats: &[Value]) -> Peers {
 pub fn empty_peer(id: i64) -> Peer {
     if peer_is_user(id) {
         Peer::User(parse_user(&json!({"_":"UserEmpty","id":peer_to_user(id)})))
+    } else if peer_is_channel(id) {
+        Peer::Chat(parse_chat(
+            &json!({"_":"ChannelForbidden","id":peer_to_channel(id)}),
+        ))
     } else {
         Peer::Chat(parse_chat(&json!({"_":"ChatEmpty","id":peer_to_chat(id)})))
     }

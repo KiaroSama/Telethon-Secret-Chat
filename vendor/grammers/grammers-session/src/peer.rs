@@ -173,13 +173,13 @@ impl PeerId {
 
     /// Creates a peer identity for a small group chat.
     pub fn chat(id: i64) -> Option<Self> {
-        CHAT_ID_RANGE.contains(&id).then_some(Self(-id))
+        CHAT_ID_RANGE.contains(&id).then(|| Self(-id))
     }
 
     /// Creates a peer identity for a broadcast channel, megagroup, gigagroup or monoforum.
     pub fn channel(id: i64) -> Option<Self> {
         (SUPERGROUP_AND_CHANNEL_ID_RANGE.contains(&id) || MONOFORUM_ID_RANGE.contains(&id))
-            .then_some(Self(-(1000000000000 + id)))
+            .then(|| Self(-(1000000000000 + id)))
     }
 
     /// Creates a peer identity from a [Bot API dialog ID](https://core.telegram.org/api/bots/ids).

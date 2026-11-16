@@ -97,6 +97,14 @@ pub fn assert_native_tl_bridge_shapes() {
         json!({"_":"InputMessagesFilterEmpty"}),
         api::MessagesFilter::InputMessagesFilterEmpty,
     );
+    official_request(
+        json!({"_":"InputMessagesFilterPhotos"}),
+        api::MessagesFilter::InputMessagesFilterPhotos,
+    );
+    official_request(
+        json!({"_":"InputMessagesFilterVideo"}),
+        api::MessagesFilter::InputMessagesFilterVideo,
+    );
     assert!(
         serde_json::from_value::<api::InputFileLocation>(request_args(
             &json!({"_":"InputDocumentFileLocation"})

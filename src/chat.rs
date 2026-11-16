@@ -43,6 +43,10 @@ pub struct Outgoing {
     pub service: bool,
     pub file: Option<Vec<u8>>,
     pub pending: bool,
+    /// Distinguishes a new retransmission obligation from an older in-flight
+    /// send of the exact same ciphertext. Old native snapshots start at zero.
+    #[serde(default)]
+    pub obligation_generation: u64,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

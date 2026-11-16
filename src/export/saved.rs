@@ -187,37 +187,41 @@ pub fn export_saved_chat_with_copier(
         ..Default::default()
     };
     finalize_dialogs_info(&mut dialogs, &settings)?;
-    writer.start(&settings, environment)?;
-    writer.write_dialogs_start(&dialogs)?;
-    writer.write_dialog_start(&dialogs.chats[0])?;
-    let mut copied = 0;
-    if count != 0 {
-        copied = copy_files(&mut messages, &sources, &settings, &mut copier)?;
-        for chunk in messages.chunks(100) {
-            writer.write_dialog_slice(&MessagesSlice {
-                list: chunk.to_vec(),
-                peers: peers.clone(),
-            })?;
+    let result: Result<ExportResult> = (|| {
+        writer.start(&settings, environment)?;
+        writer.write_dialogs_start(&dialogs)?;
+        writer.write_dialog_start(&dialogs.chats[0])?;
+        let mut copied = 0;
+        if count != 0 {
+            copied = copy_files(&mut messages, &sources, &settings, &mut copier)?;
+            for chunk in messages.chunks(100) {
+                writer.write_dialog_slice(&MessagesSlice {
+                    list: chunk.to_vec(),
+                    peers: peers.clone(),
+                })?;
+            }
         }
+        writer.write_dialog_end()?;
+        writer.write_dialogs_end()?;
+        writer.finish()?;
+        Ok(ExportResult {
+            path: settings.path,
+            messages: if count == 0 { 0 } else { messages.len() },
+            files: copied,
+            ..Default::default()
+        })
+    })();
+    if result.is_err() {
+        writer.abort();
     }
-    writer.write_dialog_end()?;
-    writer.write_dialogs_end()?;
-    writer.finish()?;
-    Ok(ExportResult {
-        path: settings.path,
-        messages: if count == 0 { 0 } else { messages.len() },
-        files: copied,
-        ..Default::default()
-    })
+    result
 }
 fn messages_count(messages: &[Message], s: &Settings) -> usize {
-    if messages
-        .last()
-        .is_none_or(|m| m.date <= 0 || m.date <= s.single_peer_from)
+    let latest = messages.iter().map(|message| message.date).max();
+    let earliest = messages.iter().map(|message| message.date).min();
+    if latest.is_none_or(|date| date <= 0 || date < s.single_peer_from)
         || s.single_peer_till > 0
-            && messages
-                .first()
-                .is_none_or(|m| m.date <= 0 || m.date >= s.single_peer_till)
+            && earliest.is_none_or(|date| date <= 0 || date >= s.single_peer_till)
     {
         0
     } else {
@@ -257,12 +261,7 @@ fn copy_files(
         };
         file.skip_reason = if s.media.types & media_type != media_type {
             SkipReason::FileType
-        } else if (if file.size == 0 {
-            metadata.len()
-        } else {
-            file.size
-        }) > s.media.size_limit
-        {
+        } else if file.size.max(metadata.len()) > s.media.size_limit {
             SkipReason::FileSize
         } else {
             SkipReason::None

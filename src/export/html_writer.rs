@@ -367,6 +367,9 @@ impl ExportWriter for HtmlWriter {
     fn finish(&mut self) -> Result<()> {
         Ok(())
     }
+    fn abort(&mut self) {
+        self.chat.take();
+    }
     fn main_file_path(&self) -> PathBuf {
         self.settings.path.join(messages_file(0))
     }

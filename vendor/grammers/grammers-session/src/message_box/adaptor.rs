@@ -251,6 +251,27 @@ pub(super) fn adapt(updates: UpdatesLike) -> Result<tl::types::UpdatesCombined, 
         UpdatesLike::Captured(captured) => adapt(*captured.update),
         UpdatesLike::Updates(updates) => adapt_updates(updates),
         UpdatesLike::ShortSentMessage { request, update } => {
+            // A request's self sentinel carries no bare user ID. Recover the
+            // canonical message through getDifference rather than inventing a
+            // peer with ID zero, including self-valued sender/reply contexts.
+            let unresolved = |peer: &tl::enums::InputPeer| {
+                matches!(
+                    peer,
+                    tl::enums::InputPeer::Empty | tl::enums::InputPeer::PeerSelf
+                )
+            };
+            if unresolved(&request.peer)
+                || request.send_as.as_ref().is_some_and(unresolved)
+                || request.reply_to.as_ref().is_some_and(|reply| match reply {
+                    tl::enums::InputReplyTo::Message(reply) => {
+                        reply.reply_to_peer_id.as_ref().is_some_and(unresolved)
+                    }
+                    tl::enums::InputReplyTo::Story(reply) => unresolved(&reply.peer),
+                    _ => false,
+                })
+            {
+                return Err(Gap);
+            }
             Ok(update_short(tl::types::UpdateShort {
                 update: tl::types::UpdateNewMessage {
                     message: tl::types::Message {

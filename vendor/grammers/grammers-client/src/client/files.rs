@@ -6,8 +6,8 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use std::mem;
 use std::sync::Arc;
+use std::{collections::BTreeSet, mem};
 #[cfg(feature = "fs")]
 use std::{io::SeekFrom, path::Path};
 
@@ -20,7 +20,7 @@ use tokio::sync::Mutex as AsyncMutex;
 use tokio::{
     fs,
     io::{AsyncSeekExt, AsyncWriteExt},
-    sync::mpsc::unbounded_channel,
+    sync::mpsc::channel,
 };
 
 use super::Client;
@@ -81,15 +81,20 @@ impl DownloadIter {
             return Ok(None);
         }
 
-        let variant = mem::replace(&mut self.variant, DownloadIterVariant::Empty);
-
-        let mut request = match variant {
-            DownloadIterVariant::Request(r) => r,
+        // Keep the original request across both errors and caller cancellation.
+        let mut request = match &mut self.variant {
+            DownloadIterVariant::Request(request) => request.clone(),
             DownloadIterVariant::PreDownloaded(data) => {
                 self.done = true;
-                return Ok(Some(data.clone()));
+                return Ok(Some(mem::take(data)));
             }
-            DownloadIterVariant::PreFailed(error) => {
+            DownloadIterVariant::PreFailed(_) => {
+                let DownloadIterVariant::PreFailed(error) =
+                    mem::replace(&mut self.variant, DownloadIterVariant::Empty)
+                else {
+                    unreachable!()
+                };
+                self.done = true;
                 return Err(InvocationError::Io(error));
             }
             DownloadIterVariant::Empty => return Ok(None),
@@ -102,6 +107,9 @@ impl DownloadIter {
             .dc_id
             .map_or_else(|| self.client.0.session.home_dc_id(), Ok)?;
 
+        let home = self.client.0.session.home_dc_id()?;
+        let mut imported = BTreeSet::new();
+        let mut migrated = BTreeSet::from([dc]);
         loop {
             break match self.client.invoke_in_dc(dc, &request).await {
                 Ok(File::File(f)) => {
@@ -118,20 +126,33 @@ impl DownloadIter {
 
                     request.offset += request.limit as i64;
                     self.variant = DownloadIterVariant::Request(request);
-
+                    self.dc_id = Some(dc);
                     Ok(Some(f.bytes))
                 }
                 Ok(File::CdnRedirect(_)) => {
                     panic!("API returned File::CdnRedirect even though cdn_supported = false");
                 }
                 Err(InvocationError::Rpc(err)) if &err.name == "AUTH_KEY_UNREGISTERED" => {
+                    if dc == home || !imported.insert(dc) {
+                        break Err(InvocationError::Rpc(err));
+                    }
                     match self.client.copy_auth_to_dc(dc).await {
                         Ok(_) => continue,
                         Err(e) => Err(e),
                     }
                 }
                 Err(InvocationError::Rpc(err)) if err.code == FILE_MIGRATE_ERROR => {
-                    dc = err.value.unwrap() as _;
+                    let Some(target) = err
+                        .value
+                        .and_then(|value| i32::try_from(value).ok())
+                        .filter(|target| *target > 0)
+                    else {
+                        break Err(InvocationError::Rpc(err));
+                    };
+                    if !migrated.insert(target) {
+                        break Err(InvocationError::Rpc(err));
+                    }
+                    dc = target;
                     continue;
                 }
                 Err(e) => Err(e),
@@ -263,17 +284,20 @@ impl Client {
             .map_err(InvocationError::Io)?;
 
         // Start workers
-        let (tx, mut rx) = unbounded_channel();
+        let (tx, mut rx) = channel(workers.max(1));
         let part_index = Arc::new(std::sync::atomic::AtomicI64::new(0));
-        let mut tasks = vec![];
+        let mut tasks = tokio::task::JoinSet::new();
         for _ in 0..workers {
             let location = location.clone();
             let tx = tx.clone();
             let part_index = part_index.clone();
             let client = self.clone();
-            let task = tokio::task::spawn(async move {
+            tasks.spawn(async move {
                 let mut retry_offset = None;
                 let mut task_dc = dc_id;
+                let home = client.0.session.home_dc_id()?;
+                let mut imported = BTreeSet::new();
+                let mut migrated = BTreeSet::from([task_dc]);
                 loop {
                     // Calculate file offset
                     let offset: i64 = {
@@ -298,7 +322,9 @@ impl Client {
                     };
                     match client.invoke_in_dc(task_dc, request).await {
                         Ok(tl::enums::upload::File::File(file)) => {
-                            tx.send((offset as u64, file.bytes)).unwrap();
+                            tx.send((offset as u64, file.bytes)).await.map_err(|_| {
+                                InvocationError::Dropped("download writer was closed")
+                            })?;
                         }
                         Ok(tl::enums::upload::File::CdnRedirect(_)) => {
                             panic!(
@@ -306,6 +332,9 @@ impl Client {
                             );
                         }
                         Err(InvocationError::Rpc(err)) if &err.name == "AUTH_KEY_UNREGISTERED" => {
+                            if task_dc == home || !imported.insert(task_dc) {
+                                return Err(InvocationError::Rpc(err));
+                            }
                             match client.copy_auth_to_dc(task_dc).await {
                                 Ok(_) => {
                                     retry_offset = Some(offset);
@@ -316,7 +345,17 @@ impl Client {
                         }
                         Err(InvocationError::Rpc(err)) => {
                             if err.code == FILE_MIGRATE_ERROR {
-                                task_dc = err.value.unwrap() as _;
+                                let Some(target) = err
+                                    .value
+                                    .and_then(|value| i32::try_from(value).ok())
+                                    .filter(|target| *target > 0)
+                                else {
+                                    return Err(InvocationError::Rpc(err));
+                                };
+                                if !migrated.insert(target) {
+                                    return Err(InvocationError::Rpc(err));
+                                }
+                                task_dc = target;
                                 retry_offset = Some(offset);
                                 continue;
                             }
@@ -327,7 +366,6 @@ impl Client {
                 }
                 Ok::<(), InvocationError>(())
             });
-            tasks.push(task);
         }
         drop(tx);
 
@@ -342,9 +380,8 @@ impl Client {
         }
 
         // Check if all tasks finished succesfully
-        for task in tasks {
-            let res = task.await.map_err(io::Error::other)?;
-            res?;
+        while let Some(task) = tasks.join_next().await {
+            task.map_err(io::Error::other)??;
         }
         Ok(())
     }
@@ -401,7 +438,7 @@ impl Client {
         };
 
         let big_file = size > BIG_FILE_SIZE;
-        let parts = PartStream::new(stream, size);
+        let parts = PartStream::new(stream, size)?;
         let total_parts = parts.total_parts();
 
         if big_file {
@@ -515,6 +552,7 @@ impl Client {
 struct PartStreamInner<'a, S: AsyncRead + Unpin> {
     stream: &'a mut S,
     current_part: i32,
+    remaining: usize,
 }
 
 struct PartStream<'a, S: AsyncRead + Unpin> {
@@ -523,15 +561,18 @@ struct PartStream<'a, S: AsyncRead + Unpin> {
 }
 
 impl<'a, S: AsyncRead + Unpin> PartStream<'a, S> {
-    fn new(stream: &'a mut S, size: usize) -> Self {
-        let total_parts = size.div_ceil(MAX_CHUNK_SIZE as usize) as i32;
-        Self {
+    fn new(stream: &'a mut S, size: usize) -> io::Result<Self> {
+        let total_parts = i32::try_from(size.div_ceil(MAX_CHUNK_SIZE as usize)).map_err(|_| {
+            io::Error::new(io::ErrorKind::InvalidInput, "upload has too many parts")
+        })?;
+        Ok(Self {
             inner: AsyncMutex::new(PartStreamInner {
                 stream,
                 current_part: 0,
+                remaining: size,
             }),
             total_parts,
-        }
+        })
     }
 
     fn total_parts(&self) -> i32 {
@@ -544,19 +585,15 @@ impl<'a, S: AsyncRead + Unpin> PartStream<'a, S> {
             return Ok(None);
         }
         let mut read = 0;
-        let mut buffer = vec![0; MAX_CHUNK_SIZE as usize];
+        let mut buffer = vec![0; lock.remaining.min(MAX_CHUNK_SIZE as usize)];
 
         while read != buffer.len() {
             let n = lock.stream.read(&mut buffer[read..]).await?;
             if n == 0 {
-                if lock.current_part == self.total_parts - 1 {
-                    break;
-                } else {
-                    return Err(io::Error::new(
-                        io::ErrorKind::UnexpectedEof,
-                        "reached EOF before reaching the last file part",
-                    ));
-                }
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "upload source ended before its declared size",
+                ));
             }
             read += n;
         }
@@ -569,6 +606,7 @@ impl<'a, S: AsyncRead + Unpin> PartStream<'a, S> {
 
         let res = Ok(Some((lock.current_part, bytes)));
         lock.current_part += 1;
+        lock.remaining -= read;
         res
     }
 }

@@ -122,7 +122,20 @@ impl DialogIter {
                 self.request.offset_date = last_message.date_timestamp();
                 self.request.offset_id = last_message.id();
             }
-            self.request.offset_peer = self.buffer[self.buffer.len() - 1].peer_ref().into();
+            let last = &self.buffer[self.buffer.len() - 1];
+            let peer = match last.peer_ref() {
+                Some(peer) => peer,
+                None => self
+                    .client
+                    .0
+                    .session
+                    .peer_ref(last.peer().id())
+                    .await?
+                    .ok_or(InvocationError::Dropped(
+                        "cannot invoke request without a peer ref",
+                    ))?,
+            };
+            self.request.offset_peer = peer.into();
         }
 
         Ok(self.pop_item())
@@ -197,16 +210,21 @@ impl Client {
             .await
             .map(drop)
         } else {
-            self.invoke(&tl::functions::messages::DeleteHistory {
+            let request = tl::functions::messages::DeleteHistory {
                 just_clear: false,
                 revoke: false,
                 peer: peer.into(),
                 max_id: 0,
                 min_date: None,
                 max_date: None,
-            })
-            .await
-            .map(drop)
+            };
+            loop {
+                let tl::enums::messages::AffectedHistory::History(result) =
+                    self.invoke(&request).await?;
+                if result.offset <= 0 {
+                    return Ok(());
+                }
+            }
         }
     }
 

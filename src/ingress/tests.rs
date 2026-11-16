@@ -45,6 +45,7 @@ async fn real_release_live_receipt_precedes_ack_frontier() {
 }
 #[tokio::test]
 async fn caller_difference_is_captured_before_result_and_delivered_by_existing_receiver() {
+    super::strong_tests::review::stale_difference_retries_at_current_pts().await;
     let (_dir, ingress, pool) = fixture(32).await;
     let (_tx, mut receiver) = receiver(&ingress, &pool).await;
     let request = request(40).to_bytes();

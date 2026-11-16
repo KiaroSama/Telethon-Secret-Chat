@@ -294,6 +294,13 @@ impl UpdatesReceiver {
     ///
     /// This is **not** automatically done on drop.
     pub async fn sync_update_state(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if self.durable.is_none() && !self.buffer.is_empty() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "cannot synchronize while received updates remain buffered",
+            )
+            .into());
+        }
         if self.message_box.is_empty() {
             return Ok(());
         }

@@ -12,6 +12,7 @@ struct Replay {
     completion: Arc<Shutdown>,
     task: Option<JoinHandle<()>>,
     id: Id,
+    requested: bool,
 }
 struct StrongInner<T: Transport> {
     manager: Base<T>,
@@ -170,7 +171,8 @@ impl<T: Transport> StrongSecretChatManager<T> {
         self.ready()?;
         let job = {
             let mut slot = self.inner.replay.lock().map_err(|_| Error::Storage)?;
-            if let Some(replay) = slot.as_ref().filter(|replay| !done(&replay.completion)) {
+            if let Some(replay) = slot.as_mut().filter(|replay| !done(&replay.completion)) {
+                replay.requested = true;
                 Arc::clone(&replay.completion)
             } else {
                 let job = completion();
@@ -180,7 +182,7 @@ impl<T: Transport> StrongSecretChatManager<T> {
                 let task = tokio::spawn(async move {
                     let result = match tokio::time::timeout(
                         Duration::from_secs_f64(seconds),
-                        manager.replay(),
+                        manager.replay_requested(&finished),
                     )
                     .await
                     {
@@ -197,11 +199,30 @@ impl<T: Transport> StrongSecretChatManager<T> {
                     completion: Arc::clone(&job),
                     task: Some(task),
                     id,
+                    requested: false,
                 });
                 job
             }
         };
         job.wait().await
+    }
+    async fn replay_requested(&self, job: &Arc<Shutdown>) -> Result<()> {
+        loop {
+            self.replay().await?;
+            let mut slot = self.inner.replay.lock().map_err(|_| Error::Storage)?;
+            let replay = slot
+                .as_mut()
+                .filter(|replay| Arc::ptr_eq(&replay.completion, job))
+                .ok_or(Error::ManagerStopping)?;
+            if std::mem::take(&mut replay.requested) {
+                drop(slot);
+                continue;
+            }
+            // Wakeup admission and successful completion share this lock: a
+            // later caller either requests another snapshot or owns a new run.
+            complete(job, Ok(()));
+            return Ok(());
+        }
     }
     async fn replay(&self) -> Result<()> {
         self.ready()?;

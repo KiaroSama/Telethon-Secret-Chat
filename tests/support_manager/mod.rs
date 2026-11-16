@@ -72,6 +72,7 @@ pub struct World {
     pub active_sends: usize,
     pub maximum_sends: usize,
     pub fail_accept: Option<RpcFailure>,
+    pub accept_response: Option<tl::enums::EncryptedChat>,
     pub fail_discard: bool,
     pub fail_request: Option<RpcFailure>,
     pub authorization: Option<String>,
@@ -244,6 +245,9 @@ impl Transport for Fake {
             world.accepts.push(g_b.clone());
             if let Some(failure) = world.fail_accept {
                 return Err(failure);
+            }
+            if let Some(response) = world.accept_response.take() {
+                return Ok(response);
             }
             let (a, b, g_a) = world
                 .requests

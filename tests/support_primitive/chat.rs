@@ -210,7 +210,9 @@ pub fn run(case: &str) {
                     .to_lowercase()
                     .contains(&hex::encode(key(9, 1))[..32])
             );
-            assert!(!display.contains(&format!("{:?}", &key(5, 3)[..8])));
+            for secret in [key(5, 3), key(9, 1)] {
+                assert!(!display.contains(&format!("{secret:?}")));
+            }
         }
         _ => panic!("unknown chat scenario {case}"),
     }

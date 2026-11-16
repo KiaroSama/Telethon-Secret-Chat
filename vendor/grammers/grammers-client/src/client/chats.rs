@@ -125,23 +125,25 @@ impl ParticipantIter {
                 };
 
                 // Don't actually care for the chats, just the users.
-                let mut peers = client.build_peer_map(full.users, Vec::new()).await;
+                let mut peers = client.build_peer_map(full.users, full.chats).await;
 
                 let participants = match chat.participants {
                     tl::enums::ChatParticipants::Forbidden(c) => {
                         if let Some(p) = c.self_participant {
-                            buffer.push_back(Participant::from_raw_chat(&mut peers, p));
+                            buffer.push_back(Participant::from_raw_chat(&mut peers, p).ok_or(
+                                InvocationError::Dropped("participant peer missing from response"),
+                            )?);
                         }
                         return Ok(buffer.len());
                     }
                     tl::enums::ChatParticipants::Participants(c) => c.participants,
                 };
 
-                buffer.extend(
-                    participants
-                        .into_iter()
-                        .map(|p| Participant::from_raw_chat(&mut peers, p)),
-                );
+                for participant in participants {
+                    buffer.push_back(Participant::from_raw_chat(&mut peers, participant).ok_or(
+                        InvocationError::Dropped("participant peer missing from response"),
+                    )?);
+                }
 
                 *total = Some(buffer.len());
                 Ok(buffer.len())
@@ -151,7 +153,7 @@ impl ParticipantIter {
                 use tl::enums::channels::ChannelParticipants::*;
 
                 iter.request.limit = iter.determine_limit(MAX_PARTICIPANT_LIMIT);
-                let (count, participants, _, users) =
+                let (count, participants, chats, users) =
                     match iter.client.invoke(&iter.request).await? {
                         Participants(p) => (p.count, p.participants, p.chats, p.users),
                         NotModified => {
@@ -169,13 +171,15 @@ impl ParticipantIter {
                 iter.request.offset += participants.len() as i32;
 
                 // Don't actually care for the chats, just the users.
-                let mut peers = iter.client.build_peer_map(users, Vec::new()).await;
+                let mut peers = iter.client.build_peer_map(users, chats).await;
 
-                iter.buffer.extend(
-                    participants
-                        .into_iter()
-                        .map(|p| Participant::from_raw_channel(&mut peers, p)),
-                );
+                for participant in participants {
+                    iter.buffer.push_back(
+                        Participant::from_raw_channel(&mut peers, participant).ok_or(
+                            InvocationError::Dropped("participant peer missing from response"),
+                        )?,
+                    );
+                }
 
                 iter.total = Some(count as usize);
                 Ok(count as usize)
@@ -440,7 +444,7 @@ impl Client {
     /// while let Some(participant) = participants.next().await? {
     ///     println!(
     ///         "{} has role {:?}",
-    ///         participant.user.first_name().unwrap_or(&participant.user.id().to_string()),
+    ///         participant.peer.id(),
     ///         participant.role
     ///     );
     /// }
@@ -601,7 +605,7 @@ impl Client {
     /// let mut photos = client.iter_profile_photos(peer);
     ///
     /// while let Some(photo) = photos.next().await? {
-    ///     println!("Did you know peer has a photo with ID {}?", photo.id());
+    ///     println!("Did you know peer has a photo with ID {}?", photo.id().map_or_else(|| "unavailable".to_owned(), |id| id.to_string()));
     /// }
     /// # Ok(())
     /// # }

@@ -42,6 +42,24 @@ fn protected_checkpoint_roundtrip_and_exclusive_owner() {
         restored.load().unwrap().unwrap().settings["checkpoint"]["qts"],
         40
     );
+    drop(restored);
+    let large_path = dir.path().join("large-custody.bin");
+    let budget = 8 * 1024 * 1024;
+    let mut large = EncryptedIngressStorage::open(&large_path, key, binding(456), budget).unwrap();
+    let mut state = large.load().unwrap().unwrap();
+    state
+        .settings
+        .insert("large".into(), "x".repeat(5 * 1024 * 1024).into());
+    large.commit(&state).unwrap();
+    drop(large);
+    let restored = EncryptedIngressStorage::open(&large_path, key, binding(456), budget).unwrap();
+    assert_eq!(
+        restored.load().unwrap().unwrap().settings["large"]
+            .as_str()
+            .unwrap()
+            .len(),
+        5 * 1024 * 1024
+    );
 }
 fn refused(change: u8) {
     let dir = tempfile::tempdir().unwrap();

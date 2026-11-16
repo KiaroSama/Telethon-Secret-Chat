@@ -57,6 +57,7 @@ fn outgoing() -> Outgoing {
         service: false,
         file: None,
         pending: true,
+        obligation_generation: 1,
     }
 }
 fn incoming() -> Envelope {

@@ -526,7 +526,7 @@ impl InputVideo {
             force_file: false,
             spoiler: false,
             nosound: false,
-            nosound_video: false,
+            nosound_video: true,
             animated: false,
             mime_type: String::new(),
             thumb: None,

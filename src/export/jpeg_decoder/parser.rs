@@ -361,6 +361,7 @@ fn update_component_sizes(size: Dimensions, components: &mut [Component]) -> Res
 #[test]
 #[allow(clippy::unwrap_used)]
 fn desktop_thumbnail_bytes_and_component_sizes() {
+    super::decoder::audit_tests::run();
     let mut components = [Component {
         identifier: 1,
         horizontal_sampling_factor: 2,
@@ -536,12 +537,6 @@ pub fn parse_sos<R: Read>(reader: &mut R, frame: &FrameInfo) -> Result<ScanInfo>
     let predictor_selection;
     let point_transform = successive_approximation_low;
 
-    if point_transform >= frame.precision {
-        return Err(Error::Format(
-            "invalid point transform, must be less than the frame precision".to_owned(),
-        ));
-    }
-
     if frame.coding_process == CodingProcess::DctProgressive {
         predictor_selection = Predictor::NoPrediction;
         if spectral_selection_end > 63
@@ -578,6 +573,12 @@ pub fn parse_sos<R: Read>(reader: &mut R, frame: &FrameInfo) -> Result<ScanInfo>
             ));
         }
     } else if frame.coding_process == CodingProcess::Lossless {
+        if point_transform >= frame.precision {
+            return Err(Error::Format(
+                "invalid point transform, must be less than the frame precision".to_owned(),
+            ));
+        }
+
         if spectral_selection_end != 0 {
             return Err(Error::Format(
                 "spectral selection end shall be zero in lossless scan".to_owned(),

@@ -13,6 +13,7 @@ use std::{sync::Arc, time::Duration};
 mod compile_boundary;
 use crate::test_support::support as fake;
 mod fixture;
+pub(super) mod review;
 mod surface;
 use compile_boundary::compile_api;
 use fixture::*;
@@ -183,6 +184,8 @@ async fn protocol_cursor_and_consumer_identity_survive_reconstruction() {
 }
 #[tokio::test]
 async fn expired_spool_refuses_ack_without_rewriting_custody() {
+    crate::custody::bounded::review::verify_refusal_ownership();
+    review::expired_receipts_reopen_and_drain().await;
     let (dir, ingress, pool) = super::test_fixture::fixture(32).await;
     ingress.core.lock().unwrap().limits.age_seconds = 0.2;
     let (tx, mut receiver) = super::test_fixture::receiver(&ingress, &pool).await;
@@ -317,6 +320,59 @@ async fn rekey_response_retains_identity_after_uncertain_rpc() {
 #[tokio::test]
 async fn ordinary_relay_precedes_uncertain_rekey_response() {
     uncertain_rekey(true).await;
+    replay_observes_a_wakeup_during_its_snapshot().await;
+}
+async fn replay_observes_a_wakeup_during_its_snapshot() {
+    use std::{future::Future, task::Poll};
+    let f = started().await;
+    install(&f, 7);
+    let dh = crate::dh::DhConfig::new(2, &fake::prime()).unwrap();
+    let secret = crate::dh::SecretExponent::generate().unwrap();
+    let request = crate::types::DecryptedMessageService {
+        random_id: 37,
+        action: crate::types::DecryptedMessageActionRequestKey {
+            exchange_id: 5,
+            g_a: dh.public_value(&secret),
+        }
+        .into(),
+    };
+    let (tx, mut receiver) = super::test_fixture::receiver(&f.ingress, &f.pool).await;
+    super::test_fixture::capture(
+        &mut receiver,
+        &tx,
+        envelope(vec![update(7, 41, 37, encrypt(request.into(), 0))], 2),
+    )
+    .await;
+    let gate = Arc::new(fake::Gate::default());
+    f.world.lock().unwrap().send_gate = Some(Arc::clone(&gate));
+    let manager = f.manager.clone();
+    let first = tokio::spawn(async move { manager.drain_ingress().await });
+    soon(gate.entered.notified()).await;
+    super::test_fixture::capture(
+        &mut receiver,
+        &tx,
+        envelope(
+            vec![update(7, 42, 88, frame(1, 88, "wakeup after snapshot"))],
+            3,
+        ),
+    )
+    .await;
+    let manager = f.manager.clone();
+    let mut joined = Box::pin(manager.drain_ingress());
+    std::future::poll_fn(|cx| {
+        assert!(joined.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    f.world.lock().unwrap().send_gate = None;
+    gate.release.notify_one();
+    soon(first).await.unwrap().unwrap();
+    soon(joined).await.unwrap();
+    let deliveries = f.manager.pending_deliveries(7).unwrap();
+    assert_eq!(deliveries.len(), 1);
+    assert_eq!(message(&deliveries[0]).message.random_id(), 88);
+    assert!(f.ingress.pending_batches().unwrap().is_empty());
+    f.manager.stop().await.unwrap();
 }
 async fn crash_barrier(stage: u8) {
     let f = started().await;

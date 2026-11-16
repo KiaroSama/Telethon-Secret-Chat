@@ -105,10 +105,9 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
             };
             let effect = self
                 .protocol(|p| p.prepare_message(id, message.into(), Some(uploaded.to_bytes())))?;
-            self.save_outgoing(id, &effect.outgoing.body);
+            self.save_sent_file(id, random_id, &effect.outgoing.body, &mut source);
             self.transmit(effect, witness.0).await?;
             drop(_order);
-            self.save_sent_file(id, random_id, &mut source);
             Ok(random_id)
         })
         .await
@@ -171,9 +170,16 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
                         Some(reference.server_handle().to_bytes()),
                     )
                 })?;
-                self.save_outgoing(id, &effect.outgoing.body);
+                if self
+                    .save_outgoing_with(id, &effect.outgoing.body, |autosave| {
+                        self.register_owed_file(autosave, id, random_id, reference.clone());
+                        Ok(())
+                    })
+                    .is_err()
+                {
+                    tracing::warn!(chat_id = id, "Auto-save could not retain a forwarded file");
+                }
                 self.transmit(effect, witness.0).await?;
-                self.save_owed_file(id, random_id, reference.clone());
                 Ok(random_id)
             },
         )
@@ -305,15 +311,24 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
                 return Err(Error::Paused);
             }
             let (autosave, setting) = AutoSave::enabled(folder)?;
-            self.protocol(|p| p.set_setting("auto_save_secret_chats".into(), Some(setting)))?;
-            *self.inner.autosave.lock().map_err(|_| Error::Storage)? = autosave;
+            {
+                let mut current = self.inner.autosave.lock().map_err(|_| Error::Storage)?;
+                self.protocol(|p| p.set_setting("auto_save_secret_chats".into(), Some(setting)))?;
+                *current = autosave;
+            }
             self.resume_saved_downloads()
         })
         .await
     }
-    /// Settle existing downloads, persist OFF, and retain all previously saved data.
+    /// Close admission, persist OFF, and settle already accepted downloads.
     pub async fn stop_auto_save_secret_chats(&self) -> Result<()> {
         self.with_operation(None, runtime::WorkKind::Persistence, async {
+            {
+                let mut autosave = self.inner.autosave.lock().map_err(|_| Error::Storage)?;
+                let (next, setting) = autosave.disabled();
+                self.protocol(|p| p.set_setting("auto_save_secret_chats".into(), Some(setting)))?;
+                *autosave = next;
+            }
             loop {
                 let tasks =
                     std::mem::take(&mut *self.inner.downloads.lock().map_err(|_| Error::Storage)?);
@@ -324,14 +339,6 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
                     let _ = task.await;
                 }
             }
-            let (next, setting) = self
-                .inner
-                .autosave
-                .lock()
-                .map_err(|_| Error::Storage)?
-                .disabled();
-            self.protocol(|p| p.set_setting("auto_save_secret_chats".into(), Some(setting)))?;
-            *self.inner.autosave.lock().map_err(|_| Error::Storage)? = next;
             Ok(())
         })
         .await
@@ -369,7 +376,18 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
             .map(Path::to_owned))
     }
     pub(crate) fn save_outgoing(&self, id: i32, body: &[u8]) {
-        let result = (|| {
+        let result = self.save_outgoing_with(id, body, |_| Ok(()));
+        if result.is_err() {
+            tracing::warn!(chat_id = id, "Auto-save could not append a sent message");
+        }
+    }
+    fn save_outgoing_with(
+        &self,
+        id: i32,
+        body: &[u8],
+        after: impl FnOnce(&AutoSave) -> Result<()>,
+    ) -> Result<()> {
+        (|| {
             let wrapper = crate::framing::unwrap(body)?;
             let plain = crate::autosave::plain_object(body, "DecryptedMessageLayer")?;
             let message = &plain["message"];
@@ -380,18 +398,13 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
             let mut media = message.get("media").cloned().unwrap_or(Value::Null);
             strip_keys(&mut media);
             let record = json!({"v":1,"type":"message","id":wrapper.message.random_id(),"date":now(),"out":true,"text":message.get("message").cloned().unwrap_or_else(||Value::String(String::new())),"entities":message.get("entities").filter(|v|v.is_array()).cloned().unwrap_or_else(||json!([])),"ttl":message.get("ttl").cloned().unwrap_or_else(||json!(0)),"reply_to":message.get("reply_to_random_id").cloned().unwrap_or(Value::Null),"media":media});
-            self.inner
-                .autosave
-                .lock()
-                .map_err(|_| Error::Storage)?
-                .append(id, &record)
-        })();
-        if result.is_err() {
-            tracing::warn!(chat_id = id, "Auto-save could not append a sent message");
-        }
+            let autosave = self.inner.autosave.lock().map_err(|_| Error::Storage)?;
+            autosave.append(id, &record)?;
+            after(&autosave)
+        })()
     }
     pub(crate) fn save_received(&self, event: &MessageReceived) {
-        let result = (|| {
+        let result: Result<()> = (|| {
             let mut media = if let Some(media) = &event.media {
                 crate::autosave::plain_object(&media.to_bytes(), "DecryptedMessageMedia")?
             } else {
@@ -412,19 +425,23 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
                 .transpose()?
                 .unwrap_or_default();
             let record = json!({"v":1,"type":"message","id":event.random_id,"date":now(),"out":false,"text":event.text,"entities":entities,"ttl":event.ttl,"reply_to":event.reply_to,"media":media});
-            self.inner
-                .autosave
-                .lock()
-                .map_err(|_| Error::Storage)?
-                .append(event.chat_id, &record)
+            let autosave = self.inner.autosave.lock().map_err(|_| Error::Storage)?;
+            autosave.append(event.chat_id, &record)?;
+            if let Some(reference) = &event.media_reference {
+                self.register_owed_file(
+                    &autosave,
+                    event.chat_id,
+                    event.random_id,
+                    reference.clone(),
+                );
+            }
+            Ok(())
         })();
         if result.is_err() {
             tracing::warn!(
                 chat_id = event.chat_id,
                 "Auto-save could not append a received message"
             );
-        } else if let Some(reference) = &event.media_reference {
-            self.save_owed_file(event.chat_id, event.random_id, reference.clone());
         }
     }
     pub(crate) fn save_service(&self, id: i32, action: &Value, out: bool) {
@@ -453,20 +470,26 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
             tracing::warn!(chat_id = id, "Auto-save could not append a service action");
         }
     }
-    fn save_sent_file(&self, id: i32, random_id: i64, source: &mut SourceReader) {
-        let autosave = self.inner.autosave.lock().map(|a| a.clone());
-        if let Ok(autosave) = autosave
-            && autosave.folder().is_some()
-            && autosave.copy_source(id, random_id, source).is_err()
+    fn save_sent_file(&self, id: i32, random_id: i64, body: &[u8], source: &mut SourceReader) {
+        if self
+            .save_outgoing_with(id, body, |autosave| {
+                if autosave.folder().is_some() {
+                    autosave.copy_source(id, random_id, source)?;
+                }
+                Ok(())
+            })
+            .is_err()
         {
             tracing::warn!(chat_id = id, "Auto-save could not copy a sent file");
         }
     }
-    fn save_owed_file(&self, id: i32, random_id: i64, reference: MediaReference) {
-        let autosave = match self.inner.autosave.lock() {
-            Ok(a) => a.clone(),
-            Err(_) => return,
-        };
+    fn register_owed_file(
+        &self,
+        autosave: &AutoSave,
+        id: i32,
+        random_id: i64,
+        reference: MediaReference,
+    ) {
         if autosave.folder().is_none() {
             return;
         }
@@ -479,15 +502,10 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
             tracing::warn!(chat_id = id, "Auto-save could not retain a file download");
             return;
         }
-        self.spawn_saved_download(autosave, id, random_id, reference, name);
+        self.spawn_saved_download(autosave.clone(), id, random_id, reference, name);
     }
     pub(crate) fn resume_saved_downloads(&self) -> Result<()> {
-        let autosave = self
-            .inner
-            .autosave
-            .lock()
-            .map_err(|_| Error::Storage)?
-            .clone();
+        let autosave = self.inner.autosave.lock().map_err(|_| Error::Storage)?;
         let owed = match autosave.owed_downloads() {
             Ok(owed) => owed,
             Err(_) => {

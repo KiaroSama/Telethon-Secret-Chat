@@ -211,5 +211,7 @@ fn service_event_debug_omits_action_representation() {
         .into(),
         applied: false,
     };
-    assert!(!format!("{event:?}").contains(sentinel));
+    let debug = format!("{event:?}");
+    assert!(!debug.contains(sentinel));
+    assert!(!debug.contains(&format!("{:?}", sentinel.as_bytes())));
 }

@@ -39,6 +39,7 @@ fn copy_tree(source: &Path, destination: &Path) {
                             | "LICENSE-MIT"
                             | "LICENSE-APACHE"
                             | "upstream-hashes.json"
+                            | "local-patches.json"
                     )
                 );
             if approved {
@@ -143,8 +144,15 @@ fn build() -> Harness {
     let output = build.output().unwrap();
     assert!(
         output.status.success(),
-        "Offline SDK fixture build failed: {}",
-        String::from_utf8(output.stderr).expect("UTF-8 Cargo output")
+        "Offline SDK fixture build failed: {}\n{}",
+        String::from_utf8(output.stderr).expect("UTF-8 Cargo output"),
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+            .filter(|message| message["reason"] == "compiler-message")
+            .filter_map(|message| message["message"]["rendered"].as_str().map(str::to_owned))
+            .collect::<Vec<_>>()
+            .join("\n")
     );
     let binary = compiler_executable(&output.stdout)
         .expect("Cargo must report the just-built native SDK fixture executable");

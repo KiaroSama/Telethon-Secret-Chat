@@ -1,4 +1,5 @@
 //! Secret-chat media metadata, references and same-client file transport.
+pub(crate) mod blocking;
 mod kind;
 mod metadata;
 mod reference;

@@ -824,14 +824,10 @@ impl Message {
             .await
     }
 
-    /// Refetch this message, mutating all of its properties in-place.
+    /// Fetch a fresh copy of this message, or `None` if it no longer exists.
     ///
-    /// No changes will be made to the message if it fails to be fetched.
-    ///
-    /// Shorthand for `Client::get_messages_by_id`.
-    pub async fn refetch(&self) -> Result<(), InvocationError> {
-        // When fetching a single message, if it fails, Telegram should respond with RPC error.
-        // If it succeeds we will have the single message present which we can unwrap.
+    /// The original message remains unchanged on both success and failure.
+    pub async fn refetch(&self) -> Result<Option<Self>, InvocationError> {
         self.client
             .get_messages_by_id(
                 self.peer_ref()
@@ -839,11 +835,8 @@ impl Message {
                     .ok_or(InvocationError::Dropped(NO_PEER_REF_REASON))?,
                 &[self.id()],
             )
-            .await?
-            .pop()
-            .unwrap()
-            .unwrap();
-        todo!("actually mutate self after get_messages_by_id returns `Message`")
+            .await
+            .map(|mut messages| messages.pop().flatten())
     }
 
     /// Download the message media in this message if applicable.

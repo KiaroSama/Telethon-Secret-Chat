@@ -14,12 +14,26 @@ restore/replay and notification of caller-issued difference receipts. Successful
 custody commit precedes observed-machine replacement and delivery. Default pools
 have no hook and preserve the ordinary SDK path.
 
-`grammers-client` source is unchanged. It is included to make its pool/session
-types refer to the same two supplemented crates when an application consumes
-this repository as a Git dependency. Cargo patches do not propagate from a
-dependency to its consumer. Direct path dependencies avoid that hidden
-prerequisite. Use the SDK crates re-exported by `kiaro_secret_chat` for one
-canonical type graph. The client retains the official public API and TL layer.
+All three crates also carry local correctness fixes found during the migration
+review. The client corrections cover request/result association, pagination,
+bounded file transfer, cancellation-safe update caching, peer/media boundaries,
+and HTML/Markdown parsing and generation. Session corrections preserve counters,
+deadline restoration, bulk peer caching and atomic optional SQLite operations.
+The sender preserves typed error causes and redacts proxy credentials.
+
+`local-patches.json` records the exact distributed source hashes and explicitly
+lists patched upstream files and added supplement sources. The original hashes
+in `upstream-hashes.json` remain the unmodified official reference; patched files
+are not represented as new upstream captures. `prepare-sdk` verifies those
+official inputs before reproducing this project's complete patched source graph.
+
+Direct path dependencies keep the same SDK type graph for Git consumers; Cargo
+patches do not propagate from a dependency to its consumer. Use the SDK crates
+re-exported by `kiaro_secret_chat`. The TL layer remains 233. This source alpha
+includes deliberate API corrections: absent media IDs and missing refetched
+messages use `Option`, participants retain non-user peers, and unavailable dialog
+references and callback messages return explicit absence/errors. See
+`docs/rust-export.md` in the root repository for the precise API changes.
 
 The manifests have standalone version declarations and pinned official Git
 references for the remaining SDK crates; upstream workspace-only development

@@ -40,9 +40,11 @@ macro_rules! update_entity_len {
             tl::enums::MessageEntity::$ty(e) => {
                 if e.length == 0 {
                     e.length = end_offset - e.offset;
+                    remove = e.length == 0;
+                    true
+                } else {
+                    false
                 }
-                remove = e.length == 0;
-                true
             }
             _ => false,
         });
@@ -95,6 +97,7 @@ impl PartialOrd for Position {
 pub enum Segment<'a> {
     Fixed(&'static str),
     String(&'a str),
+    Owned(String),
     Number(i64),
     Timestamp(Timestamp),
 }
@@ -104,9 +107,10 @@ impl<'a> Segment<'a> {
         match self {
             Self::Fixed(s) => s.len(),
             Self::String(s) => s.len(),
+            Self::Owned(s) => s.len(),
             Self::Number(n) => {
                 let minus_sign = if *n < 0 { 1 } else { 0 };
-                let digits = n.abs().ilog10() as usize + 1;
+                let digits = n.unsigned_abs().checked_ilog10().unwrap_or(0) as usize + 1;
                 minus_sign + digits
             }
             Self::Timestamp(_) => 25, // "2000-01-01T00:00:00+00:00".len()
@@ -119,6 +123,7 @@ impl<'a> fmt::Display for Segment<'a> {
         match self {
             Self::Fixed(s) => f.write_str(s),
             Self::String(s) => f.write_str(s),
+            Self::Owned(s) => f.write_str(s),
             Self::Number(s) => write!(f, "{}", s),
             Self::Timestamp(t) => write!(f, "{}", t),
         }
@@ -150,9 +155,10 @@ pub fn after(index: usize, part: u8, offset: i32) -> Position {
 /// Inject multiple text segments into a message.
 ///
 /// The insertions do not need to be sorted before-hand, as this method takes care of that.
-pub fn inject_into_message<'a, I>(message: &str, insertions: I) -> String
+pub fn inject_into_message<'a, I, F>(message: &str, insertions: I, mut push_character: F) -> String
 where
     I: IntoIterator<Item = (Position, Segment<'a>)>,
+    F: FnMut(&mut String, char, usize),
 {
     let mut insertions = insertions.into_iter().collect::<Vec<_>>();
 
@@ -164,7 +170,6 @@ where
 
     insertions.sort_unstable_by(|(a, _), (b, _)| b.cmp(a)); // sort in reverse so we can pop
 
-    let mut char_buffer = [0u8; 4]; // temporary storage to re-encode chars as utf-8
     let mut prev_point = None; // temporary storage for utf-16 surrogate pairs
 
     for (index, point) in message.encode_utf16().enumerate() {
@@ -193,7 +198,8 @@ where
             }
         };
 
-        result.push_str(c.encode_utf8(&mut char_buffer));
+        let original_offset = if c.len_utf16() == 2 { index - 1 } else { index };
+        push_character(&mut result, c, original_offset);
     }
 
     while let Some((_, what)) = insertions.pop() {

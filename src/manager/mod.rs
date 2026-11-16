@@ -77,6 +77,7 @@ struct Inner<S: Storage, T: Transport> {
     transport: T,
     options: Options,
     running: AtomicBool,
+    startup_complete: AtomicBool,
     binding_generation: AtomicU64,
     stopping: AtomicBool,
     generation: AtomicU64,
@@ -94,11 +95,11 @@ struct Inner<S: Storage, T: Transport> {
     expiry_changed: Arc<Notify>,
     creation_cancel: Mutex<Arc<runtime::Cancellation>>,
     creation_slots: Mutex<BTreeMap<u64, Option<String>>>,
-    headroom: Mutex<BTreeMap<(i32, u64), (usize, usize)>>,
+    headroom: Mutex<BTreeMap<(i32, u64), runtime::Headroom>>,
     early: Mutex<BTreeMap<i32, grammers_tl_types::enums::EncryptedChat>>,
     dispatch: dispatch::Dispatcher,
     history: Mutex<BTreeMap<i32, VecDeque<MessageReceived>>>,
-    delivering: Mutex<HashSet<i32>>,
+    delivering: Mutex<BTreeMap<i32, (Arc<()>, bool)>>,
     delivered: Mutex<HashSet<(i32, i32)>>,
     autosave: Mutex<AutoSave>,
     downloads: Mutex<Vec<JoinHandle<()>>>,
@@ -149,6 +150,7 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
                 transport,
                 options,
                 running: AtomicBool::new(false),
+                startup_complete: AtomicBool::new(false),
                 binding_generation: AtomicU64::new(u64::MAX),
                 stopping: AtomicBool::new(false),
                 generation: AtomicU64::new(0),
@@ -170,7 +172,7 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
                 early: Mutex::new(BTreeMap::new()),
                 dispatch: dispatch::Dispatcher::new(Arc::clone(&work)),
                 history: Mutex::new(BTreeMap::new()),
-                delivering: Mutex::new(HashSet::new()),
+                delivering: Mutex::default(),
                 delivered: Mutex::new(HashSet::new()),
                 autosave: Mutex::new(AutoSave::default()),
                 downloads: Mutex::new(Vec::new()),
@@ -373,18 +375,21 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
             .dispatch
             .on_task_with_cleanup(event, name, handler, cleanup)
     }
-    fn emit(&self, event: Event) {
+    fn emit(&self, event: Event) -> bool {
         let id = event.chat_id();
-        if !self.inner.dispatch.emit(
+        let admitted = self.inner.dispatch.emit(
             event,
             self.inner.stopping.load(Ordering::Acquire),
             self.inner.generation.load(Ordering::Acquire),
-        ) && self
-            .protocol(|p| Ok(p.mode()))
-            .is_ok_and(|mode| mode == crate::storage::StoreMode::Protected)
+        );
+        if !admitted
+            && self
+                .protocol(|p| Ok(p.mode()))
+                .is_ok_and(|mode| mode == crate::storage::StoreMode::Protected)
         {
             self.runtime_refuse(Some(id), crate::storage::RuntimeRefusal::Capacity, false);
         }
+        admitted
     }
     /// Detached snapshots contain no shared keys or retained ciphertext.
     pub fn list(&self) -> Result<Vec<ChatSnapshot>> {

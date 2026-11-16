@@ -140,7 +140,7 @@ impl Photo {
 
     pub fn to_raw_input_media(&self) -> tl::types::InputMediaPhoto {
         tl::types::InputMediaPhoto {
-            spoiler: false,
+            spoiler: self.raw.spoiler,
             id: self.to_raw_input_photo(),
             ttl_seconds: self.raw.ttl_seconds,
             live_photo: false,
@@ -166,13 +166,13 @@ impl Photo {
     }
 
     /// The globally unique identifier for this media, as seen by any account.
-    pub fn id(&self) -> i64 {
+    pub fn id(&self) -> Option<i64> {
         use tl::enums::Photo as P;
 
-        match self.raw.photo.as_ref().unwrap() {
+        Some(match self.raw.photo.as_ref()? {
             P::Empty(photo) => photo.id,
             P::Photo(photo) => photo.id,
-        }
+        })
     }
 
     /// The size of the photo, if not empty.
@@ -265,7 +265,7 @@ impl Document {
 
     pub fn to_raw_input_media(&self) -> tl::types::InputMediaDocument {
         tl::types::InputMediaDocument {
-            spoiler: false,
+            spoiler: self.raw.spoiler,
             id: self.to_raw_input_document(),
             ttl_seconds: self.raw.ttl_seconds,
             query: None,
@@ -292,13 +292,13 @@ impl Document {
     }
 
     /// The globally unique identifier for this media, as seen by any account.
-    pub fn id(&self) -> i64 {
+    pub fn id(&self) -> Option<i64> {
         use tl::enums::Document as D;
 
-        match self.raw.document.as_ref().unwrap() {
+        Some(match self.raw.document.as_ref()? {
             D::Empty(document) => document.id,
             D::Document(document) => document.id,
-        }
+        })
     }
 
     /// Return the file's name.
@@ -311,7 +311,7 @@ impl Document {
     pub fn name(&self) -> Option<&str> {
         use tl::enums::Document as D;
 
-        match self.raw.document.as_ref().unwrap() {
+        match self.raw.document.as_ref()? {
             D::Empty(_) => None,
             D::Document(document) => document.attributes.iter().find_map(|attr| match attr {
                 tl::enums::DocumentAttribute::Filename(attr) => Some(attr.file_name.as_ref()),
@@ -494,12 +494,11 @@ impl Sticker {
     pub fn from_document(document: &Document) -> Option<Self> {
         match document.raw.document {
             Some(tl::enums::Document::Document(ref doc)) => {
-                let mut animated = false;
+                let animated = doc.mime_type == "application/x-tgsticker";
                 let mut sticker_attrs: Option<tl::types::DocumentAttributeSticker> = None;
                 for attr in &doc.attributes {
                     match attr {
                         tl::enums::DocumentAttribute::Sticker(s) => sticker_attrs = Some(s.clone()),
-                        tl::enums::DocumentAttribute::Animated => animated = true,
                         _ => (),
                     }
                 }

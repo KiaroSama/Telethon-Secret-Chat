@@ -87,6 +87,15 @@ where
         })
     }
 
+    fn cache_peers(&self, peers: Vec<PeerInfo>) -> BoxFuture<'_, Result<(), Self::Error>> {
+        Box::pin(async move {
+            Arc::clone(&self.0)
+                .cache_peers(peers)
+                .await
+                .map_err(|e| e.into())
+        })
+    }
+
     fn updates_state(&self) -> BoxFuture<'_, Result<UpdatesState, Self::Error>> {
         Box::pin(async {
             Arc::clone(&self.0)

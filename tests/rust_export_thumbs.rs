@@ -89,6 +89,9 @@ fn smooth_scale_down_x_only() {
 }
 #[test]
 fn smooth_scale_up_interpolates_and_truncates() {
+    // A one-byte source must be refused before a multi-gigabyte expansion.
+    assert!(smooth_scale(&[0], 1, 1, 1, 10000, 10000).is_err());
+
     assert_eq!(
         smooth_scale(&[0, 0, 0, 200, 200, 200], 2, 1, 3, 4, 1).unwrap(),
         vec![0, 0, 0, 50, 50, 50, 150, 150, 150, 200, 200, 200]
@@ -107,6 +110,10 @@ fn density_fields_match_qjpeghandler() {
 }
 #[test]
 fn source_metadata_reads_density_and_icc() {
+    let profile = vec![7; 65533 - 14 + 1];
+    let encoded = qt_jpeg::splice(&fixture("small"), (3780, 3780), &profile, &[]).unwrap();
+    assert_eq!(qt_jpeg::source_metadata(&encoded).1, profile);
+
     let mut source =
         b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x01\x00\x48\x00\x48\x00\x00\xff\xe2".to_vec();
     source.extend(216u16.to_be_bytes());

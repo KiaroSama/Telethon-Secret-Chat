@@ -55,19 +55,20 @@ impl NetStream {
         let proxy = url::Url::parse(proxy_url)
             .map_err(|err| io::Error::new(ErrorKind::InvalidData, err))?;
         let scheme = proxy.scheme();
-        let host = proxy.host().ok_or(io::Error::new(
-            ErrorKind::NotFound,
-            format!("proxy host is missing from url: {}", proxy_url),
-        ))?;
-        let port = proxy.port().ok_or(io::Error::new(
-            ErrorKind::NotFound,
-            format!("proxy port is missing from url: {}", proxy_url),
-        ))?;
+        let host = proxy
+            .host()
+            .ok_or_else(|| io::Error::new(ErrorKind::NotFound, "proxy host is missing from url"))?;
+        let port = proxy
+            .port()
+            .ok_or_else(|| io::Error::new(ErrorKind::NotFound, "proxy port is missing from url"))?;
         let username = proxy.username();
         let password = proxy.password().unwrap_or("");
         let socks_addr = match host {
             Host::Domain(domain) => {
-                let resolver = Resolver::builder_tokio().unwrap().build().unwrap();
+                let resolver = Resolver::builder_tokio()
+                    .map_err(io::Error::other)?
+                    .build()
+                    .map_err(io::Error::other)?;
                 let response = resolver
                     .lookup_ip(domain)
                     .await

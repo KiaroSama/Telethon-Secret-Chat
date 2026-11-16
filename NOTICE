@@ -107,7 +107,9 @@ https://codeberg.org/Lonami/grammers at revision
 e61cf8585e1e9969ab81eda9fb4725a1500e2d86, under MIT OR Apache-2.0.
 The complete original license texts are retained in each crate. Local changes
 add the durable-ingress checkpoint, request guard and receipt/replay boundary
-to session and mtsender; the client source retains the official API unchanged.
+to session and mtsender. Local client/session/sender corrections also fix
+request association, pagination, transfer/caching, parsers and optional-result
+boundaries; this source alpha documents its API differences explicitly.
 Original source hashes and the change description are in vendor/grammers/.
 
 

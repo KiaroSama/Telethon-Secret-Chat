@@ -44,7 +44,7 @@ impl Core {
             return Err(Error::IngressUnavailable);
         }
         self.check_session()?;
-        self.ledger.check_budget(&self.limits)
+        self.ledger.check_size(&self.limits)
     }
     pub fn check_session(&self) -> Result<()> {
         let session = self.session.as_ref().ok_or(Error::IngressUnavailable)?;

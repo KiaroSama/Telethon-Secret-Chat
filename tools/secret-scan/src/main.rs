@@ -5,7 +5,7 @@ mod archive;
 #[path = "config.rs"]
 pub mod config;
 #[path = "process.rs"]
-mod process;
+pub(crate) mod process;
 #[path = "report.rs"]
 pub mod report;
 use process::{PrivateDir, Result};

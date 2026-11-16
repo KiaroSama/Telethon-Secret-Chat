@@ -118,7 +118,7 @@ impl ExportWriter for JsonWriter {
         Format::Json
     }
     fn start(&mut self, settings: &Settings, environment: &Environment) -> Result<()> {
-        if self.output.is_some() || settings.path.as_os_str().is_empty() {
+        if self.output.is_some() || self.finished || settings.path.as_os_str().is_empty() {
             return Err(ExportError::WriterState);
         }
         self.settings = settings.clone();
@@ -202,8 +202,9 @@ impl ExportWriter for JsonWriter {
         self.write(&block)
     }
     fn write_dialogs_end(&mut self) -> Result<()> {
-        if !self.settings.only_single_peer() {
+        if !self.settings.only_single_peer() && self.dialogs_mode.is_some() {
             self.chats_end()?;
+            self.dialogs_mode = None;
         }
         Ok(())
     }
@@ -224,6 +225,13 @@ impl ExportWriter for JsonWriter {
             .close();
         self.finished = true;
         Ok(())
+    }
+    fn abort(&mut self) {
+        self.output.take();
+        self.finished = true;
+        self.dialog_open = false;
+        self.dialogs_mode = None;
+        self.context.nesting.clear();
     }
     fn main_file_path(&self) -> PathBuf {
         self.settings.path.join("result.json")

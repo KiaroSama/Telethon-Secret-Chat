@@ -358,6 +358,19 @@ fn saved_messages_has_no_name_and_empty_list() {
 }
 #[test]
 fn account_wide_framing_when_not_single_peer() {
+    let empty = tempfile::tempdir().unwrap();
+    let mut writer = JsonWriter::new();
+    writer
+        .start(&settings(empty.path(), None), &Environment::default())
+        .unwrap();
+    writer.write_dialogs_start(&DialogsInfo::default()).unwrap();
+    writer.write_dialogs_end().unwrap();
+    writer.finish().unwrap();
+    let result: Value =
+        serde_json::from_slice(&fs::read(empty.path().join("result.json")).unwrap()).unwrap();
+    assert!(result.is_object());
+    assert!(result.get("chats").is_none());
+
     let folder = tempfile::tempdir().unwrap();
     let mut writer = JsonWriter::new();
     writer
