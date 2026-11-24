@@ -1,6 +1,7 @@
 //! File encryption is independent of the chat's shared key. Telegram's file-key
 //! fingerprint is a key-binding check, not an integrity tag for file contents.
 use crate::{
+    aes_ige::{IgeDecryptor, IgeEncryptor},
     crypto::random_bytes,
     error::{Error, Result},
 };
@@ -63,7 +64,7 @@ pub fn encrypt_file(
     size: u64,
     key: &FileKey,
 ) -> Result<()> {
-    let mut iv = Zeroizing::new(key.iv);
+    let mut cipher = IgeEncryptor::new(&key.key, &key.iv);
     let mut left = size;
     while left > 0 {
         let count = left.min(64 * 1024) as usize;
@@ -75,12 +76,7 @@ pub fn encrypt_file(
         if padded > count {
             getrandom::fill(&mut block[count..]).map_err(|_| Error::Randomness)?;
         }
-        let mut last_plain = [0; 16];
-        last_plain.copy_from_slice(&block[padded - 16..]);
-        grammers_crypto::aes::ige_encrypt(&mut block, &key.key, &iv);
-        iv[..16].copy_from_slice(&block[padded - 16..]);
-        iv[16..].copy_from_slice(&last_plain);
-        last_plain.zeroize();
+        cipher.encrypt_in_place(&mut block);
         destination.write_all(&block).map_err(|_| Error::Storage)?;
         left -= count as u64;
     }
@@ -98,19 +94,14 @@ pub fn decrypt_file(
     size: u64,
     key: &FileKey,
 ) -> Result<()> {
-    let mut iv = Zeroizing::new(key.iv);
+    let mut cipher = IgeDecryptor::new(&key.key, &key.iv);
     let mut left = encrypted_size(size)?;
     let mut remaining = size;
     while left > 0 {
         let count = left.min(64 * 1024) as usize;
         let mut block = Zeroizing::new(vec![0; count]);
         source.read_exact(&mut block).map_err(|_| Error::Media)?;
-        let mut last_cipher = [0; 16];
-        last_cipher.copy_from_slice(&block[count - 16..]);
-        grammers_crypto::aes::ige_decrypt(&mut block, &key.key, &iv);
-        iv[..16].copy_from_slice(&last_cipher);
-        iv[16..].copy_from_slice(&block[count - 16..]);
-        last_cipher.zeroize();
+        cipher.decrypt_in_place(&mut block);
         let plain = (remaining.min(count as u64)) as usize;
         destination
             .write_all(&block[..plain])

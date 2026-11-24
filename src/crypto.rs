@@ -1,4 +1,5 @@
 //! MTProto 2.0 framing with grammers' public AES-IGE primitive.
+use crate::aes_ige::{ige_decrypt, ige_encrypt};
 use crate::error::{Error, Result};
 use sha1::Sha1;
 use sha2::{Digest, Sha256};
@@ -109,7 +110,7 @@ pub fn encrypt_frame(shared_key: &SharedKey, body: &[u8], direction: Direction) 
     let (key, iv) = derive_keys(shared_key, &msg_key, direction);
     let key = Zeroizing::new(key);
     let iv = Zeroizing::new(iv);
-    grammers_crypto::aes::ige_encrypt(&mut padded, &key, &iv);
+    ige_encrypt(&mut padded, &key, &iv);
     let mut frame = Vec::with_capacity(HEADER_LENGTH + padded.len());
     frame.extend_from_slice(&shared_key.fingerprint().to_le_bytes());
     frame.extend_from_slice(&msg_key);
@@ -138,7 +139,7 @@ pub fn decrypt_frame(
     let key = Zeroizing::new(key);
     let iv = Zeroizing::new(iv);
     let mut plaintext = Zeroizing::new(frame[24..].to_vec());
-    grammers_crypto::aes::ige_decrypt(&mut plaintext, &key, &iv);
+    ige_decrypt(&mut plaintext, &key, &iv);
     if !bool::from(msg_key.ct_eq(&compute_msg_key(shared_key, &plaintext, direction))) {
         return Err(Error::FrameRejected);
     }

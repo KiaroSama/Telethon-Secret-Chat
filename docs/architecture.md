@@ -8,6 +8,7 @@ update receiver. The library never signs in or constructs another client.
 | Component | Responsibility |
 | --- | --- |
 | `crypto`, `dh`, `framing`, `wire`, generated `types`/`enums` | MTProto 2, safe-prime checks, typed strict TL and sequence headers |
+| [`aes_ige`](../src/aes_ige.rs) | In-place AES-256-IGE, shared by MTProto frames and file transfers |
 | `chat`, `sequence`, `rekey`, `actions` | Validated records, gaps, original-byte resend, PFS and services |
 | `protocol` | Clone/validate/commit transactions and effects after commit |
 | `storage`, `custody` | Memory/file state, writer ownership, bounded/protected payload policy |
@@ -15,6 +16,14 @@ update receiver. The library never signs in or constructs another client.
 | `media`, `files`, `ogg`, `entities` | Media metadata/reference/forwarding, streaming AES-IGE, entity conversion |
 | `autosave`, `export` | Saved copies and Desktop-style HTML/JSON with embedded assets |
 | `ingress`, bundled SDK supplement | Original-client proof, whole receipt/checkpoint custody, pre-ack fencing |
+
+## AES-256-IGE
+
+`src/aes_ige.rs` uses the safe RustCrypto `aes` 0.9 API and dispatches to the
+selected backend once per buffer. The crate and module enforce
+`#![forbid(unsafe_code)]`. `IgeEncryptor` and `IgeDecryptor` keep the expanded
+AES-256 key and rolling IGE IV across file chunks. The `aes` dependency's
+`zeroize` feature clears its key schedule on drop, and the module zeros the IV.
 
 ## Commit and effect ordering
 
@@ -62,6 +71,9 @@ an acknowledgement beyond the durable frontier. It attaches before the runner
 starts, has one receiver and proves the original client using the same pool.
 Protocol application and ingress cursor commit to the same encrypted state.
 Read [strong ingress](strong-ingress.md) for the full setup and refusal contract.
+
+Start with the [usage guide](usage-guide.md). To verify a native package, see
+[Publisher signatures](SIGNING.md).
 
 See [managed API](rust-manager.md), [primitives](rust-primitives.md),
 [mode selection](../README.md#choose-a-custody-mode), [exporter](rust-export.md)

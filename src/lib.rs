@@ -15,6 +15,7 @@ pub use grammers_tl_types;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub mod actions;
+pub(crate) mod aes_ige;
 pub mod autosave;
 pub mod binding;
 pub mod chat;

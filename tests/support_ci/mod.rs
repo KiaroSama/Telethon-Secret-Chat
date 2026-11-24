@@ -21,9 +21,22 @@ pub fn policy() -> gate::Policy {
     }
     gate::Policy::from_manifest(&serde_json::to_string(&names).unwrap()).unwrap()
 }
+const AES_IGE_CASES: [&str; 4] = [
+    "unittests src/lib.rs::aes_ige::tests::decryption_rejects_partial_blocks - should panic",
+    "unittests src/lib.rs::aes_ige::tests::encryption_rejects_partial_blocks - should panic",
+    "unittests src/lib.rs::aes_ige::tests::streaming_matches_reference",
+    "unittests src/lib.rs::aes_ige::tests::unaligned_buffers_match_reference",
+];
+fn expected_ids(policy: &gate::Policy) -> impl Iterator<Item = &str> {
+    policy
+        .expected
+        .iter()
+        .map(String::as_str)
+        .chain(AES_IGE_CASES)
+}
 pub fn record(policy: &gate::Policy, leg: &str, color: bool, optional_skip: bool) -> String {
     let mut groups: BTreeMap<&str, Vec<(&str, bool)>> = BTreeMap::new();
-    for id in &policy.expected {
+    for id in expected_ids(policy) {
         let (suite, name) = id.split_once("::").unwrap();
         let ignored = policy.live.contains(id)
             || policy.platform.get(leg).is_some_and(|p| p.contains(id))
@@ -131,7 +144,7 @@ pub fn stream_orderings() {
         ] {
             assert_eq!(
                 gate::parse_record(&text, leg, &policy).unwrap(),
-                policy.expected
+                expected_ids(&policy).map(str::to_owned).collect()
             );
         }
     }
@@ -143,7 +156,7 @@ pub fn stream_rejections(kind: &str) {
     let valid = format!("{}{}", headers.concat(), blocks.concat());
     assert_eq!(
         gate::parse_record(&valid, leg, &policy).unwrap(),
-        policy.expected
+        expected_ids(&policy).map(str::to_owned).collect()
     );
     let mut invalid = Vec::new();
     match kind {

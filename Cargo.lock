@@ -27,6 +27,7 @@ dependencies = [
  "cipher",
  "cpubits",
  "cpufeatures",
+ "zeroize",
 ]
 
 [[package]]
@@ -734,6 +735,7 @@ dependencies = [
 name = "kiaro-secret-chat"
 version = "0.3.0"
 dependencies = [
+ "aes",
  "aes-gcm",
  "base64",
  "getrandom",

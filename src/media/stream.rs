@@ -1,4 +1,5 @@
 use crate::{
+    aes_ige::IgeEncryptor,
     error::{Error, Result},
     files::{FileKey, encrypted_size},
 };
@@ -14,8 +15,7 @@ use zeroize::{Zeroize, Zeroizing};
 // refill owns its source and zeroizing key copies until the worker is joined.
 struct CipherReader<R> {
     source: R,
-    key: FileKey,
-    iv: Zeroizing<[u8; 32]>,
+    cipher: IgeEncryptor,
     left: u64,
     padding: Option<Zeroizing<Vec<u8>>>,
     plain: Zeroizing<Vec<u8>>,
@@ -37,11 +37,10 @@ impl<R: Read> CipherReader<R> {
         if padding.len() != (encrypted - size) as usize {
             return Err(Error::MediaField { field: "padding" });
         }
-        let iv = Zeroizing::new(*key.iv());
+        let cipher = IgeEncryptor::new(key.key(), key.iv());
         Ok(Self {
             source,
-            key,
-            iv,
+            cipher,
             left: size,
             padding: Some(padding),
             plain: Zeroizing::new(Vec::new()),
@@ -82,12 +81,7 @@ impl<R: Read> CipherReader<R> {
             let whole = self.plain.len() / 16 * 16;
             if whole > 0 {
                 let mut block = Zeroizing::new(self.plain.drain(..whole).collect::<Vec<_>>());
-                let mut last = [0; 16];
-                last.copy_from_slice(&block[whole - 16..]);
-                grammers_crypto::aes::ige_encrypt(&mut block, self.key.key(), &self.iv);
-                self.iv[..16].copy_from_slice(&block[whole - 16..]);
-                self.iv[16..].copy_from_slice(&last);
-                last.zeroize();
+                self.cipher.encrypt_in_place(&mut block);
                 self.ready.extend_from_slice(&block);
             }
         }

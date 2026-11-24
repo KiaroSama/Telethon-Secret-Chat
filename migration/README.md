@@ -4,7 +4,7 @@ The immutable baseline is main commit `d53c7c21574ac404e01b8c3535b0d0fcfa25a193`
 It collected **1851 actual cases**, including parametrization and explicitly gated
 live cases. `legacy-cases.json` retains those original IDs as data and maps each
 to one distinct native Rust scenario. Individual `*-mappings.json` ledgers own the
-reviewed mappings; `rust-cases.json` records actual Cargo collection.
+reviewed mappings; `rust-cases.json` records the 1,851 mapped native identities.
 
 The executable suite retains scenario types: unit/regression, async/lifecycle,
 property/stateful, independent crypto/schema/export oracle, source/Git installed
@@ -18,10 +18,11 @@ cargo run --locked --bin migration-audit -- --require-complete
 cargo run --locked --bin matrix-evidence -- /path/to/downloaded-seven-leg-records
 ```
 
-Completeness requires all mappings and exactly 1851 collected native identities.
-The matrix verifier additionally checks actual executed rows, per-suite summaries,
-status, duplicates and agreement across all seven fixed legs. A green component
-subset or an ancestor commit does not qualify the current source.
+Completeness requires all 1,851 legacy cases to map to distinct native identities.
+The matrix verifier checks those identities plus four native AES-IGE tests, for
+1,855 total. It checks actual rows, per-suite summaries, skip policy, and agreement
+across all seven legs. A green component subset or ancestor commit does not
+qualify the current source.
 
 Ten real-peer cases in `rust_live_interop` are explicitly ignored by default.
 Windows additionally ignores three Unix filesystem cases: owner-only permissions,

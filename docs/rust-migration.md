@@ -2,8 +2,9 @@
 
 `kiaro-secret-chat` is a Rust 2024 source/Git crate, version `0.3.0`, MSRV
 1.95. Development and primary CI builds use Rust 1.100.0. A separate CI lane
-checks compatibility with 1.95. The dependency graph is pinned. The completeness
-gate and the final commit's CI matrix must agree on all 1,851 collected cases.
+checks compatibility with 1.95. The dependency graph is pinned. The migration
+ledger maps 1,851 legacy cases; the CI matrix checks those cases plus four native
+AES-IGE tests.
 
 ## One SDK graph
 
@@ -63,8 +64,9 @@ See [cutover guidance](design/cutover-history.md).
 ## Evidence and references
 
 The immutable baseline is `d53c7c21574ac404e01b8c3535b0d0fcfa25a193`.
-`migration/legacy-cases.json` maps its 1851 identities to distinct native scenarios;
-`rust-cases.json` is actual Cargo collection. Independent legacy encoders produced
+`migration/legacy-cases.json` maps its 1,851 identities to distinct native
+scenarios in `migration/rust-cases.json`. The four native AES-IGE identities live
+in the matrix verifier and do not change either manifest. Independent legacy encoders produced
 static expected fixtures before old code removal. Tests do not serialize their
 own expected answers. The HTML viewer's static JS/CSS remain data.
 

@@ -12,7 +12,7 @@
 [![Runs on 64-bit Linux and Windows](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-0891b2)](.github/workflows/rust.yml)
 [![Install from Git or GPG-signed release archives](https://img.shields.io/badge/install-Git%20%7C%20release-4f46e5)](#install-from-git)
 [![Architecture documentation, protocol reference, and ADRs](https://img.shields.io/badge/docs-architecture%20%7C%20ADRs-0284c7)](docs/architecture.md)
-[![Published tree measured via git ls-files is 14.03 MB](https://img.shields.io/badge/repo%20size-14.03%20MB-ca8a04)](Cargo.toml)
+[![Published tree measured via git ls-files is 14.06 MB](https://img.shields.io/badge/repo%20size-14.06%20MB-ca8a04)](Cargo.toml)
 [![Built with grammers 0.12.0 on Telegram API layer 233](https://img.shields.io/badge/built%20with-grammers%200.12.0-15803d)](docs/rust-migration.md)
 [![Secret chats use MTProto 2.0 layers 73 through 144](https://img.shields.io/badge/protocol-MTProto%202.0%20L73--144-b45309)](docs/protocol-reference.md)
 [![Native builds target x64 and arm64 only](https://img.shields.io/badge/arch-x64%20%7C%20arm64-334155)](docs/rust-ci.md)
@@ -122,6 +122,8 @@ before server acknowledgement.
 
 ## Documentation and verification
 
+[Usage guide](docs/usage-guide.md): attach an existing client, exchange messages and media, and export a saved chat.
+
 The [manager guide](docs/rust-manager.md) covers callbacks, media and shutdown.
 See the [export guide](docs/rust-export.md) for saved chats, or the
 [architecture](docs/architecture.md) and [decision records](docs/adr/) for the
@@ -144,7 +146,8 @@ cargo run --locked --bin migration-audit -- --require-complete
 CI builds natively on Linux and Windows for x64 and arm64. Six legs use Rust
 1.100.0, including debug, release and portable AES checks. A seventh tests the
 minimum supported Rust version, 1.95. The verifier rejects missing or extra
-cases, filtered runs and undeclared ignores against the 1,851-case inventory.
+cases, filtered runs and undeclared ignores against 1,855 identities: 1,851
+mapped legacy cases and four required native AES-IGE tests.
 CI uses no Telegram credentials and skips the ten opt-in live cases. Windows
 also skips three Unix filesystem tests. The matrix does not cover macOS.
 
@@ -167,6 +170,11 @@ Offline tests use independent vectors and a retired official-client capture.
 They do not verify a live Telegram account or a `telegram-mcp` integration.
 Keep the [license](LICENSE), [notices](NOTICE) and
 [SDK notices](vendor/grammers/README.md) with the source.
+
+## License
+
+`kiaro-secret-chat` is copyright KiaroSama and licensed under the GNU General
+Public License v3.0 or later ([GPL-3.0-or-later](LICENSE)).
 
 ## Donate
 

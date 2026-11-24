@@ -9,6 +9,12 @@ use std::{
 mod coverage;
 pub use coverage::check_coverage;
 pub const EXPECTED_CASES: usize = 1851;
+pub const SUPPLEMENTAL_CASES: [&str; 4] = [
+    "unittests src/lib.rs::aes_ige::tests::decryption_rejects_partial_blocks - should panic",
+    "unittests src/lib.rs::aes_ige::tests::encryption_rejects_partial_blocks - should panic",
+    "unittests src/lib.rs::aes_ige::tests::streaming_matches_reference",
+    "unittests src/lib.rs::aes_ige::tests::unaligned_buffers_match_reference",
+];
 pub const LEGS: [&str; 7] = [
     "rust-ubuntu-24.04-x86_64-1.95.0-debug",
     "rust-ubuntu-24.04-x86_64-1.100.0-debug",
@@ -98,6 +104,14 @@ fn count(summary: &str, word: &str) -> Result<usize, String> {
         .ok_or_else(|| format!("malformed libtest {word} summary"))
 }
 pub fn parse_record(text: &str, leg: &str, policy: &Policy) -> Result<BTreeSet<String>, String> {
+    let mut expected_all = policy.expected.clone();
+    for id in SUPPLEMENTAL_CASES {
+        if !expected_all.insert(id.to_owned()) {
+            return Err(format!(
+                "{leg}: supplemental testcase identity overlap: {id}"
+            ));
+        }
+    }
     let text = strip_ansi(text);
     if text.contains("test result: FAILED") || text.contains("error: test failed") {
         return Err(format!("{leg}: failing test run"));
@@ -201,6 +215,11 @@ pub fn parse_record(text: &str, leg: &str, policy: &Policy) -> Result<BTreeSet<S
     if cases.is_empty() {
         return Err(format!("{leg}: incomplete or empty executed test record"));
     }
+    for id in SUPPLEMENTAL_CASES {
+        if ignored.contains(id) {
+            return Err(format!("{leg}: cannot skip supplemental testcase {id}"));
+        }
+    }
     let mut required = policy.live.clone();
     if let Some(platform) = policy.platform.get(leg) {
         required.extend(platform.iter().cloned());
@@ -227,14 +246,13 @@ pub fn parse_record(text: &str, leg: &str, policy: &Policy) -> Result<BTreeSet<S
     if cases.len() == ignored.len() {
         return Err(format!("{leg}: no offline tests executed"));
     }
-    if cases != policy.expected {
+    if cases != expected_all {
         let extra = cases
-            .difference(&policy.expected)
+            .difference(&expected_all)
             .take(20)
             .cloned()
             .collect::<Vec<_>>();
-        let missing = policy
-            .expected
+        let missing = expected_all
             .difference(&cases)
             .take(20)
             .cloned()
@@ -300,7 +318,7 @@ pub fn check_matrix(root: &Path, policy: &Policy, expect_legs: usize) -> Result<
         "The {} live Telegram cases were intentionally NOT executed. All {} Rust matrix legs agree on {} testcase identities.",
         policy.live.len(),
         LEGS.len(),
-        policy.expected.len()
+        policy.expected.len() + SUPPLEMENTAL_CASES.len()
     ))
 }
 pub fn strip_ansi(text: &str) -> String {

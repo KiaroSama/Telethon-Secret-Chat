@@ -26,6 +26,15 @@ The native primitive ledger preserves 344 collected legacy cases. Nine manager/m
 
 The persisted model includes creation/rekey timestamps, participant metadata, counters, capabilities, exchanges and all retained queues through serde. New metadata has defaults for earlier native records. Explicit snapshots and Chat debug output omit keys, private exponents, retained bodies and ciphertext. `require_sendable` provides contextual lifecycle diagnostics; lower-level core checks retain their existing typed refusal contract.
 
+## AES-256-IGE
+
+[`src/aes_ige.rs`](../src/aes_ige.rs) selects the RustCrypto `aes` 0.9 backend
+once per buffer and runs the full IGE block loop inside that backend call.
+The crate and the module forbid unsafe code. The dependency's `zeroize` feature
+clears the expanded key schedule on drop; the IGE state clears its rolling IV.
+`IgeEncryptor` and `IgeDecryptor` keep both across chunks in the file and upload
+paths. Frame encryption and decryption use the same core for one-shot buffers.
+
 ## Independent evidence and properties
 
 The KDF fixed cases retain unchanged Telethon reference outputs and the original independent Grammers client/server constants. Each random-direction scenario generates 100 fresh inputs and compares through Grammers' public MTProto encryption or decryption path, which exercises Grammers' own private KDF; it does not compare two calls to this project's derivation function. The 18 streaming cases compare full ciphertext bytes to one-shot Grammers AES-IGE with explicitly supplied independent random padding, and decrypt deliberately non-block-sized incoming chunks.

@@ -21,6 +21,7 @@ include = [
 ]
 
 [dependencies]
+aes = { version = "0.9", features = ["zeroize"] }
 grammers-session = { version = "=0.12.0", path = "vendor/grammers/grammers-session", default-features = false }
 grammers-mtsender = { version = "=0.12.0", path = "vendor/grammers/grammers-mtsender" }
 grammers-client = { version = "=0.12.0", path = "vendor/grammers/grammers-client", features = ["markdown", "html"] }

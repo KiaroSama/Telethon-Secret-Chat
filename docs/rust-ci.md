@@ -1,10 +1,11 @@
 # Native Rust verification
 
-The migration preserves 1,851 individually collected scenarios. The native
-collection and the migration ledger must agree exactly; adding a passing test
-does not substitute for an unmapped scenario. Property tests still generate
-inputs, refusal tests exercise actual operations, and filesystem tests perform
-real I/O. Independent protocol, Desktop export and image fixtures remain data.
+The migration preserves 1,851 individually mapped legacy cases. Four native
+AES-256-IGE tests supplement that exact inventory, for 1,855 identities across
+all seven legs. The migration ledger still maps only the legacy cases. Property
+tests generate inputs, refusal tests exercise actual operations, and filesystem
+tests perform real I/O. Independent protocol, Desktop export and image fixtures
+remain data.
 
 ## Build and test matrix
 
@@ -43,11 +44,20 @@ fallback. Reuse removes a second compilation without changing test scenarios,
 release settings or the 60-minute job budget.
 
 `matrix-evidence` reads each Cargo suite and its test-result summary, strips
-terminal color escapes and requires exactly the same manifest on all seven legs.
-Missing, additional, duplicate, failed, filtered, measured or unexpectedly
-ignored cases fail the gate. A job that only prints successful test lines cannot
-pass without matching suite summaries. The separate migration audit requires
-all 1,851 legacy identities to have unique, collected native targets.
+terminal color escapes and requires the same exact 1,855 identities on all seven
+legs. It adds the four `SUPPLEMENTAL_CASES` to the 1,851-case manifest and rejects
+any overlap or skipped supplemental case. Missing, additional, duplicate,
+failed, filtered, measured or unexpectedly ignored cases fail the gate. A job
+that only prints successful test lines cannot pass without matching suite
+summaries. The separate migration audit requires all 1,851 legacy identities to
+have unique native targets.
+
+The four supplemental identities are in the `unittests src/lib.rs` suite:
+
+- `aes_ige::tests::decryption_rejects_partial_blocks - should panic`
+- `aes_ige::tests::encryption_rejects_partial_blocks - should panic`
+- `aes_ige::tests::streaming_matches_reference`
+- `aes_ige::tests::unaligned_buffers_match_reference`
 
 Ten compiled account interoperability cases are ignored during ordinary CI.
 They require explicitly configured, already authorized test accounts; collecting
@@ -61,9 +71,25 @@ The four release legs upload `native-{target-triple}` artifacts. Each contains
 four native developer tools (`generate-schema`, `matrix-evidence`,
 `migration-audit` and `prepare-sdk`), inherited licenses, target/toolchain/commit
 metadata, and SHA-256 checksums. Unix tools are in a tar archive that preserves
-executable permissions; Windows tools use ZIP. These are CI artifacts; no
-repository release is published. Rust library consumers still use the complete
-Git/source graph described below.
+executable permissions; Windows tools use ZIP. Rust library consumers still use
+the complete Git/source graph described below.
+
+## Signing and tag publication
+
+The four `Sign native package` jobs run in the `numera-signing` environment for
+`main` and version tags outside pull requests. They cover Windows MSVC and Linux
+GNU, each on x64 and arm64. The Windows jobs add timestamped Authenticode
+signatures before rebuilding the archives. Each signing job uploads a
+`native-signed-{target-triple}` artifact with the final archive, its SHA-256
+checksum, and a detached publisher signature.
+
+The `Publish signed native packages` job runs only on version tags other than
+`v0.3.0`. It waits for signing, checks the tag against the Cargo version, verifies
+the archive signatures, signs the release `SHA256SUMS`, creates GitHub build
+provenance attestations, and uploads to the matching release. A push to `main`
+produces signed CI artifacts without publishing a release. See
+[Publisher signatures](SIGNING.md) for verification and the original release's
+GPG instructions.
 
 ## Coverage and source checks
 

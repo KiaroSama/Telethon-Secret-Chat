@@ -73,7 +73,43 @@ fn complete_identical_matrix_is_accepted() {
     let policy = support::policy();
     support::matrix(directory.path(), &policy, true);
     let summary = gate::check_matrix(directory.path(), &policy, gate::LEGS.len()).unwrap();
-    assert!(summary.contains("1851"));
+    assert!(summary.contains("1855 testcase identities"));
+
+    let leg = gate::LEGS[0];
+    let record = support::record(&policy, leg, false, false);
+    let case = "unittests src/lib.rs::aes_ige::tests::streaming_matches_reference";
+    let name = case.split_once("::").unwrap().1;
+    let missing = record
+        .replace(&format!("test {name} ... ok\n"), "")
+        .replacen("running 7 tests", "running 6 tests", 1)
+        .replacen(
+            "test result: ok. 7 passed;",
+            "test result: ok. 6 passed;",
+            1,
+        );
+    let error = gate::parse_record(&missing, leg, &policy).unwrap_err();
+    assert!(error.contains(&format!("missing [\"{case}\"]")), "{error}");
+
+    let unexpected = "unittests src/lib.rs::aes_ige::tests::unexpected_case";
+    let mut changed = policy.clone();
+    changed.expected.insert(unexpected.into());
+    let extra = support::record(&changed, leg, false, false);
+    let error = gate::parse_record(&extra, leg, &policy).unwrap_err();
+    assert!(
+        error.contains(&format!("extra [\"{unexpected}\"]")),
+        "{error}"
+    );
+
+    changed = policy.clone();
+    changed.optional.insert(case.into());
+    let ignored = support::record(&changed, leg, false, true);
+    let error = gate::parse_record(&ignored, leg, &changed).unwrap_err();
+    assert!(error.contains("skip") && error.contains(case), "{error}");
+
+    changed.expected.insert(case.into());
+    let error = gate::parse_record(&record, leg, &changed).unwrap_err();
+    assert!(error.contains("overlap") && error.contains(case), "{error}");
+
     assert!(gate::Policy::from_manifest("[]").is_err());
     assert!(
         gate::Policy::from_manifest(&serde_json::to_string(&vec!["duplicate"; 1851]).unwrap())

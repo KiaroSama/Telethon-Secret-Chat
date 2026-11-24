@@ -5,6 +5,24 @@ package by commit and reads this file before moving its pin. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/) with the pre-1.0 rule that a minor bump may break.
 
+## [Unreleased]
+
+### Added
+
+- The [usage guide](docs/usage-guide.md) walks through attaching an existing
+  grammers client, sending messages and media, choosing custody, and exporting
+  saved chats.
+- Hosted `numera-signing` jobs sign native packages for four targets. Windows
+  tools carry timestamped Authenticode signatures. See [Publisher signatures](docs/SIGNING.md).
+
+### Changed
+
+- AES-256-IGE now selects its AES backend once per buffer and reuses the expanded
+  key across file chunks. In one Windows x64 release benchmark, ten 4 MiB
+  encryption/decryption round trips took 70.99 ms (1,126.94 MiB/s). The four new
+  native tests run alongside the unchanged 1,851 legacy parity cases.
+- Updated the README badges and added a short license section above donations.
+
 ## [0.3.0]
 
 ### Changed
