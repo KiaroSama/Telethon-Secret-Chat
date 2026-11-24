@@ -515,7 +515,7 @@ jobs:
             cp -- "unsigned/$archive" "signed/$archive"
           fi
           unset NUMERA_SIGNING_PASSWORD
-          (cd signed && sha256sum -- "$archive" > "$archive.sha256")
+          (cd signed && sha256sum --binary -- "$archive" > "$archive.sha256")
           openssl dgst -sha256 -sign "$work/key.pem" -out "signed/$archive.sig" "signed/$archive"
           openssl dgst -sha256 -verify "$work/public.pem" -signature "signed/$archive.sig" "signed/$archive"
           cp -- "signed/$archive" "$work/tampered-archive"
@@ -588,7 +588,7 @@ jobs:
             dir="signed/native-signed-$target"
             openssl dgst -sha256 -verify release/publisher-key.pem -signature "$dir/$archive.sig" "$dir/$archive"
             cp -- "$dir/$archive" "$dir/$archive.sig" release/
-            (cd release && sha256sum -- "$archive" > "$archive.sha256")
+            (cd release && sha256sum --binary -- "$archive" > "$archive.sha256")
             cmp "release/$archive.sha256" "$dir/$archive.sha256"
           done
           (
