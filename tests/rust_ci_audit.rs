@@ -39,6 +39,30 @@ fn complete_identical_matrix_is_accepted() {
     changed.insert("different-legacy-id".into(), "native-b".into());
     assert!(migration::check_partitions(&all, &[one, changed]).is_err());
     support::coverage::valid();
+    let config = scanner::config::configuration();
+    for (revision, path) in [
+        (
+            "675c57e597af95b5d12acae9fbd964275e53ec68",
+            r"^telethon_secret_chat/ingress_provenance\.py$",
+        ),
+        (
+            "b1838488979293f33c93f56470c61ae63aa4056a",
+            r"^tests/fixtures/tdexport-source\.json$",
+        ),
+        (
+            "723585f8d65b0c7c62c0177f4f683f3f1da36bf9",
+            r"^tests/vectors/fixtures/official-client-2026-09-29\.json$",
+        ),
+    ] {
+        let revision = format!("commits = [\"{revision}\"]");
+        let path = format!("paths = ['''{path}''']");
+        assert!(config.split("[[rules.allowlists]]").skip(1).any(|entry| {
+            entry.lines().any(|line| line == revision)
+                && entry.lines().any(|line| line == path)
+                && entry.lines().any(|line| line == "condition = \"AND\"")
+                && entry.lines().any(|line| line == "regexTarget = \"line\"")
+        }));
+    }
     let report = scanner::report::validate_report(b"[]", 0).unwrap();
     assert!(report.is_empty());
     assert!(scanner::valid_revision(&"a".repeat(40)));

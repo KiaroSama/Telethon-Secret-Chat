@@ -1,14 +1,9 @@
-//! Four audited public-data exemptions; the scanned workspace cannot extend them.
+//! Audited exceptions for the built-in generic-api-key rule.
 //!
-//! The two 256-byte fixture keys are arithmetic sequences, never authorization
-//! data. The other-key receive fixture is ciphertext produced with synthetic
-//! material. The final value is the SHA-256 of the unchanged official client
-//! source at e61cf8585e1e9969ab81eda9fb4725a1500e2d86, recorded in both the
-//! original-source and distributed-source manifests.
-//!
-//! Require the built-in generic-api-key rule, exact relative paths, and the
-//! entire JSON field/value line. Changing a value, copying it elsewhere, or
-//! adding another credential to either file must remain detectable.
+//! Current fixtures use deterministic test keys or synthetic ciphertext. The
+//! grammers exception is a verified upstream source checksum. Historical
+//! exceptions also pin the commit, so the scanner never needs a copy of the
+//! retired throwaway chat key.
 
 const OTHER_FRAME: &str = "c04b048704bb081f302bbba287d470c3b8305ac7899ee2e1b483bab5df5e53b03ba723700083ac8ffc789ec33bbfd5e405ddef50ec31afbd3ca82a20bbcde57c8e3a70d8325ee4dce8c8090529a892c9a7db513d95c8b27011b5b8954bdf5a8c2d32cd4dec932d98";
 const CLIENT_SOURCE_SHA256: &str =
@@ -58,6 +53,38 @@ condition = "AND"
 regexTarget = "line"
 paths = ['''{path}''']
 regexes = ['''^\s*"{field}"\s*:\s*"{value}",?\s*$''']
+"#
+        ));
+    }
+    for (commit, path, line, description) in [
+        (
+            "675c57e597af95b5d12acae9fbd964275e53ec68",
+            r"^telethon_secret_chat/ingress_provenance\.py$",
+            r#"^\s*"telethon/client/auth\.py": "[0-9a-f]{64}",\s*$"#,
+            "Historical patched Telethon source checksum",
+        ),
+        (
+            "b1838488979293f33c93f56470c61ae63aa4056a",
+            r"^tests/fixtures/tdexport-source\.json$",
+            r#"^\s*"secret_saved\.py": "[0-9a-f]{64}",?\s*$"#,
+            "Historical vendored exporter source checksum",
+        ),
+        (
+            "723585f8d65b0c7c62c0177f4f683f3f1da36bf9",
+            r"^tests/vectors/fixtures/official-client-2026-09-29\.json$",
+            r#"^\s*"key": "[0-9a-f]{512}",\s*$"#,
+            "Original offline vector from a throwaway chat",
+        ),
+    ] {
+        config.push_str(&format!(
+            r#"
+[[rules.allowlists]]
+description = "{description}"
+condition = "AND"
+regexTarget = "line"
+commits = ["{commit}"]
+paths = ['''{path}''']
+regexes = ['''{line}''']
 "#
         ));
     }

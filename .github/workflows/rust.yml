@@ -131,7 +131,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Install the pinned native coverage runner
         if: matrix.os == 'ubuntu-24.04' && matrix.toolchain == '1.100.0' && matrix.profile == 'debug'
-        uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2
+        uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2
         with:
           tool: cargo-llvm-cov@0.9.1
       - name: Fetch the complete locked cross-platform dependency graph
@@ -290,13 +290,13 @@ jobs:
           for tool in generate-schema matrix-evidence migration-audit prepare-sdk; do
             cp "target/release/$tool" "$stage/$tool"
           done
-          cp LICENSE NOTICE "$stage/"
+          cp README.md LICENSE NOTICE "$stage/"
           compiler=$(rustc --version)
           printf '{"target":"%s","toolchain":"%s","compiler":"%s","commit":"%s"}\n' "$NATIVE_TARGET" "$RUSTUP_TOOLCHAIN" "$compiler" "$GITHUB_SHA" > "$stage/build-info.json"
           if command -v sha256sum >/dev/null; then
-            (cd "$stage" && sha256sum generate-schema matrix-evidence migration-audit prepare-sdk LICENSE NOTICE build-info.json > SHA256SUMS)
+            (cd "$stage" && sha256sum generate-schema matrix-evidence migration-audit prepare-sdk README.md LICENSE NOTICE build-info.json > SHA256SUMS)
           else
-            (cd "$stage" && shasum -a 256 generate-schema matrix-evidence migration-audit prepare-sdk LICENSE NOTICE build-info.json > SHA256SUMS)
+            (cd "$stage" && shasum -a 256 generate-schema matrix-evidence migration-audit prepare-sdk README.md LICENSE NOTICE build-info.json > SHA256SUMS)
           fi
           tar -czf "$dist/native-$NATIVE_TARGET.tar.gz" -C "$stage" .
           if command -v sha256sum >/dev/null; then
@@ -316,7 +316,7 @@ jobs:
           foreach ($tool in 'generate-schema', 'matrix-evidence', 'migration-audit', 'prepare-sdk') {
             Copy-Item (Join-Path 'target/release' "$tool.exe") (Join-Path $stage "$tool.exe")
           }
-          Copy-Item LICENSE, NOTICE $stage
+          Copy-Item README.md, LICENSE, NOTICE $stage
           $compiler = rustc --version
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           [ordered]@{target=$env:NATIVE_TARGET; toolchain=$env:RUSTUP_TOOLCHAIN; compiler=$compiler; commit=$env:GITHUB_SHA} | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $stage 'build-info.json')
