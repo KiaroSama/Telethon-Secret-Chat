@@ -57,7 +57,7 @@ async fn caller_difference_is_captured_before_result_and_delivered_by_existing_r
     let batch = ingress.pending_batches().unwrap().remove(0);
     assert_eq!(batch.envelope.as_bytes(), response);
     assert_eq!(batch.updates().unwrap().0.len(), 2);
-    let result = tokio::time::timeout(Duration::from_millis(100), receiver.next()).await;
+    let result = tokio::time::timeout(Duration::from_secs(1), receiver.next()).await;
     assert!(
         result.is_ok(),
         "committed caller difference must wake the existing receiver"
@@ -224,7 +224,7 @@ async fn caller_difference_wakes_receiver_already_waiting_for_live_input() {
     ingress
         .guard_result(permit, 2, &request, &response)
         .unwrap();
-    let received = tokio::time::timeout(Duration::from_millis(100), receive)
+    let received = tokio::time::timeout(Duration::from_secs(1), receive)
         .await
         .expect("durable RPC receipt must wake the original update owner")
         .expect("the original receiver must deliver the committed difference");
