@@ -49,7 +49,7 @@ tempfile = "3"
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync", "time", "io-util"] }
 tracing = "0.1"
 mime_guess = "2"
-base64 = "0.22"
+base64 = "0.23"
 jiff = "0.2.45"
 stringprep = "0.1"
 punycode = "0.4"
