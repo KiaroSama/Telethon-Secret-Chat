@@ -9,11 +9,16 @@ use std::{
 mod coverage;
 pub use coverage::check_coverage;
 pub const EXPECTED_CASES: usize = 1851;
-pub const SUPPLEMENTAL_CASES: [&str; 4] = [
+pub const SUPPLEMENTAL_CASES: [&str; 9] = [
     "unittests src/lib.rs::aes_ige::tests::decryption_rejects_partial_blocks - should panic",
     "unittests src/lib.rs::aes_ige::tests::encryption_rejects_partial_blocks - should panic",
     "unittests src/lib.rs::aes_ige::tests::streaming_matches_reference",
     "unittests src/lib.rs::aes_ige::tests::unaligned_buffers_match_reference",
+    "unittests src/lib.rs::chat::validation::signed_secret_chat_id_validates_only_when_nonzero",
+    "unittests src/lib.rs::ingress::strong_tests::signed_secret_chat_id_for_strong_replay_must_be_nonzero",
+    "unittests src/lib.rs::ingress::strong_tests::signed_secret_chat_id_for_unknown_discard_must_be_nonzero",
+    "unittests src/lib.rs::storage::lifecycle_tests::signed_secret_chat_id_is_retained_in_malformed_record_errors",
+    "unittests src/lib.rs::storage::lifecycle_tests::signed_secret_chat_id_survives_file_reopen",
 ];
 pub const LEGS: [&str; 7] = [
     "rust-ubuntu-24.04-x86_64-1.95.0-debug",

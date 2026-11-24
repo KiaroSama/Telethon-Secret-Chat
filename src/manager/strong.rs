@@ -255,7 +255,7 @@ impl<T: Transport> StrongSecretChatManager<T> {
                     self.inner.ingress.acknowledge_nonsecret(batch.id, index)?;
                     continue;
                 };
-                if id <= 0 {
+                if id == 0 {
                     return Err(Error::IngressUnavailable);
                 }
                 if self.inner.manager.status(id).is_ok()

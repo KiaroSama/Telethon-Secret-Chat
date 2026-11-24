@@ -3,7 +3,7 @@ use super::*;
 use crate::Serializable;
 impl Chat {
     pub fn validate(&self) -> Result<()> {
-        if self.id <= 0
+        if self.id == 0
             || self.peer_user_id <= 0
             || self.in_seq_no < 0
             || self.out_seq_no < 0
@@ -114,4 +114,19 @@ impl Chat {
         }
         Ok(wrapper)
     }
+}
+
+#[cfg(test)]
+#[test]
+fn signed_secret_chat_id_validates_only_when_nonzero() {
+    for id in [i32::MIN, -698_877_786, -1, 1, i32::MAX] {
+        assert_eq!(
+            Chat::new(id, 88, 2000, true, ChatState::Requested).validate(),
+            Ok(())
+        );
+    }
+    assert_eq!(
+        Chat::new(0, 88, 2000, true, ChatState::Requested).validate(),
+        Err(Error::InvalidState)
+    );
 }

@@ -338,7 +338,7 @@ impl DurableIngress {
             match update {
                 tl::enums::Update::Encryption(update) => match &update.chat {
                     tl::enums::EncryptedChat::Discarded(chat)
-                        if chat.id > 0 && !core.state.chats.contains_key(&chat.id) => {}
+                        if chat.id != 0 && !core.state.chats.contains_key(&chat.id) => {}
                     _ => return Err(Error::IngressUnavailable),
                 },
                 _ => return Err(Error::IngressUnavailable),

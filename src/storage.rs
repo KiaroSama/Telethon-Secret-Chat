@@ -449,7 +449,7 @@ fn decode_state(bytes: &[u8]) -> Result<State> {
             (Some(Segment::Map { key: group }), Some(Segment::Map { key: id }))
                 if group == "chats" =>
             {
-                match id.parse::<i32>().ok().filter(|id| *id > 0) {
+                match id.parse::<i32>().ok().filter(|id| *id != 0) {
                     Some(id) => Error::InvalidState.with_chat(id),
                     None => Error::InvalidState,
                 }

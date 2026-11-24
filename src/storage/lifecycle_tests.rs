@@ -1,5 +1,46 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
+
+#[test]
+fn signed_secret_chat_id_survives_file_reopen() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("state.json");
+    let mut store = FileStorage::open(&path).unwrap();
+    let mut state = State::empty("11".repeat(32)).unwrap();
+    let id = -698_877_786;
+    state.chats.insert(id, super::contract_tests::record(id));
+    store.commit(&state).unwrap();
+
+    state.chats.insert(0, super::contract_tests::record(0));
+    assert_eq!(store.commit(&state), Err(Error::InvalidState));
+    drop(store);
+
+    let restored = FileStorage::open(path).unwrap().load().unwrap().unwrap();
+    assert_eq!(restored.chats.len(), 1);
+    assert_eq!(restored.chats[&id].id, id);
+}
+
+#[test]
+fn signed_secret_chat_id_is_retained_in_malformed_record_errors() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("state.json");
+    let mut store = FileStorage::open(&path).unwrap();
+    let mut state = State::empty("11".repeat(32)).unwrap();
+    let id = -698_877_786;
+    state.chats.insert(1, super::contract_tests::record(1));
+    store.commit(&state).unwrap();
+
+    let mut malformed = serde_json::to_value(&state).unwrap();
+    for (id, expected) in [
+        (id, Error::InvalidState.with_chat(id)),
+        (0, Error::InvalidState),
+    ] {
+        malformed["chats"] = serde_json::json!({id.to_string(): {"id": "invalid"}});
+        std::fs::write(&path, serde_json::to_vec(&malformed).unwrap()).unwrap();
+        assert!(matches!(store.load(), Err(error) if error == expected));
+    }
+}
+
 #[cfg(unix)]
 fn exact_state(actual: Option<State>, expected: &State) {
     assert!(serde_json::to_vec(&actual.unwrap()).unwrap() == serde_json::to_vec(expected).unwrap());

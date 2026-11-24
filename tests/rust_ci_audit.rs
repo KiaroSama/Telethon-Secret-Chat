@@ -73,7 +73,7 @@ fn complete_identical_matrix_is_accepted() {
     let policy = support::policy();
     support::matrix(directory.path(), &policy, true);
     let summary = gate::check_matrix(directory.path(), &policy, gate::LEGS.len()).unwrap();
-    assert!(summary.contains("1855 testcase identities"));
+    assert!(summary.contains("1860 testcase identities"));
 
     let leg = gate::LEGS[0];
     let record = support::record(&policy, leg, false, false);
@@ -81,10 +81,10 @@ fn complete_identical_matrix_is_accepted() {
     let name = case.split_once("::").unwrap().1;
     let missing = record
         .replace(&format!("test {name} ... ok\n"), "")
-        .replacen("running 7 tests", "running 6 tests", 1)
+        .replacen("running 12 tests", "running 11 tests", 1)
         .replacen(
-            "test result: ok. 7 passed;",
-            "test result: ok. 6 passed;",
+            "test result: ok. 12 passed;",
+            "test result: ok. 11 passed;",
             1,
         );
     let error = gate::parse_record(&missing, leg, &policy).unwrap_err();

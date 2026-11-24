@@ -44,20 +44,25 @@ fallback. Reuse removes a second compilation without changing test scenarios,
 release settings or the 60-minute job budget.
 
 `matrix-evidence` reads each Cargo suite and its test-result summary, strips
-terminal color escapes and requires the same exact 1,855 identities on all seven
-legs. It adds the four `SUPPLEMENTAL_CASES` to the 1,851-case manifest and rejects
+terminal color escapes and requires the same exact 1,860 identities on all seven
+legs. It adds the nine `SUPPLEMENTAL_CASES` to the 1,851-case manifest and rejects
 any overlap or skipped supplemental case. Missing, additional, duplicate,
 failed, filtered, measured or unexpectedly ignored cases fail the gate. A job
 that only prints successful test lines cannot pass without matching suite
 summaries. The separate migration audit requires all 1,851 legacy identities to
 have unique native targets.
 
-The four supplemental identities are in the `unittests src/lib.rs` suite:
+The nine supplemental identities are in the `unittests src/lib.rs` suite:
 
 - `aes_ige::tests::decryption_rejects_partial_blocks - should panic`
 - `aes_ige::tests::encryption_rejects_partial_blocks - should panic`
 - `aes_ige::tests::streaming_matches_reference`
 - `aes_ige::tests::unaligned_buffers_match_reference`
+- `chat::validation::signed_secret_chat_id_validates_only_when_nonzero`
+- `ingress::strong_tests::signed_secret_chat_id_for_strong_replay_must_be_nonzero`
+- `ingress::strong_tests::signed_secret_chat_id_for_unknown_discard_must_be_nonzero`
+- `storage::lifecycle_tests::signed_secret_chat_id_is_retained_in_malformed_record_errors`
+- `storage::lifecycle_tests::signed_secret_chat_id_survives_file_reopen`
 
 Ten compiled account interoperability cases are ignored during ordinary CI.
 They require explicitly configured, already authorized test accounts; collecting

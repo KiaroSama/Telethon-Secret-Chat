@@ -4,6 +4,7 @@
 use super::*;
 use crate::{
     custody::IngressLimits,
+    error::Error,
     manager::{RpcFailure, StrongSecretChatManager},
 };
 use grammers_mtsender::DurableIngressHook;
@@ -22,6 +23,47 @@ async fn soon<F: std::future::Future>(future: F) -> F::Output {
         .await
         .unwrap()
 }
+fn discarded_update(id: i32) -> tl::enums::Update {
+    tl::types::UpdateEncryption {
+        chat: tl::types::EncryptedChatDiscarded {
+            history_deleted: false,
+            id,
+        }
+        .into(),
+        date: 124,
+    }
+    .into()
+}
+
+#[tokio::test]
+async fn signed_secret_chat_id_for_unknown_discard_must_be_nonzero() {
+    for (id, expected) in [(-698_877_786, Ok(())), (0, Err(Error::IngressUnavailable))] {
+        let f = started().await;
+        capture(&f, vec![discarded_update(id)], 2).await;
+        let batch = &f.ingress.pending_batches().unwrap()[0];
+        assert_eq!(
+            f.ingress.acknowledge_unknown_discarded(batch.id, 0, false),
+            expected
+        );
+        assert_eq!(
+            f.ingress.pending_batches().unwrap()[0].cursor,
+            usize::from(id != 0)
+        );
+        f.manager.stop().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn signed_secret_chat_id_for_strong_replay_must_be_nonzero() {
+    for (id, expected) in [(-698_877_786, Ok(())), (0, Err(Error::IngressUnavailable))] {
+        let f = started().await;
+        capture(&f, vec![discarded_update(id)], 2).await;
+        assert_eq!(soon(f.manager.drain_ingress()).await, expected);
+        assert_eq!(f.ingress.pending_batches().unwrap().is_empty(), id != 0);
+        f.manager.stop().await.unwrap();
+    }
+}
+
 async fn paused_peer(separate: bool) {
     let f = started().await;
     install(&f, 7);
