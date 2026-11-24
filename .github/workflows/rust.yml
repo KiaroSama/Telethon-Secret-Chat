@@ -380,3 +380,231 @@ jobs:
         with:
           toolchain: '1.100.0'
       - run: cargo run --locked --bin migration-audit -- --require-complete
+
+  signing:
+    name: Sign native package (${{ matrix.target }})
+    needs: [build, evidence, parity]
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    environment: numera-signing
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, target: x86_64-unknown-linux-gnu }
+          - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
+          - { os: windows-2025, target: x86_64-pc-windows-msvc }
+          - { os: windows-11-arm, target: aarch64-pc-windows-msvc }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: native-${{ matrix.target }}
+          path: unsigned
+      - name: Sign and verify the native package
+        shell: bash
+        env:
+          NATIVE_TARGET: ${{ matrix.target }}
+          NUMERA_SIGNING_PFX_BASE64: ${{ secrets.NUMERA_SIGNING_PFX_BASE64 }}
+          NUMERA_SIGNING_PASSWORD: ${{ secrets.NUMERA_SIGNING_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ "${RUNNER_DEBUG:-}" == 1 ]]; then
+            printf '%s\n' 'Signing refuses runner debug mode' >&2
+            exit 1
+          fi
+          : "${NUMERA_SIGNING_PFX_BASE64:?Missing signing PFX}"
+          : "${NUMERA_SIGNING_PASSWORD:?Missing signing password}"
+          umask 077
+          work=$(mktemp -d)
+          trap 'rm -rf -- "$work"' EXIT
+          printf '%s' "$NUMERA_SIGNING_PFX_BASE64" | base64 --decode > "$work/publisher.pfx"
+          unset NUMERA_SIGNING_PFX_BASE64
+          openssl pkcs12 -in "$work/publisher.pfx" -nocerts -noenc \
+            -passin env:NUMERA_SIGNING_PASSWORD -out "$work/key.pem"
+          chmod 600 "$work/publisher.pfx" "$work/key.pem"
+          python -c 'import json; print(json.load(open("docs/signing/publisher.json", encoding="utf-8"))["public_key_pem"], end="")' > "$work/public.pem"
+          mkdir signed
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            archive="native-$NATIVE_TARGET.zip"
+            export SIGNING_WORK SIGNING_INPUT SIGNING_OUTPUT
+            SIGNING_WORK=$(cygpath -aw "$work")
+            SIGNING_INPUT=$(cygpath -aw "unsigned/$archive")
+            SIGNING_OUTPUT=$(cygpath -aw "signed/$archive")
+            cat > "$work/authenticode.ps1" <<'POWERSHELL'
+          $ErrorActionPreference = 'Stop'
+          $publisher = Get-Content -LiteralPath 'docs/signing/publisher.json' -Raw -Encoding utf8 | ConvertFrom-Json
+          $thumb = $publisher.certificate_thumbprint
+          if ($thumb -cnotmatch '^[0-9A-F]{40}$') { throw 'Invalid publisher thumbprint' }
+          $kit = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits/10/bin'
+          $arches = if ($env:RUNNER_ARCH -eq 'ARM64') { 'arm64', 'x64' } else { 'x64' }
+          $st = foreach ($arch in $arches) {
+              Get-ChildItem -Path "$kit/*/$arch/signtool.exe" -File | Sort-Object FullName -Descending
+          }
+          $st = $st | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $st) { throw 'Windows SDK SignTool was not found' }
+          $work = $env:SIGNING_WORK
+          $pkg = Join-Path $work 'pkg'
+          Expand-Archive -LiteralPath $env:SIGNING_INPUT -DestinationPath $pkg
+          $tools = 'generate-schema.exe', 'matrix-evidence.exe', 'migration-audit.exe', 'prepare-sdk.exe'
+          $expected = $tools + @('build-info.json', 'LICENSE', 'NOTICE', 'README.md', 'SHA256SUMS')
+          $entries = @(Get-ChildItem -LiteralPath $pkg -Force)
+          if (($entries.PSIsContainer -contains $true) -or (Compare-Object ($expected | Sort-Object) ($entries.Name | Sort-Object) -CaseSensitive)) {
+              throw 'Unexpected Windows package contents'
+          }
+          $flags = 'UserKeySet, PersistKeySet'
+          $pfx = Join-Path $work 'publisher.pfx'
+          # Check the PFX against the pinned public identity before adding trust to this hosted runner.
+          $cert = [Security.Cryptography.X509Certificates.X509CertificateLoader]::LoadPkcs12FromFile($pfx, $env:NUMERA_SIGNING_PASSWORD, 'EphemeralKeySet')
+          try {
+              if (-not $cert.HasPrivateKey -or $cert.Thumbprint -cne $thumb -or
+                  $cert.GetCertHashString([Security.Cryptography.HashAlgorithmName]::SHA256) -ine $publisher.certificate_sha256) {
+                  throw 'Signing certificate does not match the publisher record'
+              }
+          } finally { $cert.Dispose() }
+          $cert = [Security.Cryptography.X509Certificates.X509CertificateLoader]::LoadPkcs12FromFile($pfx, $env:NUMERA_SIGNING_PASSWORD, $flags)
+          Remove-Item Env:NUMERA_SIGNING_PASSWORD
+          $public = [Security.Cryptography.X509Certificates.X509Certificate2]::new($cert.RawData)
+          $personal = [Security.Cryptography.X509Certificates.X509Store]::new('My', 'CurrentUser')
+          $roots = [Security.Cryptography.X509Certificates.X509Store]::new('Root', 'LocalMachine')
+          try {
+              $personal.Open('ReadWrite')
+              $roots.Open('ReadWrite')
+              $personal.Add($cert)
+              $roots.Add($public)
+              foreach ($tool in $tools) {
+                  $exe = Join-Path $pkg $tool
+                  # Select the imported key by thumbprint so the password never appears in SignTool arguments.
+                  & $st sign /fd SHA256 /sha1 $thumb /tr http://timestamp.digicert.com /td SHA256 $exe
+                  if ($LASTEXITCODE -ne 0) { throw "Signing failed: $tool" }
+                  $verification = (& $st verify /pa /v /tw $exe 2>&1) -join "`n"
+                  if ($LASTEXITCODE -ne 0 -or $verification -notmatch "SHA1 hash:\s*$thumb\b" -or
+                      $verification -notmatch 'The signature is timestamped:' -or
+                      $verification -match 'did not verify|File not valid|No signature found') {
+                      throw "Signature verification failed for ${tool}: $verification"
+                  }
+                  $tampered = Join-Path $work 'tampered.exe'
+                  Copy-Item -LiteralPath $exe -Destination $tampered -Force
+                  $stream = [IO.File]::Open($tampered, 'Append')
+                  try { $stream.WriteByte(88) } finally { $stream.Dispose() }
+                  $null = & $st verify /pa /v $tampered 2>&1
+                  if ($LASTEXITCODE -ne 1) { throw "Tampered executable did not fail verification: $tool" }
+                  Write-Output "Verified signer, timestamp and tamper rejection: $tool"
+              }
+              Get-ChildItem -LiteralPath $pkg -File | Where-Object Name -ne 'SHA256SUMS' | Sort-Object Name | ForEach-Object {
+                  $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+                  "$hash  $($_.Name)"
+              } | Set-Content -LiteralPath (Join-Path $pkg 'SHA256SUMS') -Encoding utf8
+              Compress-Archive -LiteralPath ($expected | ForEach-Object { Join-Path $pkg $_ }) -DestinationPath $env:SIGNING_OUTPUT
+          } finally {
+              if (Test-Path "Cert:\CurrentUser\My\$thumb") { Remove-Item "Cert:\CurrentUser\My\$thumb" -DeleteKey -Force }
+              if ($roots.IsOpen) { $roots.Remove($public) }
+              $roots.Dispose()
+              $personal.Dispose()
+              $public.Dispose()
+              $cert.Dispose()
+          }
+          POWERSHELL
+            pwsh -NoProfile -NonInteractive -File "$(cygpath -aw "$work/authenticode.ps1")"
+          else
+            archive="native-$NATIVE_TARGET.tar.gz"
+            cp -- "unsigned/$archive" "signed/$archive"
+          fi
+          unset NUMERA_SIGNING_PASSWORD
+          (cd signed && sha256sum -- "$archive" > "$archive.sha256")
+          openssl dgst -sha256 -sign "$work/key.pem" -out "signed/$archive.sig" "signed/$archive"
+          openssl dgst -sha256 -verify "$work/public.pem" -signature "signed/$archive.sig" "signed/$archive"
+          cp -- "signed/$archive" "$work/tampered-archive"
+          printf X >> "$work/tampered-archive"
+          if openssl dgst -sha256 -verify "$work/public.pem" -signature "signed/$archive.sig" "$work/tampered-archive"; then
+            printf '%s\n' 'Tampered archive verified unexpectedly' >&2
+            exit 1
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: native-signed-${{ matrix.target }}
+          path: signed/*
+          retention-days: 30
+          if-no-files-found: error
+
+  publish:
+    name: Publish signed native packages
+    if: startsWith(github.ref, 'refs/tags/v') && github.ref != 'refs/tags/v0.3.0'
+    needs: signing
+    environment: numera-signing
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Check the Cargo release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')
+          test "$GITHUB_REF_NAME" = "v$version"
+          test "$GITHUB_REF_NAME" != v0.3.0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: native-signed-*
+          path: signed
+      - name: Verify archives and sign the release checksums
+        shell: bash
+        env:
+          NUMERA_SIGNING_PFX_BASE64: ${{ secrets.NUMERA_SIGNING_PFX_BASE64 }}
+          NUMERA_SIGNING_PASSWORD: ${{ secrets.NUMERA_SIGNING_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [[ "${RUNNER_DEBUG:-}" == 1 ]]; then
+            printf '%s\n' 'Signing refuses runner debug mode' >&2
+            exit 1
+          fi
+          : "${NUMERA_SIGNING_PFX_BASE64:?Missing signing PFX}"
+          : "${NUMERA_SIGNING_PASSWORD:?Missing signing password}"
+          umask 077
+          work=$(mktemp -d)
+          trap 'rm -rf -- "$work"' EXIT
+          printf '%s' "$NUMERA_SIGNING_PFX_BASE64" | base64 --decode > "$work/publisher.pfx"
+          openssl pkcs12 -in "$work/publisher.pfx" -nocerts -noenc \
+            -passin env:NUMERA_SIGNING_PASSWORD -out "$work/key.pem"
+          unset NUMERA_SIGNING_PFX_BASE64 NUMERA_SIGNING_PASSWORD
+          mkdir release
+          jq -er .certificate_pem docs/signing/publisher.json > release/publisher-cert.pem
+          jq -er .public_key_pem docs/signing/publisher.json > release/publisher-key.pem
+          cmp <(openssl x509 -in release/publisher-cert.pem -noout -pubkey) <(openssl pkey -pubin -in release/publisher-key.pem)
+          for target in {x86_64,aarch64}-unknown-linux-gnu {x86_64,aarch64}-pc-windows-msvc; do
+            if [[ "$target" == *-windows-msvc ]]; then ext=zip; else ext=tar.gz; fi
+            archive="native-$target.$ext"
+            dir="signed/native-signed-$target"
+            openssl dgst -sha256 -verify release/publisher-key.pem -signature "$dir/$archive.sig" "$dir/$archive"
+            cp -- "$dir/$archive" "$dir/$archive.sig" release/
+            (cd release && sha256sum -- "$archive" > "$archive.sha256")
+            cmp "release/$archive.sha256" "$dir/$archive.sha256"
+          done
+          (
+            cd release
+            sha256sum -- * > SHA256SUMS
+            openssl dgst -sha256 -sign "$work/key.pem" -out SHA256SUMS.sig SHA256SUMS
+            openssl dgst -sha256 -verify publisher-key.pem -signature SHA256SUMS.sig SHA256SUMS
+            sha256sum --strict -c SHA256SUMS
+          )
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            release/*.tar.gz
+            release/*.zip
+      - name: Upload to the matching GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" release/* --clobber --repo "$GITHUB_REPOSITORY"

@@ -130,6 +130,7 @@ library's design. The [protocol reference](docs/protocol-reference.md),
 [security audits](docs/rust-security-audits.md) cover the wire and key handling.
 For test evidence, see the [migration notes](docs/rust-migration.md),
 [case ledger](migration/README.md) and [opt-in live tests](docs/rust-live-tests.md).
+See [Publisher signatures](docs/SIGNING.md) to verify native packages.
 
 ```sh
 cargo fetch --locked
