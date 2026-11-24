@@ -1,27 +1,30 @@
+<div align="center">
+
 # Kiaro Secret Chat · Rust
+
+**Telegram MTProto 2.0 end-to-end encrypted secret chats for a caller-owned grammers client in Rust.**
+
+[![GitHub Actions CI across 64-bit Linux and Windows](https://img.shields.io/badge/CI-GitHub%20Actions-16a34a)](.github/workflows/rust.yml)
+[![GNU General Public License v3.0 or later](https://img.shields.io/badge/license-GPL--3.0--or--later-2563eb)](LICENSE)
+[![Crate release v0.3.0 with GPG-signed archives](https://img.shields.io/badge/release-v0.3.0-ea580c)](CHANGELOG.md)
+[![169 offline release tests and 1,851 mapped parity cases](https://img.shields.io/badge/tests-169%20release%20%7C%201851%20cases-0d9488)](migration/README.md)
+[![Rust 1.100.0 measured locally, edition 2024, MSRV 1.95](https://img.shields.io/badge/Rust-1.100.0-8b5cf6)](rust-toolchain.toml)
+[![Runs on 64-bit Linux and Windows](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-0891b2)](.github/workflows/rust.yml)
+[![Install from Git or GPG-signed release archives](https://img.shields.io/badge/install-Git%20%7C%20release-4f46e5)](#install-from-git)
+[![Architecture documentation, protocol reference, and ADRs](https://img.shields.io/badge/docs-architecture%20%7C%20ADRs-0284c7)](docs/architecture.md)
+[![Published tree measured via git ls-files is 14.03 MB](https://img.shields.io/badge/repo%20size-14.03%20MB-ca8a04)](Cargo.toml)
+[![Built with grammers 0.12.0 on Telegram API layer 233](https://img.shields.io/badge/built%20with-grammers%200.12.0-15803d)](docs/rust-migration.md)
+[![Secret chats use MTProto 2.0 layers 73 through 144](https://img.shields.io/badge/protocol-MTProto%202.0%20L73--144-b45309)](docs/protocol-reference.md)
+[![Native builds target x64 and arm64 only](https://img.shields.io/badge/arch-x64%20%7C%20arm64-334155)](docs/rust-ci.md)
+[![Project crate forbids unsafe Rust code](https://img.shields.io/badge/safety-unsafe%20forbidden-7c3aed)](Cargo.toml)
+[![CodeQL static analysis and Gitleaks secret scanning](https://img.shields.io/badge/security-CodeQL%20%7C%20Gitleaks-c2410c)](.github/workflows/codeql.yml)
+[![Support donations](https://img.shields.io/badge/Support-donations-d04a9a)](#donate)
+
+</div>
 
 `kiaro-secret-chat` adds Telegram MTProto 2.0 secret chats to your application's
 [grammers](https://codeberg.org/Lonami/grammers) client. The crate version is
 `0.3.0`; import it as `kiaro_secret_chat` in Rust.
-
-<div align="center">
-
-[![Licensed under GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-52603a)](LICENSE)
-[![Crate version v0.3.0](https://img.shields.io/badge/version-v0.3.0-6d5178)](CHANGELOG.md)
-[![Primary toolchain is Rust 1.100.0](https://img.shields.io/badge/Rust-1.100.0-8b5cf6)](rust-toolchain.toml)
-[![CI targets Linux and Windows](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-0891b2)](.github/workflows/rust.yml)
-[![Architecture documentation and decision records](https://img.shields.io/badge/docs-architecture%20%26%20ADRs-265080)](docs/architecture.md)
-[![Tracked working tree measures 14.02 MB](https://img.shields.io/badge/repo%20size-14.02%20MB-ca8a04)](Cargo.toml)
-[![Secret chats use MTProto 2.0 for layers 73 through 144](https://img.shields.io/badge/protocol-MTProto%202.0%20L73--144-8b4b22)](docs/protocol-reference.md)
-[![Uses grammers 0.12.0 with Telegram API layer 233](https://img.shields.io/badge/SDK-grammers%200.12.0%20API%20233-375f43)](docs/rust-migration.md)
-[![Uses the Rust 2024 edition](https://img.shields.io/badge/edition-Rust%202024-6b489c)](Cargo.toml)
-[![Minimum supported Rust version is 1.95](https://img.shields.io/badge/MSRV-1.95-435870)](Cargo.toml)
-[![CI targets x64 and arm64](https://img.shields.io/badge/architecture-x64%20%7C%20arm64-71454d)](docs/rust-ci.md)
-[![The project crate forbids unsafe Rust](https://img.shields.io/badge/safety-unsafe%20forbidden-4f6267)](Cargo.toml)
-[![Migration maps 1,851 legacy test cases](https://img.shields.io/badge/parity-1851%20mapped%20cases-794369)](migration/README.md)
-[![Support donations](https://img.shields.io/badge/Support-donations-d04a9a)](#donate)
-
-</div>
 
 ## Features
 
