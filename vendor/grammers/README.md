@@ -29,8 +29,8 @@ official inputs before reproducing this project's complete patched source graph.
 
 Direct path dependencies keep the same SDK type graph for Git consumers; Cargo
 patches do not propagate from a dependency to its consumer. Use the SDK crates
-re-exported by `kiaro_secret_chat`. The TL layer remains 233. This source alpha
-includes deliberate API corrections: absent media IDs and missing refetched
+re-exported by `kiaro_secret_chat`. The TL layer remains 233. This source release
+includes API corrections: absent media IDs and missing refetched
 messages use `Option`, participants retain non-user peers, and unavailable dialog
 references and callback messages return explicit absence/errors. See
 `docs/rust-export.md` in the root repository for the precise API changes.

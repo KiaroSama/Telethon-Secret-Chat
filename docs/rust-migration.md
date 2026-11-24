@@ -1,11 +1,9 @@
 # Rust migration and SDK compatibility
 
-`kiaro-secret-chat` is a Rust 2024 source/Git crate, version `0.3.0-alpha.1`, MSRV
-1.95. Development and primary CI builds use pinned Rust 1.99.1; the separate
-1.95 CI lane verifies minimum-version compatibility. The dependency graph is
-pinned. PR #33 remains
-unmerged. The completeness gate and final-head matrix must agree on all 1851
-collected cases; passing a component subset does not establish completion.
+`kiaro-secret-chat` is a Rust 2024 source/Git crate, version `0.3.0`, MSRV
+1.95. Development and primary CI builds use Rust 1.100.0. A separate CI lane
+checks compatibility with 1.95. The dependency graph is pinned. The completeness
+gate and the final commit's CI matrix must agree on all 1,851 collected cases.
 
 ## One SDK graph
 
@@ -15,8 +13,8 @@ Three Rust crates are bundled under `vendor/grammers`:
 
 - `grammers-client`: coherent bundled sender/session graph, with local fixes for
   request association, pagination, transfer bounds, update caching and typed
-  media/peer/parser boundaries. This alpha explicitly corrects optional-result
-  APIs rather than retaining upstream panic paths; see `rust-export.md`.
+  media, peer and parser boundaries. APIs that may return no result use `Option`;
+  see `rust-export.md`.
 - `grammers-session`: full bounded MessageBoxes checkpoint and envelope/output
   codecs including gaps, deadlines, counters and difference ownership.
 - `grammers-mtsender`: pre-start attachment, one update receiver, pre-ack commit,

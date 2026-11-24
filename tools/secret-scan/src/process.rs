@@ -18,12 +18,14 @@ impl PrivateDir {
                 "kiaro-secret-scan-{}-{stamp}-{attempt}",
                 std::process::id()
             ));
-            let mut builder = fs::DirBuilder::new();
+            let builder = fs::DirBuilder::new();
             #[cfg(unix)]
-            {
+            let builder = {
                 use std::os::unix::fs::DirBuilderExt;
+                let mut builder = builder;
                 builder.mode(0o700);
-            }
+                builder
+            };
             match builder.create(&path) {
                 Ok(()) => return Ok(Self(path)),
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
@@ -119,13 +121,14 @@ pub fn run(
         std::thread::sleep(Duration::from_millis(25));
     }
 }
+#[cfg(unix)]
 pub fn executable(path: &Path) -> Result<()> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o700))
-            .map_err(|_| "The verified executable permissions could not be set.")?;
-    }
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700))
+        .map_err(|_| "The verified executable permissions could not be set.")
+}
+#[cfg(not(unix))]
+pub fn executable(_: &Path) -> Result<()> {
     Ok(())
 }
 pub fn real_git() -> Result<PathBuf> {

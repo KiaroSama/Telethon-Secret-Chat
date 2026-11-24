@@ -1,6 +1,41 @@
-# Rust build and verification products. Cargo.lock is intentionally tracked.
+/.ai/
+/.specify/
+/specs/
+/secrets.md
+/explain-AI.md
+/reference.md
+/CLAUDE.md
+/AGENTS.md
+/.agents/
+/.claude/
+/.kiro/
+/.codex/
+/.cursor/
+/.cline/
+/graphify-out/
+/.codebase-memory/
+/plans/
+.ignoreme
+**/.ignoreme
+
+# Rust build and verification products. Cargo.lock and vendor/grammers are tracked.
 /target/
 **/target/
+/debug/
+**/*.rs.bk
+*.pdb
+**/mutants.out*/
+rustc-ice-*.txt
+/.cargo/*
+!/.cargo/config.toml
+**/.cargo/credentials*
+lcov.info
+tarpaulin-report.*
+cobertura.xml
+flamegraph.svg
+perf.data
+perf.data.old
+/criterion/
 /coverage/
 /coverage.lcov
 /rust-tests.txt
@@ -25,31 +60,15 @@
 !/.env.template
 !/.env.dist
 
-# Project-local private instruction, research and generated graph infrastructure.
-/.ai/
+# Project-local private instruction, research and signing files.
 **/.ai/
-/plans/
-/specs/
-/secrets.md
-/explain-AI.md
-/reference.md
-/CLAUDE.md
-/AGENTS.md
-/.agents/
-/.claude/
-/.kiro/
-/.codex/
-/.cursor/
-/.cline/
-/graphify-out/
-/.codebase-memory/
-/.specify/
+/.gpg-private/
 /skills-lock.json
-.ignoreme
-**/.ignoreme
 /Original Repository.url
 
 # Scratch reference artifacts are never distribution inputs.
+/.coverage
+/build/
 __pycache__/
 .pytest_cache/
 .hypothesis/

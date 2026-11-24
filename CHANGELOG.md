@@ -5,29 +5,32 @@ package by commit and reads this file before moving its pin. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/) with the pre-1.0 rule that a minor bump may break.
 
-## [0.3.0-alpha.1] — Rust rewrite (PR #33, unmerged)
+## [0.3.0]
 
 ### Changed
 
-- Replaced the library, tools, schema generator and executable tests with Rust
-  2024 (MSRV 1.95), using the official pinned grammers 0.12 graph.
-- Added coherent Rust SDK supplements for full encrypted pre-ack receipt custody,
-  original-client proof, checkpoint restoration and caller-issued difference RPCs.
-- Ported managed lifecycle, durable handshakes/mailboxes, exact retries, PFS,
-  eight media kinds, protected/transient/bounded modes, saving and HTML/JSON export.
-- Preserved the 1851-scenario inventory and types with distinct native mappings,
-  strict seven-leg execution evidence and real installed-Git consumer checks.
-- Converted CI to always build Rust on Linux and Windows, plus current Rust
-  CodeQL, native secret-scan orchestration, formatting, Clippy and coverage.
-- Updated docs and provenance; retained licensed static viewer assets as data.
+- Rewrote the library, tools, schema generator and tests in Rust 2024. The
+  minimum supported Rust version is 1.95. Development and primary CI use 1.100.0.
+- Pinned grammers 0.12 and extended its receive path so strong ingress can
+  commit encrypted receipts before acknowledgement and restore SDK checkpoints.
+- Ported durable handshakes, mailboxes, exact retries and forward-secret rekeying.
+  The library supports eight media kinds, bounded and transient storage, auto-save,
+  and HTML or JSON export using the existing licensed viewer assets.
+- Mapped all 1,851 legacy cases to native Rust scenarios. CI checks those cases
+  across seven legs, builds installed Git consumer fixtures, and runs formatting,
+  Clippy, coverage, CodeQL and secret scanning.
+
+### Fixed
+
+- Cross-data-center authorization caching keeps a keyed tag in memory instead of
+  hashing the raw MTProto authorization key with SHA-256.
 
 ### Breaking compatibility
 
-- Crate name is `kiaro-secret-chat`; APIs and persisted format are native Rust.
-  Python stores/sessions are not imported. Source/Git installation is supported;
-  this alpha is not published to crates.io. See [migration](docs/rust-migration.md).
-- No live Telegram run or `telegram-mcp` integration is implied by offline checks.
-  Final qualification is the latest commit's checks in PR #33, not older releases.
+- The crate is `kiaro-secret-chat`. Its Rust API and persisted format replace the
+  Python API and format. The crate does not import Python stores or Telethon sessions.
+  Install from source or Git. See the [migration notes](docs/rust-migration.md).
+- Offline checks do not establish live Telegram or `telegram-mcp` interoperability.
 
 ## Historical Python unreleased changes
 

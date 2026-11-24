@@ -6,14 +6,68 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
+#![forbid(unsafe_code)]
+
 use std::sync::Arc;
 
+use grammers_crypto::aes::ige_encrypt;
 use grammers_mtsender::{InvocationError, SenderPoolFatHandle};
 use grammers_tl_types as tl;
-use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 
 use super::{Client, ClientConfiguration, ClientInner};
+
+fn auth_key_tag(key: &[u8; 256]) -> [u8; 32] {
+    let (chunks, _) = key.as_chunks::<32>();
+    let (first, second) = (&chunks[0], &chunks[1]);
+    let mut blocks = [0; 256];
+    blocks[..16].copy_from_slice(b"grammers.dc.tag1");
+    blocks[16..208].copy_from_slice(&key[64..]);
+    ige_encrypt(&mut blocks, first, second);
+
+    // Fold the final blocks under the swapped key and IV for this in-memory tag.
+    let mut fold = [0; 48];
+    fold[..16].copy_from_slice(b"grammers.dc.tag2");
+    fold[16..].copy_from_slice(&blocks[224..]);
+    ige_encrypt(&mut fold, second, first);
+    let mut tag = [0; 32];
+    tag.copy_from_slice(&fold[16..]);
+    tag
+}
+
+#[cfg(test)]
+mod tests {
+    use super::auth_key_tag;
+
+    #[test]
+    fn dc_auth_cache_tag_matches_fixture_and_binds_every_key_bit() {
+        let mut key: [u8; 256] = std::array::from_fn(|i| i as u8);
+        let tag = auth_key_tag(&key);
+        assert_eq!(
+            tag,
+            [
+                0x75, 0x61, 0xe9, 0x28, 0x04, 0xb6, 0x93, 0x58, 0x48, 0xbd, 0x6b, 0x8b, 0xc3, 0x68,
+                0x37, 0xa4, 0xd3, 0x0c, 0xe6, 0x31, 0x9f, 0x19, 0xb4, 0xc3, 0x21, 0x9c, 0x9c, 0x29,
+                0xc6, 0x1d, 0x2b, 0x65,
+            ]
+        );
+        assert_eq!(auth_key_tag(&key), tag);
+        for part in tag.chunks_exact(16) {
+            assert!(!key.windows(part.len()).any(|raw| raw == part));
+        }
+        for byte in 0..key.len() {
+            for bit in 0..8 {
+                key[byte] ^= 1 << bit;
+                assert_ne!(
+                    auth_key_tag(&key),
+                    tag,
+                    "unchanged at byte {byte} bit {bit}"
+                );
+                key[byte] ^= 1 << bit;
+            }
+        }
+    }
+}
 
 /// Method implementations directly related with network connectivity.
 impl Client {
@@ -120,19 +174,17 @@ impl Client {
         if target_dc_id == home_dc_id {
             return Ok(());
         }
-        // The authorization import belongs to a particular target auth key, not
-        // merely its DC. Keep only a digest; never retain another raw key copy.
-        let fingerprint = || -> Result<Option<[u8; 32]>, InvocationError> {
-            Ok(self.0.session.dc_option(target_dc_id)?.and_then(|option| {
-                option
-                    .auth_key
-                    .as_ref()
-                    .map(|key| Sha256::digest(key).into())
-            }))
+        // Tie each cached import to its target key without retaining the key.
+        let current_tag = || -> Result<Option<[u8; 32]>, InvocationError> {
+            Ok(self
+                .0
+                .session
+                .dc_option(target_dc_id)?
+                .and_then(|option| option.auth_key.as_ref().map(auth_key_tag)))
         };
         for _ in 0..2 {
-            let before = fingerprint()?;
-            if before.is_some_and(|digest| auth_copied_to_dcs.contains(&(target_dc_id, digest))) {
+            let before = current_tag()?;
+            if before.is_some_and(|tag| auth_copied_to_dcs.contains(&(target_dc_id, tag))) {
                 return Ok(());
             }
             let tl::enums::auth::ExportedAuthorization::Authorization(exported_auth) = self
@@ -148,12 +200,12 @@ impl Client {
                 },
             )
             .await?;
-            let after = fingerprint()?;
+            let after = current_tag()?;
             // Opening a fresh connection can create its key during import. Only
             // publish an import proven to span the same key on both sides.
-            if let Some(digest) = after.filter(|_| before == after) {
+            if let Some(tag) = after.filter(|_| before == after) {
                 auth_copied_to_dcs.retain(|(dc, _)| *dc != target_dc_id);
-                auth_copied_to_dcs.push((target_dc_id, digest));
+                auth_copied_to_dcs.push((target_dc_id, tag));
                 return Ok(());
             }
         }

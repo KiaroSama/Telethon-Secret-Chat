@@ -14,12 +14,12 @@ then executes all targets on these seven native legs:
 | Hosted runner | Architecture | Rust | Profile |
 | --- | --- | --- | --- |
 | ubuntu-24.04 | x86_64 | 1.95.0 | Debug, including debug assertions |
-| ubuntu-24.04 | x86_64 | 1.99.1 | Debug, with native library coverage |
-| ubuntu-24.04 | x86_64 | 1.99.1 | Release |
-| ubuntu-24.04 | x86_64 | 1.99.1 | Debug, forced portable AES backend |
-| ubuntu-24.04-arm | aarch64 | 1.99.1 | Release |
-| windows-2025 | x86_64 | 1.99.1 | Release |
-| windows-11-arm | aarch64 | 1.99.1 | Release |
+| ubuntu-24.04 | x86_64 | 1.100.0 | Debug, with native library coverage |
+| ubuntu-24.04 | x86_64 | 1.100.0 | Release |
+| ubuntu-24.04 | x86_64 | 1.100.0 | Debug, forced portable AES backend |
+| ubuntu-24.04-arm | aarch64 | 1.100.0 | Release |
+| windows-2025 | x86_64 | 1.100.0 | Release |
+| windows-11-arm | aarch64 | 1.100.0 | Release |
 
 Release lanes use Cargo's optimized release defaults.
 macOS runners and macOS release artifacts are disabled for this PR.
@@ -67,7 +67,7 @@ Git/source graph described below.
 
 ## Coverage and source checks
 
-The Ubuntu 1.99.1 debug leg uses pinned `cargo-llvm-cov` 0.9.1 and LLVM tools,
+The Ubuntu 1.100.0 debug leg uses pinned `cargo-llvm-cov` 0.9.1 and LLVM tools,
 with a **90% line-coverage gate**. Its package-library scope includes the native
 protocol, storage, manager, SDK adapters and exporter. It excludes integration
 tests, the explicitly named `cfg(test)` storage/ingress helper modules, generated

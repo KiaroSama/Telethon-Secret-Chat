@@ -39,7 +39,7 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca
         with:
-          toolchain: '1.99.1'
+          toolchain: '1.100.0'
 
       - name: Initialise CodeQL
         uses: github/codeql-action/init@5895b2c9be147bc7f1c75ce72c5cb577febb1907 # v4

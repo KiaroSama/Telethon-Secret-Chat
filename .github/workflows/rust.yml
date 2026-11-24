@@ -37,37 +37,37 @@ jobs:
             arch: x86_64
             runner_arch: X64
             target: x86_64-unknown-linux-gnu
-            toolchain: '1.99.1'
+            toolchain: '1.100.0'
             profile: debug
           - os: ubuntu-24.04
             arch: x86_64
             runner_arch: X64
             target: x86_64-unknown-linux-gnu
-            toolchain: '1.99.1'
+            toolchain: '1.100.0'
             profile: release
           - os: ubuntu-24.04
             arch: x86_64
             runner_arch: X64
             target: x86_64-unknown-linux-gnu
-            toolchain: '1.99.1'
+            toolchain: '1.100.0'
             profile: portable-aes
           - os: ubuntu-24.04-arm
             arch: aarch64
             runner_arch: ARM64
             target: aarch64-unknown-linux-gnu
-            toolchain: '1.99.1'
+            toolchain: '1.100.0'
             profile: release
           - os: windows-2025
             arch: x86_64
             runner_arch: X64
             target: x86_64-pc-windows-msvc
-            toolchain: '1.99.1'
+            toolchain: '1.100.0'
             profile: release
           - os: windows-11-arm
             arch: aarch64
             runner_arch: ARM64
             target: aarch64-pc-windows-msvc
-            toolchain: '1.99.1'
+            toolchain: '1.100.0'
             profile: release
     env:
       # Keep rust-toolchain.toml and nested Cargo/rustc calls on this exact leg.
@@ -93,7 +93,7 @@ jobs:
         with:
           toolchain: ${{ matrix.toolchain }}
           targets: ${{ matrix.target }}
-          components: ${{ matrix.os == 'ubuntu-24.04' && matrix.toolchain == '1.99.1' && matrix.profile == 'debug' && 'rustfmt,clippy,llvm-tools-preview' || 'rustfmt,clippy' }}
+          components: ${{ matrix.os == 'ubuntu-24.04' && matrix.toolchain == '1.100.0' && matrix.profile == 'debug' && 'rustfmt,clippy,llvm-tools-preview' || 'rustfmt,clippy' }}
       # Git Bash under ARM Windows emulation can silently return success without
       # executing commands (actions/runner-images#14052). Use native PowerShell.
       - name: Install the native Windows ARM64 toolchain
@@ -130,7 +130,7 @@ jobs:
           rustc --version
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Install the pinned native coverage runner
-        if: matrix.os == 'ubuntu-24.04' && matrix.toolchain == '1.99.1' && matrix.profile == 'debug'
+        if: matrix.os == 'ubuntu-24.04' && matrix.toolchain == '1.100.0' && matrix.profile == 'debug'
         uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2
         with:
           tool: cargo-llvm-cov@0.9.1
@@ -207,8 +207,8 @@ jobs:
         shell: bash
         env:
           BUILD_PROFILE: ${{ matrix.profile }}
-          RUST_COVERAGE: ${{ matrix.os == 'ubuntu-24.04' && matrix.toolchain == '1.99.1' && matrix.profile == 'debug' }}
-          LLVM_COV_FLAGS: ${{ matrix.os == 'ubuntu-24.04' && matrix.toolchain == '1.99.1' && matrix.profile == 'debug' && format('--object={0}/target/debug/kiaro-sdk-ingress-harness', github.workspace) || '' }}
+          RUST_COVERAGE: ${{ matrix.os == 'ubuntu-24.04' && matrix.toolchain == '1.100.0' && matrix.profile == 'debug' }}
+          LLVM_COV_FLAGS: ${{ matrix.os == 'ubuntu-24.04' && matrix.toolchain == '1.100.0' && matrix.profile == 'debug' && format('--object={0}/target/debug/kiaro-sdk-ingress-harness', github.workspace) || '' }}
         run: |
           set -o pipefail
           if [ "$RUST_COVERAGE" = true ]; then
@@ -227,7 +227,7 @@ jobs:
           $cargoStatus = $LASTEXITCODE
           if ($cargoStatus -ne 0) { exit $cargoStatus }
       - name: Export stable line and region coverage statistics
-        if: always() && matrix.os == 'ubuntu-24.04' && matrix.toolchain == '1.99.1' && matrix.profile == 'debug'
+        if: always() && matrix.os == 'ubuntu-24.04' && matrix.toolchain == '1.100.0' && matrix.profile == 'debug'
         shell: bash
         env:
           LLVM_COV_FLAGS: --object=${{ github.workspace }}/target/debug/kiaro-sdk-ingress-harness
@@ -235,11 +235,11 @@ jobs:
       # In pinned llvm-cov0.9.1, the internal threshold query omits extra objects
       # from LLVM_COV_FLAGS. Check the actual published JSON, including the SDK.
       - name: Require 90 percent measured owned-library line coverage
-        if: matrix.os == 'ubuntu-24.04' && matrix.toolchain == '1.99.1' && matrix.profile == 'debug'
+        if: matrix.os == 'ubuntu-24.04' && matrix.toolchain == '1.100.0' && matrix.profile == 'debug'
         shell: bash
         run: target/debug/matrix-evidence --coverage coverage-summary.json
       - name: Save native library coverage
-        if: always() && matrix.os == 'ubuntu-24.04' && matrix.toolchain == '1.99.1' && matrix.profile == 'debug'
+        if: always() && matrix.os == 'ubuntu-24.04' && matrix.toolchain == '1.100.0' && matrix.profile == 'debug'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: native-library-coverage
@@ -249,7 +249,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       - name: Check formatting and warnings
-        if: matrix.os == 'ubuntu-24.04' && matrix.toolchain == '1.99.1' && matrix.profile == 'debug'
+        if: matrix.os == 'ubuntu-24.04' && matrix.toolchain == '1.100.0' && matrix.profile == 'debug'
         shell: bash
         run: |
           cargo fmt --all --check
@@ -357,7 +357,7 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca
         with:
-          toolchain: '1.99.1'
+          toolchain: '1.100.0'
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: rust-*
@@ -378,5 +378,5 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca
         with:
-          toolchain: '1.99.1'
+          toolchain: '1.100.0'
       - run: cargo run --locked --bin migration-audit -- --require-complete

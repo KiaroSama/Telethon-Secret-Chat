@@ -11,12 +11,12 @@ pub use coverage::check_coverage;
 pub const EXPECTED_CASES: usize = 1851;
 pub const LEGS: [&str; 7] = [
     "rust-ubuntu-24.04-x86_64-1.95.0-debug",
-    "rust-ubuntu-24.04-x86_64-1.99.1-debug",
-    "rust-ubuntu-24.04-x86_64-1.99.1-release",
-    "rust-ubuntu-24.04-x86_64-1.99.1-portable-aes",
-    "rust-ubuntu-24.04-arm-aarch64-1.99.1-release",
-    "rust-windows-2025-x86_64-1.99.1-release",
-    "rust-windows-11-arm-aarch64-1.99.1-release",
+    "rust-ubuntu-24.04-x86_64-1.100.0-debug",
+    "rust-ubuntu-24.04-x86_64-1.100.0-release",
+    "rust-ubuntu-24.04-x86_64-1.100.0-portable-aes",
+    "rust-ubuntu-24.04-arm-aarch64-1.100.0-release",
+    "rust-windows-2025-x86_64-1.100.0-release",
+    "rust-windows-11-arm-aarch64-1.100.0-release",
 ];
 pub const LIVE_CASES: [&str; 10] = [
     "tests/rust_live_interop.rs::both_ends_agree_on_key_fingerprint",
@@ -31,8 +31,8 @@ pub const LIVE_CASES: [&str; 10] = [
     "tests/rust_live_interop.rs::delete_both_sides_removes_peer_chat",
 ];
 pub const WINDOWS_LEGS: [&str; 2] = [
-    "rust-windows-2025-x86_64-1.99.1-release",
-    "rust-windows-11-arm-aarch64-1.99.1-release",
+    "rust-windows-2025-x86_64-1.100.0-release",
+    "rust-windows-11-arm-aarch64-1.100.0-release",
 ];
 pub const WINDOWS_CASES: [&str; 3] = [
     "unittests src/lib.rs::storage::contract_tests::file_backend_is_owner_only",

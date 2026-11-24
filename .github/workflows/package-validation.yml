@@ -29,8 +29,8 @@ jobs:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca
         with:
-          toolchain: '1.99.1'
-      # The four installed-Git-consumer cases run on all nine Rust matrix legs.
+          toolchain: '1.100.0'
+      # The four installed-Git-consumer cases run on all seven Rust matrix legs.
       # This job verifies source inputs and never claims a normalized .crate is usable.
       - name: Verify native package inputs and inherited licenses
         shell: bash

@@ -1,7 +1,6 @@
 #![allow(clippy::unwrap_used)]
 use super::contract_tests::{incoming, record};
 use super::*;
-use crate::test_support::logging;
 #[test]
 fn recovery_window_edge_is_accepted_and_next_refused() {
     let mut chat = record(1);
@@ -84,6 +83,8 @@ fn missing_store_fields_refused() {
 fn ordinary_directory_sync_failure_warns_after_whole_replace() {
     #[cfg(unix)]
     {
+        use crate::test_support::logging;
+
         let capture = logging::Capture::default();
         let logs = std::sync::Arc::clone(&capture.0);
         let _guard = tracing::subscriber::set_default(capture);

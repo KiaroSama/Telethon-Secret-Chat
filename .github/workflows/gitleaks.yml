@@ -38,7 +38,7 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca
         with:
-          toolchain: '1.99.1'
+          toolchain: '1.100.0'
           components: rustfmt, clippy
       - name: Build only the audited scanner helper outside the checkout
         working-directory: ${{ runner.temp }}
