@@ -1,7 +1,7 @@
 //! Desktop's value formatting, with an explicit timezone context for repeatable exports.
 use super::error::{ExportError, Result};
 use jiff::{
-    Timestamp, Zoned,
+    Timestamp, ZonedDateTime,
     tz::{Offset, TimeZone},
 };
 #[derive(Clone)]
@@ -37,7 +37,7 @@ impl DateContext {
         Self::from_zone(TimeZone::system())
     }
     fn from_zone(zone: TimeZone) -> Self {
-        let now = Timestamp::now().to_zoned(zone.clone());
+        let now = Timestamp::now().to_zoned_datetime(zone.clone());
         let jan = now
             .with()
             .month(1)
@@ -59,10 +59,10 @@ impl DateContext {
             standard_offset: jan.min(jul),
         }
     }
-    pub fn datetime(&self, date: i64) -> Result<Zoned> {
+    pub fn datetime(&self, date: i64) -> Result<ZonedDateTime> {
         Ok(Timestamp::from_second(date)
             .map_err(|_| ExportError::InvalidRecord)?
-            .to_zoned(self.zone.clone()))
+            .to_zoned_datetime(self.zone.clone()))
     }
     pub fn standard_offset(&self) -> i32 {
         self.standard_offset

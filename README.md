@@ -4,21 +4,21 @@
 
 **Telegram MTProto 2.0 end-to-end encrypted secret chats for a caller-owned grammers client in Rust.**
 
-[![GitHub Actions CI across 64-bit Linux and Windows](https://img.shields.io/badge/CI-GitHub%20Actions-16a34a)](.github/workflows/rust.yml)
-[![GNU General Public License v3.0 or later](https://img.shields.io/badge/license-GPL--3.0--or--later-2563eb)](LICENSE)
-[![Crate release v0.3.0 with GPG-signed archives](https://img.shields.io/badge/release-v0.3.0-ea580c)](CHANGELOG.md)
-[![169 offline release tests and 1,851 mapped parity cases](https://img.shields.io/badge/tests-169%20release%20%7C%201851%20cases-0d9488)](migration/README.md)
-[![Rust 1.100.0 measured locally, edition 2024, MSRV 1.95](https://img.shields.io/badge/Rust-1.100.0-8b5cf6)](rust-toolchain.toml)
-[![Runs on 64-bit Linux and Windows](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-0891b2)](.github/workflows/rust.yml)
-[![Install from Git or GPG-signed release archives](https://img.shields.io/badge/install-Git%20%7C%20release-4f46e5)](#install-from-git)
-[![Architecture documentation, protocol reference, and ADRs](https://img.shields.io/badge/docs-architecture%20%7C%20ADRs-0284c7)](docs/architecture.md)
-[![Published tree measured via git ls-files is 14.06 MB](https://img.shields.io/badge/repo%20size-14.06%20MB-ca8a04)](Cargo.toml)
-[![Built with grammers 0.12.0 on Telegram API layer 233](https://img.shields.io/badge/built%20with-grammers%200.12.0-15803d)](docs/rust-migration.md)
-[![Secret chats use MTProto 2.0 layers 73 through 144](https://img.shields.io/badge/protocol-MTProto%202.0%20L73--144-b45309)](docs/protocol-reference.md)
-[![Native builds target x64 and arm64 only](https://img.shields.io/badge/arch-x64%20%7C%20arm64-334155)](docs/rust-ci.md)
-[![Project crate forbids unsafe Rust code](https://img.shields.io/badge/safety-unsafe%20forbidden-7c3aed)](Cargo.toml)
-[![CodeQL static analysis and Gitleaks secret scanning](https://img.shields.io/badge/security-CodeQL%20%7C%20Gitleaks-c2410c)](.github/workflows/codeql.yml)
-[![Support donations](https://img.shields.io/badge/Support-donations-d04a9a)](#donate)
+[![GitHub Actions CI across 64-bit Linux and Windows](https://img.shields.io/github/actions/workflow/status/KiaroSama/Telethon-Secret-Chat/rust.yml?branch=main&style=flat-square&color=16a34a&label=CI)](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/rust.yml)
+[![GNU General Public License v3.0 or later](https://img.shields.io/github/license/KiaroSama/Telethon-Secret-Chat?style=flat-square&color=2563eb)](LICENSE)
+[![Latest GitHub release](https://img.shields.io/github/v/release/KiaroSama/Telethon-Secret-Chat?style=flat-square&color=ea580c)](https://github.com/KiaroSama/Telethon-Secret-Chat/releases)
+[![169 offline release tests and 1,860 matrix identities](https://img.shields.io/badge/tests-169%20release%20%7C%201860%20cases-0d9488?style=flat-square)](#documentation-and-verification)
+[![Rust 1.100.0 measured locally, edition 2024, MSRV 1.95](https://img.shields.io/badge/Rust-1.100.0-8b5cf6?style=flat-square)](rust-toolchain.toml)
+[![Runs on 64-bit Linux and Windows](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-0891b2?style=flat-square)](.github/workflows/rust.yml)
+[![Install from Git or GPG-signed release archives](https://img.shields.io/badge/install-Git%20%7C%20release-4f46e5?style=flat-square)](#install-from-git)
+[![Architecture documentation, protocol reference, and ADRs](https://img.shields.io/badge/docs-architecture%20%7C%20ADRs-0284c7?style=flat-square)](docs/architecture.md)
+[![Live GitHub repository size](https://img.shields.io/github/repo-size/KiaroSama/Telethon-Secret-Chat?style=flat-square&color=ca8a04)](https://github.com/KiaroSama/Telethon-Secret-Chat)
+[![Built with grammers 0.12.0 on Telegram API layer 233](https://img.shields.io/badge/built%20with-grammers%200.12.0-15803d?style=flat-square)](docs/rust-migration.md)
+[![Secret chats use MTProto 2.0 layers 73 through 144](https://img.shields.io/badge/protocol-MTProto%202.0%20L73--144-b45309?style=flat-square)](docs/protocol-reference.md)
+[![Native builds target x64 and arm64 only](https://img.shields.io/badge/arch-x64%20%7C%20arm64-334155?style=flat-square)](docs/rust-ci.md)
+[![Project crate forbids unsafe Rust code](https://img.shields.io/badge/safety-unsafe%20forbidden-7c3aed?style=flat-square)](Cargo.toml)
+[![CodeQL static analysis and Gitleaks secret scanning](https://img.shields.io/badge/security-CodeQL%20%7C%20Gitleaks-c2410c?style=flat-square)](.github/workflows/codeql.yml)
+[![Support donations](https://img.shields.io/badge/Support-donations-d04a9a?style=flat-square)](#donate)
 
 </div>
 
@@ -146,8 +146,8 @@ cargo run --locked --bin migration-audit -- --require-complete
 CI builds natively on Linux and Windows for x64 and arm64. Six legs use Rust
 1.100.0, including debug, release and portable AES checks. A seventh tests the
 minimum supported Rust version, 1.95. The verifier rejects missing or extra
-cases, filtered runs and undeclared ignores against 1,855 identities: 1,851
-mapped legacy cases and four required native AES-IGE tests.
+cases, filtered runs and undeclared ignores against 1,860 identities: 1,851
+mapped legacy cases and nine supplemental native tests.
 CI uses no Telegram credentials and skips the ten opt-in live cases. Windows
 also skips three Unix filesystem tests. The matrix does not cover macOS.
 
@@ -170,6 +170,10 @@ Offline tests use independent vectors and a retired official-client capture.
 They do not verify a live Telegram account or a `telegram-mcp` integration.
 Keep the [license](LICENSE), [notices](NOTICE) and
 [SDK notices](vendor/grammers/README.md) with the source.
+
+## Author
+
+Maintained by [KiaroSama](https://github.com/KiaroSama) (`Kiaro.Sama.Dev@gmail.com`).
 
 ## License
 

@@ -22,6 +22,7 @@
 /target/
 **/target/
 /debug/
+/bin/
 **/*.rs.bk
 *.pdb
 **/mutants.out*/
