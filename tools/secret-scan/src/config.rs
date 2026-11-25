@@ -1,13 +1,14 @@
 //! Audited exceptions for the built-in generic-api-key rule.
 //!
 //! Current fixtures use deterministic test keys or synthetic ciphertext. The
-//! grammers exception is a verified upstream source checksum. Historical
+//! grammers exceptions pin verified upstream source checksums. Historical
 //! exceptions also pin the commit, so the scanner never needs a copy of the
 //! retired throwaway chat key.
 
 const OTHER_FRAME: &str = "c04b048704bb081f302bbba287d470c3b8305ac7899ee2e1b483bab5df5e53b03ba723700083ac8ffc789ec33bbfd5e405ddef50ec31afbd3ca82a20bbcde57c8e3a70d8325ee4dce8c8090529a892c9a7db513d95c8b27011b5b8954bdf5a8c2d32cd4dec932d98";
 const CLIENT_SOURCE_SHA256: &str =
     "d025abd234d75cae8d3acd0c4b1f782e794999b4eaa59dc1fc97d2f022431d83";
+const API_TL_SHA256: &str = "0dc1c3ee1976ecf352d8af005eca949d89afa10aff4b067a8f8304e2f37f7ffb";
 
 fn arithmetic_bytes(step: usize, start: usize) -> String {
     (0..256)
@@ -42,6 +43,12 @@ pub fn configuration() -> String {
             r"grammers-client/src/client/auth\.rs",
             CLIENT_SOURCE_SHA256.to_owned(),
             "Verified official client source SHA-256 checksum",
+        ),
+        (
+            r"^vendor/grammers/(upstream-hashes|local-patches)\.json$",
+            r"grammers-tl-types/tl/api\.tl",
+            API_TL_SHA256.to_owned(),
+            "Verified official TL schema SHA-256 checksum",
         ),
     ];
     for (path, field, value, description) in exemptions {
