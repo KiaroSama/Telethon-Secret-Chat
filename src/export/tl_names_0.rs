@@ -1,4 +1,4 @@
-//! Native Grammers e61cf858 constructor-name data (MIT OR Apache-2.0).
+//! Native Grammers 02367f97 constructor-name data (MIT OR Apache-2.0).
 pub(super) const UNITS: &[((&str, &str), &str)] = &[
     (("Albums", "NotModified"), "AlbumsNotModified"),
     (("AllStickers", "NotModified"), "AllStickersNotModified"),

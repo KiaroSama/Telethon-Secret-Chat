@@ -521,6 +521,11 @@ pub fn service_text(
                     "You sent {amount} to {}{address}",
                     peers.wrap_peer_name(dialog.peer_id)
                 )
+            } else if !d.onramp_provider_name.is_empty() {
+                format!(
+                    "You topped up {amount} via {}{address}",
+                    serialize_string(&d.onramp_provider_name)
+                )
             } else {
                 format!(
                     "{}{address} sent you {amount}",
@@ -561,6 +566,14 @@ pub fn service_text(
             )
         }
         A::NoPaidMessagesTokenUsed(_) => format!("{from} started a chat via a free messages link"),
+        A::BotInvite(d) => {
+            let inviter = peers.wrap_user_name(d.inviter_id);
+            if dialog.r#type == DialogType::Bot {
+                format!("{inviter} invited you to this bot")
+            } else {
+                format!("{from} was invited by {inviter}")
+            }
+        }
         A::PhoneCall(_) => String::new(),
     };
     Ok(result.into_bytes())

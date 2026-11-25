@@ -118,6 +118,7 @@ impl Model {
             id if id == tl::functions::messages::GetDialogs::CONSTRUCTOR_ID => {
                 if self.dialog_slice {
                     tl::enums::messages::Dialogs::Slice(tl::types::messages::DialogsSlice {
+                        topics: None,
                         count: 101,
                         dialogs: (456..556).map(dialog).collect(),
                         messages: (456..556).map(|id| service(1, id)).collect(),
@@ -127,6 +128,7 @@ impl Model {
                     .to_bytes()
                 } else {
                     tl::enums::messages::Dialogs::Dialogs(tl::types::messages::Dialogs {
+                        topics: None,
                         dialogs: vec![dialog(456)],
                         messages: vec![service(1, 456)],
                         chats: vec![],

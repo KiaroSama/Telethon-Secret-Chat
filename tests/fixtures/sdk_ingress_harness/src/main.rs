@@ -115,6 +115,7 @@ impl Server {
                     if self.difference && !self.owed.is_empty() {
                         self.difference = false;
                         tl::types::updates::Difference {
+                            topics: None,
                             new_messages: vec![],
                             new_encrypted_messages: vec![message(41), message(42)],
                             other_updates: vec![],

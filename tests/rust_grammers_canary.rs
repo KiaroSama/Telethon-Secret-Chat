@@ -187,7 +187,7 @@ fn supported_grammers_version_and_revision_are_stated() {
             compat::package(name)["source"]
                 .as_str()
                 .unwrap()
-                .contains("e61cf8585e1e9969ab81eda9fb4725a1500e2d86")
+                .contains("02367f9711ca3589a8bbb02e4128aca1631c77c4")
         );
     }
     assert_eq!(compat::package("grammers-tl-parser")["version"], "2.0.0");

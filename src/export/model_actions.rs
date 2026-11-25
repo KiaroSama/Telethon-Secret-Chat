@@ -308,6 +308,12 @@ pub struct ActionGramTransfer {
     pub transaction_id: String,
     pub comment: String,
     pub comment_encrypted: bool,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub onramp_provider_name: String,
+}
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ActionBotInvite {
+    pub inviter_id: i64,
 }
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ActionWalletTonConnectRequest {
@@ -382,6 +388,7 @@ pub enum Action {
     ChangeCreator(ActionChangeCreator),
     ManagedBotCreated(ActionManagedBotCreated),
     GramTransfer(ActionGramTransfer),
+    BotInvite(ActionBotInvite),
     WalletTonConnectRequest(ActionWalletTonConnectRequest),
     NoPaidMessagesTokenUsed(ActionNoPaidMessagesTokenUsed),
 }

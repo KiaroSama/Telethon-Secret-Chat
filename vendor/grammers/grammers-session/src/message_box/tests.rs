@@ -692,6 +692,7 @@ fn test_common_and_channel_difference_do_not_duplicate_message() {
             )],
             chats: vec![],
             users: vec![],
+            topics: None,
             state: tl::enums::updates::State::State(tl::types::updates::State {
                 pts: 14,
                 qts: 0,
@@ -712,6 +713,7 @@ fn test_common_and_channel_difference_do_not_duplicate_message() {
             other_updates: vec![],
             chats: vec![],
             users: vec![],
+            topics: None,
         }),
     );
 

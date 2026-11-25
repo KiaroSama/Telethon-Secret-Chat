@@ -17,7 +17,7 @@ fn verify(source: &Path) -> Result<(), ()> {
         serde_json::from_str(include_str!("../../vendor/grammers/upstream-hashes.json"))
             .map_err(|_| ())?;
     if manifest.repository != "https://codeberg.org/Lonami/grammers"
-        || manifest.revision != "e61cf8585e1e9969ab81eda9fb4725a1500e2d86"
+        || manifest.revision != "02367f9711ca3589a8bbb02e4128aca1631c77c4"
         || manifest.sha256.is_empty()
     {
         return Err(());

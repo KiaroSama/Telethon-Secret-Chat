@@ -92,6 +92,7 @@ pub(super) fn live(qts: i32, seq: i32, bytes: Vec<u8>) -> UpdatesLike {
 }
 pub(super) fn difference(qts: i32) -> tl::enums::updates::Difference {
     tl::types::updates::Difference {
+        topics: None,
         new_messages: vec![],
         new_encrypted_messages: vec![
             message(51, b"complete qts-less first".to_vec()),

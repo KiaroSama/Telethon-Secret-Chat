@@ -104,7 +104,7 @@ GRAMMERS RUST SDK SUPPLEMENT
 vendor/grammers/ contains the grammers-client, grammers-session and
 grammers-mtsender Rust sources by Lonami Exo and contributors, from
 https://codeberg.org/Lonami/grammers at revision
-e61cf8585e1e9969ab81eda9fb4725a1500e2d86, under MIT OR Apache-2.0.
+02367f9711ca3589a8bbb02e4128aca1631c77c4, under MIT OR Apache-2.0.
 The complete original license texts are retained in each crate. Local changes
 add the durable-ingress checkpoint, request guard and receipt/replay boundary
 to session and mtsender. Local client/session/sender corrections also fix

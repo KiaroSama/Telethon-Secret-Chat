@@ -1,4 +1,4 @@
-// Kiaro supplement to grammers e61cf858. MIT OR Apache-2.0, as the parent crate.
+// Kiaro supplement to grammers 02367f97. MIT OR Apache-2.0, as the parent crate.
 //! Bounded, versioned custody codecs. These contain private update bodies and
 //! deliberately have no Debug implementation. They are not session exports.
 use super::defs::{Key, MessageBox, State, UpdateAndPeers, UpdatesLike};

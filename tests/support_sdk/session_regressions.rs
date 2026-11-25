@@ -121,6 +121,8 @@ pub async fn run() {
     channel
         .process_updates(short(
             tl::types::UpdateChannelTooLong {
+                last_msg_id: None,
+                last_msg_date: None,
                 channel_id: 43,
                 pts: Some(23),
             }
@@ -164,6 +166,7 @@ pub async fn run() {
     assert_eq!(machine.session_state().pts, 10);
     let output = machine.apply_difference(
         tl::types::updates::Difference {
+            topics: None,
             new_messages: vec![],
             new_encrypted_messages: vec![],
             other_updates: vec![update.clone().into()],

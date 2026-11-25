@@ -494,7 +494,7 @@ dependencies = [
 [[package]]
 name = "grammers-crypto"
 version = "0.12.0"
-source = "git+https://codeberg.org/Lonami/grammers.git?rev=e61cf8585e1e9969ab81eda9fb4725a1500e2d86#e61cf8585e1e9969ab81eda9fb4725a1500e2d86"
+source = "git+https://codeberg.org/Lonami/grammers.git?rev=02367f9711ca3589a8bbb02e4128aca1631c77c4#02367f9711ca3589a8bbb02e4128aca1631c77c4"
 dependencies = [
  "aes",
  "ctr",
@@ -511,7 +511,7 @@ dependencies = [
 [[package]]
 name = "grammers-mtproto"
 version = "0.12.0"
-source = "git+https://codeberg.org/Lonami/grammers.git?rev=e61cf8585e1e9969ab81eda9fb4725a1500e2d86#e61cf8585e1e9969ab81eda9fb4725a1500e2d86"
+source = "git+https://codeberg.org/Lonami/grammers.git?rev=02367f9711ca3589a8bbb02e4128aca1631c77c4#02367f9711ca3589a8bbb02e4128aca1631c77c4"
 dependencies = [
  "crc32fast",
  "flate2",
@@ -548,7 +548,7 @@ dependencies = [
 [[package]]
 name = "grammers-tl-gen"
 version = "0.12.0"
-source = "git+https://codeberg.org/Lonami/grammers.git?rev=e61cf8585e1e9969ab81eda9fb4725a1500e2d86#e61cf8585e1e9969ab81eda9fb4725a1500e2d86"
+source = "git+https://codeberg.org/Lonami/grammers.git?rev=02367f9711ca3589a8bbb02e4128aca1631c77c4#02367f9711ca3589a8bbb02e4128aca1631c77c4"
 dependencies = [
  "grammers-tl-parser",
 ]
@@ -556,7 +556,7 @@ dependencies = [
 [[package]]
 name = "grammers-tl-parser"
 version = "2.0.0"
-source = "git+https://codeberg.org/Lonami/grammers.git?rev=e61cf8585e1e9969ab81eda9fb4725a1500e2d86#e61cf8585e1e9969ab81eda9fb4725a1500e2d86"
+source = "git+https://codeberg.org/Lonami/grammers.git?rev=02367f9711ca3589a8bbb02e4128aca1631c77c4#02367f9711ca3589a8bbb02e4128aca1631c77c4"
 dependencies = [
  "crc32fast",
 ]
@@ -564,7 +564,7 @@ dependencies = [
 [[package]]
 name = "grammers-tl-types"
 version = "0.12.0"
-source = "git+https://codeberg.org/Lonami/grammers.git?rev=e61cf8585e1e9969ab81eda9fb4725a1500e2d86#e61cf8585e1e9969ab81eda9fb4725a1500e2d86"
+source = "git+https://codeberg.org/Lonami/grammers.git?rev=02367f9711ca3589a8bbb02e4128aca1631c77c4#02367f9711ca3589a8bbb02e4128aca1631c77c4"
 dependencies = [
  "grammers-tl-gen",
  "grammers-tl-parser",

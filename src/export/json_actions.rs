@@ -410,6 +410,13 @@ pub fn push_service_action(v: &mut MessageValues<'_>, data: Option<&Action>) -> 
                 },
                 &d.comment,
             );
+            if !v.message.out {
+                v.string("onramp_provider_name", &d.onramp_provider_name);
+            }
+        }
+        A::BotInvite(d) => {
+            actor(v, "bot_invite");
+            v.bare("inviter", v.wrap_user_name(d.inviter_id));
         }
         A::WalletTonConnectRequest(d) => {
             actor(v, "ton_connect_request");

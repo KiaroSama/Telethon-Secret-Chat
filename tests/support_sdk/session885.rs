@@ -49,6 +49,7 @@ pub fn run(request: &tl::functions::messages::SendMessage) {
             };
             let output = machine.apply_channel_difference(
                 tl::types::updates::ChannelDifference {
+                    topics: None,
                     r#final: true,
                     pts: 22,
                     timeout: None,
@@ -121,6 +122,7 @@ pub fn run(request: &tl::functions::messages::SendMessage) {
             };
             let output = machine.apply_difference(
                 tl::types::updates::Difference {
+                    topics: None,
                     new_messages: vec![],
                     new_encrypted_messages: vec![],
                     other_updates: vec![update.clone().into()],

@@ -1,4 +1,4 @@
-// Kiaro supplement to grammers e61cf858. MIT OR Apache-2.0.
+// Kiaro supplement to grammers 02367f97. MIT OR Apache-2.0.
 //! A pre-ack boundary shared by every clone of the original sender-pool handle.
 use grammers_session::updates::UpdateAndPeers;
 use std::sync::{Arc, Mutex};

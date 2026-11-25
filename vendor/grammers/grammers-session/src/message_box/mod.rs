@@ -687,6 +687,7 @@ impl MessageBoxes {
                 other_updates,
                 chats,
                 users,
+                topics,
                 intermediate_state: state,
             }) => {
                 debug!(?state, "handling partial difference");
@@ -697,6 +698,7 @@ impl MessageBoxes {
                     other_updates,
                     chats,
                     users,
+                    topics,
                     state,
                 })
             }
@@ -728,6 +730,7 @@ impl MessageBoxes {
             other_updates: mut updates,
             chats,
             users,
+            topics: _,
             state: tl::enums::updates::State::State(state),
         }: tl::types::updates::Difference,
     ) -> UpdateAndPeers {
@@ -855,6 +858,7 @@ impl MessageBoxes {
             other_updates: updates,
             chats,
             users,
+            topics: _,
         } = adaptor::adapt_channel_difference(difference);
 
         if r#final {

@@ -354,7 +354,13 @@ pub fn parse_service_action(
             transaction_id: string(data, "transaction_id").into(),
             comment: string(data, "comment").into(),
             comment_encrypted: boolean(data, "comment_encrypted"),
+            onramp_provider_name: string(data, "onramp_provider_name").trim().into(),
         }),
+        "BotInvite" => Action::BotInvite(ActionBotInvite {
+            inviter_id: integer(data, "inviter_id"),
+        }),
+        // Desktop gives on-chain gift offers no export service action.
+        "StarGiftOnchainOffer" => return Ok(ServiceAction::default()),
         "WalletTonConnectRequest" => {
             Action::WalletTonConnectRequest(ActionWalletTonConnectRequest {
                 session_id: data["session_id"]

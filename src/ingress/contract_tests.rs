@@ -88,6 +88,7 @@ async fn difference_slices_advance_only_their_committed_state() {
         };
         let response: tl::enums::updates::Difference = if final_slice {
             tl::types::updates::Difference {
+                topics: None,
                 new_messages: vec![],
                 new_encrypted_messages: vec![],
                 other_updates: vec![],
@@ -98,6 +99,7 @@ async fn difference_slices_advance_only_their_committed_state() {
             .into()
         } else {
             tl::types::updates::DifferenceSlice {
+                topics: None,
                 new_messages: vec![],
                 new_encrypted_messages: vec![],
                 other_updates: vec![],

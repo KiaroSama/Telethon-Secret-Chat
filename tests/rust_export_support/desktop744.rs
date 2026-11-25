@@ -12,8 +12,9 @@ use kiaro_secret_chat::export::{
     json_serialize::{self, JsonContext},
     model::*,
     model_actions::*,
-    model_dialogs::DialogInfo,
+    model_dialogs::{DialogInfo, DialogType},
     model_message::{HistoryMessageMarkupButton, MarkupButtonType, Message},
+    model_peers::{ContactInfo, Peer, PeerUser},
     model_rich::{RichMapPoint, RichMapPointSource, RichMessage, RichTextType},
     parse_actions::parse_service_action,
     parse_media::parse_geo_point,
@@ -22,17 +23,29 @@ use kiaro_secret_chat::export::{
 };
 use serde_json::{Value, json};
 fn service(action: Action, out: bool, peer: i64) -> (String, Value) {
+    render_service(
+        ServiceAction {
+            content: Some(action),
+        },
+        out,
+        DialogInfo {
+            peer_id: peer,
+            ..Default::default()
+        },
+        &PeersMap::default(),
+    )
+}
+fn render_service(
+    action: ServiceAction,
+    out: bool,
+    dialog: DialogInfo,
+    peers: &PeersMap,
+) -> (String, Value) {
     let message = Message {
         id: 7,
         date: 1700000000,
         out,
-        action: ServiceAction {
-            content: Some(action),
-        },
-        ..Default::default()
-    };
-    let dialog = DialogInfo {
-        peer_id: peer,
+        action,
         ..Default::default()
     };
     let dates = DateContext::utc();
@@ -40,7 +53,7 @@ fn service(action: Action, out: bool, peer: i64) -> (String, Value) {
         html_service::service_text(
             &message,
             &dialog,
-            &PeersMap::default(),
+            peers,
             "https://t.me/",
             "",
             str::to_owned,
@@ -52,7 +65,7 @@ fn service(action: Action, out: bool, peer: i64) -> (String, Value) {
     let bytes = json_message::serialize_message(
         &mut JsonContext::default(),
         &message,
-        &Default::default(),
+        &peers.data,
         "https://t.me/",
         &dates,
     )
@@ -101,12 +114,95 @@ pub fn json_safety() {
     assert_eq!(json_serialize::float_allow_null(1.25), b"1.250000");
 }
 pub fn model_actions() {
+    let provider = |name: &str| {
+        let raw: api::MessageAction = raw::MessageActionGramTransfer {
+            comment_encrypted: false,
+            amount: 1_000_000_000,
+            peer_address: "<peer>".into(),
+            transaction_id: String::new(),
+            comment: None,
+            onramp_provider_name: Some(name.into()),
+        }
+        .into();
+        parse(tl_value::to_value(&raw).unwrap())
+    };
+    let provider_name = " \t<Shop>& \n";
+    let (html, value) = service(provider(provider_name), false, 0);
+    assert_eq!(
+        html,
+        "You topped up 1 Gram via &lt;Shop&gt;&amp; (&lt;peer&gt;)"
+    );
+    assert_eq!(value["onramp_provider_name"], "<Shop>&");
+    let (html, value) = service(provider(provider_name), true, 0);
+    assert_eq!(html, "You sent 1 Gram to Deleted (&lt;peer&gt;)");
+    assert!(value.get("onramp_provider_name").is_none());
+    let (html, value) = service(provider(" \t\n"), false, 0);
+    assert_eq!(html, "Deleted (&lt;peer&gt;) sent you 1 Gram");
+    assert!(value.get("onramp_provider_name").is_none());
+
+    let raw: api::MessageAction = raw::MessageActionBotInvite { inviter_id: 42 }.into();
+    let invite = parse(tl_value::to_value(&raw).unwrap());
+    let peers = PeersMap {
+        data: [(
+            peer_from_user(42),
+            Peer::User(PeerUser {
+                bare_id: 42,
+                info: ContactInfo {
+                    first_name: "<Inviter>&".into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
+        )]
+        .into(),
+    };
+    for (dialog_type, expected) in [
+        (
+            DialogType::Bot,
+            "&lt;Inviter&gt;&amp; invited you to this bot",
+        ),
+        (
+            DialogType::PrivateGroup,
+            "Deleted was invited by &lt;Inviter&gt;&amp;",
+        ),
+    ] {
+        let dialog = DialogInfo {
+            r#type: dialog_type,
+            ..Default::default()
+        };
+        let (html, value) = render_service(
+            ServiceAction {
+                content: Some(invite.clone()),
+            },
+            false,
+            dialog,
+            &peers,
+        );
+        assert_eq!(html, expected);
+        assert_eq!(value["action"], "bot_invite");
+        assert_eq!(value["inviter"], "<Inviter>&");
+    }
+
+    let offer = parse_service_action(
+        &mut ParseMediaContext::default(),
+        &json!({"_": "MessageActionStarGiftOnchainOffer", "offer_id": 91}),
+        "",
+        1700000000,
+        &DateContext::utc(),
+    )
+    .unwrap();
+    assert!(offer.content.is_none());
+    let (html, value) = render_service(offer, false, DialogInfo::default(), &peers);
+    assert!(html.is_empty());
+    assert!(value.get("action").is_none());
+
     let raw: api::MessageAction = raw::MessageActionGramTransfer {
         comment_encrypted: false,
         amount: -1_234_567_890,
         peer_address: "<peer>".into(),
         transaction_id: "tx\"<&".into(),
         comment: Some("<script>&".into()),
+        onramp_provider_name: None,
     }
     .into();
     let action = parse(tl_value::to_value(&raw).unwrap());

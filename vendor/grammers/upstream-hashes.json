@@ -1,6 +1,6 @@
 {
   "repository": "https://codeberg.org/Lonami/grammers",
-  "revision": "e61cf8585e1e9969ab81eda9fb4725a1500e2d86",
+  "revision": "02367f9711ca3589a8bbb02e4128aca1631c77c4",
   "sha256": {
     "grammers-session/src/session.rs": "8f00c62835503496a32b708de5af636b4b6f58fa56203a9ae9959ab92b2bb298",
     "grammers-session/src/types.rs": "e308d484540caeeddffeeb72cb255cab2df8cf517bc6c483923502f6495ae13f",
@@ -14,9 +14,9 @@
     "grammers-session/src/storages/erased.rs": "18281f44332b48a404ec9451e7e48df70f9139f3e20ac08ea4d41e482373da3d",
     "grammers-session/src/storages/memory.rs": "d1f351481add4c00ef8c396c82f75c05036181eadbdb81619528a50ae8b2549a",
     "grammers-session/src/message_box/defs.rs": "8cd5b12475d63435c30401c5bc7ae999d0875e5649f87809d9b4340298337c0e",
-    "grammers-session/src/message_box/adaptor.rs": "c4177169f2dadc793449ec98dc93474d848d8e8055918caa11d6fcce55afa383",
-    "grammers-session/src/message_box/tests.rs": "36fa3d67d22a8371d879f50ecde08d36649a25357a5a9879905242526c83dda2",
-    "grammers-session/src/message_box/mod.rs": "af8a188804afde9e50840166e03fb344502c137339448228f90627d7beac591b",
+    "grammers-session/src/message_box/adaptor.rs": "2ca427033cbc2cea1b91d25738af56de53185eb09f2dbeef5d5a02c204cf7a52",
+    "grammers-session/src/message_box/tests.rs": "2c888c8dcff49633ef7a4b1cfd35ff879675805f89f0d8375801a1d1bd8ee71c",
+    "grammers-session/src/message_box/mod.rs": "b90b7f6d6b11e8225edeea706c2bbc5d9acd27c5745d6d56eefd452db9d101a4",
     "grammers-mtsender/src/sender_pool.rs": "5b49fc6de954cfe7b20881ffbfbb34eba57926e2fe04a25ecb5ac257380ac068",
     "grammers-mtsender/src/configuration.rs": "2c9573297841edd69afb0658f81c4f6db7cc0390e35ba22836b15490e4a544a7",
     "grammers-mtsender/src/errors.rs": "7d2a4090da0fb6e81965969e8d0688d96cfff408aeb89a2a089564664412c2f0",
@@ -75,6 +75,7 @@
     "grammers-client/src/parsers/html.rs": "404fb59b95e3ebd6f0b84ffda98e6663be09df69b4830b4dc07e2b04105b6c02",
     "grammers-client/src/parsers/common.rs": "5d690c8e96cf03566710493d29a8192ac5f5212e244cdae8412fcce7ddb67048",
     "grammers-client/src/parsers/mod.rs": "f794980295e28128da12909b0d7aa2c1395902af1e7a85c220e62015e7e07fe6",
-    "grammers-client/src/parsers/markdown.rs": "5cac6f3430c817ef157a8b989e5e709cd4a2fa2d4ce4e08426eeafa7375dcf6d"
+    "grammers-client/src/parsers/markdown.rs": "5cac6f3430c817ef157a8b989e5e709cd4a2fa2d4ce4e08426eeafa7375dcf6d",
+    "grammers-tl-types/tl/api.tl": "0dc1c3ee1976ecf352d8af005eca949d89afa10aff4b067a8f8304e2f37f7ffb"
   }
 }

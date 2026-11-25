@@ -1,8 +1,9 @@
 # Pinned Rust SDK supplement
 
 These three Rust crates come from official grammers revision
-`e61cf8585e1e9969ab81eda9fb4725a1500e2d86`. `upstream-hashes.json` records the
-SHA-256 of each original Rust source file before local changes. Each crate retains
+`02367f9711ca3589a8bbb02e4128aca1631c77c4`. `upstream-hashes.json` records the
+SHA-256 of each original Rust source file before local changes and of the Layer 234
+TL schema used by the pinned Git dependency. Each crate retains
 the upstream MIT and Apache-2.0 license texts and source notices.
 
 `grammers-session` adds the bounded MessageBoxes checkpoint and complete
@@ -29,7 +30,7 @@ official inputs before reproducing this project's complete patched source graph.
 
 Direct path dependencies keep the same SDK type graph for Git consumers; Cargo
 patches do not propagate from a dependency to its consumer. Use the SDK crates
-re-exported by `kiaro_secret_chat`. The TL layer remains 233. This source release
+re-exported by `kiaro_secret_chat`. The TL layer is 234. This source release
 includes API corrections: absent media IDs and missing refetched
 messages use `Option`, participants retain non-user peers, and unavailable dialog
 references and callback messages return explicit absence/errors. See

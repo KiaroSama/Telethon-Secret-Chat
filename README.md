@@ -13,7 +13,7 @@
 [![Install from Git or GPG-signed release archives](https://img.shields.io/badge/install-Git%20%7C%20release-4f46e5?style=flat-square)](#install-from-git)
 [![Architecture documentation, protocol reference, and ADRs](https://img.shields.io/badge/docs-architecture%20%7C%20ADRs-0284c7?style=flat-square)](docs/architecture.md)
 [![Live GitHub repository size](https://img.shields.io/github/repo-size/KiaroSama/Telethon-Secret-Chat?style=flat-square&color=ca8a04)](https://github.com/KiaroSama/Telethon-Secret-Chat)
-[![Built with grammers 0.12.0 on Telegram API layer 233](https://img.shields.io/badge/built%20with-grammers%200.12.0-15803d?style=flat-square)](docs/rust-migration.md)
+[![Built with grammers 0.12.0 on Telegram API layer 234](https://img.shields.io/badge/built%20with-grammers%200.12.0-15803d?style=flat-square)](docs/rust-migration.md)
 [![Secret chats use MTProto 2.0 layers 73 through 144](https://img.shields.io/badge/protocol-MTProto%202.0%20L73--144-b45309?style=flat-square)](docs/protocol-reference.md)
 [![Native builds target x64 and arm64 only](https://img.shields.io/badge/arch-x64%20%7C%20arm64-334155?style=flat-square)](docs/rust-ci.md)
 [![Project crate forbids unsafe Rust code](https://img.shields.io/badge/safety-unsafe%20forbidden-7c3aed?style=flat-square)](Cargo.toml)

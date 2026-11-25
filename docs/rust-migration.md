@@ -9,7 +9,7 @@ AES-IGE tests.
 ## One SDK graph
 
 Official source: [Lonami/grammers](https://codeberg.org/Lonami/grammers) revision
-`e61cf8585e1e9969ab81eda9fb4725a1500e2d86`, SDK 0.12.0, parser 2.0.0, API layer 233.
+`02367f9711ca3589a8bbb02e4128aca1631c77c4`, SDK 0.12.0, parser 2.0.0, API layer 234.
 Three Rust crates are bundled under `vendor/grammers`:
 
 - `grammers-client`: coherent bundled sender/session graph, with local fixes for
@@ -81,7 +81,7 @@ Current upstream references reviewed:
 
 - [Telegram e2e](https://core.telegram.org/api/end-to-end) and [secret schema](https://core.telegram.org/schema/end-to-end)
 - [TDLib SecretChatActor](https://github.com/tdlib/td/blob/ba976cb4aba53a82eff425db2f85e2741774c944/td/telegram/SecretChatActor.cpp)
-- [grammers pinned source](https://codeberg.org/Lonami/grammers/commit/e61cf8585e1e9969ab81eda9fb4725a1500e2d86)
+- [grammers pinned source](https://codeberg.org/Lonami/grammers/commit/02367f9711ca3589a8bbb02e4128aca1631c77c4)
 - [Archived implementation](https://github.com/painor/telethon-secret-chat/tree/32e7585ba4f5dbb2c6f025047c11fa52cf55d071)
 - [Rust CodeQL support](https://codeql.github.com/docs/codeql-overview/supported-languages-and-frameworks/)
 

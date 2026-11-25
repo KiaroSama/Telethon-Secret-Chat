@@ -15,7 +15,7 @@ pub fn verify() {
     assert_eq!(native["upstream_revision"], original["revision"]);
     assert_eq!(
         native["upstream_revision"],
-        "e61cf8585e1e9969ab81eda9fb4725a1500e2d86"
+        "02367f9711ca3589a8bbb02e4128aca1631c77c4"
     );
     assert_eq!(
         native["baseline_manifest_sha256"],
@@ -69,8 +69,13 @@ pub fn verify() {
     );
     let baseline: BTreeMap<String, String> =
         serde_json::from_value(original["sha256"].clone()).unwrap();
+    assert_eq!(
+        baseline["grammers-tl-types/tl/api.tl"],
+        "0dc1c3ee1976ecf352d8af005eca949d89afa10aff4b067a8f8304e2f37f7ffb"
+    );
     let patched = baseline
         .iter()
+        .filter(|(path, _)| path.ends_with(".rs"))
         .filter_map(|(path, hash)| (declared[path] != *hash).then_some(path.clone()))
         .collect::<BTreeSet<_>>();
     let supplements = declared

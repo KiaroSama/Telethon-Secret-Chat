@@ -1,4 +1,4 @@
-//! Native constructor names for official Grammers e61cf858 (MIT OR Apache-2.0).
+//! Native constructor names for official Grammers 02367f97 (MIT OR Apache-2.0).
 //! Enum unit variants and Rust acronym normalization are distinct from TL constructor spelling.
 #[path = "tl_names_0.rs"]
 mod first;

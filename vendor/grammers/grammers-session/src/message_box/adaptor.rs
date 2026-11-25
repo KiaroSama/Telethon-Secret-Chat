@@ -417,6 +417,7 @@ pub(super) fn adapt_channel_difference(
                 other_updates: Vec::new(),
                 chats: Vec::new(),
                 users: Vec::new(),
+                topics: None,
             }
         }
         tl::enums::updates::ChannelDifference::TooLong(difference) => {
@@ -438,6 +439,7 @@ pub(super) fn adapt_channel_difference(
                 other_updates: Vec::new(),
                 chats: difference.chats,
                 users: difference.users,
+                topics: difference.topics,
             }
         }
         tl::enums::updates::ChannelDifference::Difference(difference) => difference,

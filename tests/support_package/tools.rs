@@ -51,7 +51,7 @@ pub fn verify(stage: &Path, target: &Path, empty: &Path, upstream: &Path) -> boo
     assert!(generated.contains("pub mod types") && generated.contains("pub mod enums"));
     let generated_crate = empty.join("generated crate");
     std::fs::create_dir(&generated_crate).unwrap();
-    std::fs::write(generated_crate.join("Cargo.toml"),"[package]\nname='standalone-generated-schema'\nversion='0.0.0'\nedition='2024'\n[lib]\npath='lib.rs'\n[dependencies]\ngrammers-tl-types={git='https://codeberg.org/Lonami/grammers.git',rev='e61cf8585e1e9969ab81eda9fb4725a1500e2d86',version='=0.12.0'}\n[workspace]\n").unwrap();
+    std::fs::write(generated_crate.join("Cargo.toml"),"[package]\nname='standalone-generated-schema'\nversion='0.0.0'\nedition='2024'\n[lib]\npath='lib.rs'\n[dependencies]\ngrammers-tl-types={git='https://codeberg.org/Lonami/grammers.git',rev='02367f9711ca3589a8bbb02e4128aca1631c77c4',version='=0.12.0'}\n[workspace]\n").unwrap();
     let mut library = String::from(
         "pub use grammers_tl_types::{Deserializable,Identifiable,RawVec,Serializable};\npub mod deserialize { pub use grammers_tl_types::deserialize::*; pub type Buffer<'a,'b>=&'a mut Cursor<'b>; }\n",
     );

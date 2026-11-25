@@ -19,7 +19,7 @@ sqlite-storage = ["dep:libsql", "dep:tokio"]
 serde = ["dep:serde", "dep:serde_with"]
 
 [dependencies]
-grammers-tl-types = { git = "https://codeberg.org/Lonami/grammers.git", rev = "e61cf8585e1e9969ab81eda9fb4725a1500e2d86", version = "0.12.0", features=["deserializable-functions"] }
+grammers-tl-types = { git = "https://codeberg.org/Lonami/grammers.git", rev = "02367f9711ca3589a8bbb02e4128aca1631c77c4", version = "0.12.0", features=["deserializable-functions"] }
 
 libsql = { version = "0.10.0", default-features = false, features = ["core"], optional = true }
 tokio = { version = "1.54.1", default-features = false, features = ["sync"], optional = true }
