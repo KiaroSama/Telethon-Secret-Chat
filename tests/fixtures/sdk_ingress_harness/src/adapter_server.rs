@@ -37,6 +37,7 @@ fn config() -> Vec<u8> {
         "revoke_pm_inbox",
         "blocked_mode",
         "force_try_ipv6",
+        "fpnv_allowed",
         "test_mode",
     ] {
         value.insert(name.into(), false.into());
