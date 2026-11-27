@@ -730,7 +730,7 @@ dependencies = [
  "grammers-session",
  "grammers-tl-types",
  "html5ever",
- "jiff 0.2.46",
+ "jiff 1.0.3",
  "md5",
  "mime_guess",
  "pin-project-lite",
