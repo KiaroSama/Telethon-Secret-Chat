@@ -1,5 +1,6 @@
 use std::collections::{BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
@@ -241,9 +242,12 @@ impl CustodyRecord {
 struct CustodyKey([u8; 32]);
 
 /// Explicit-path AES-256-GCM custody store (never falls back to process CWD).
+/// Successful record access or save binds a handle to that authorization.
+/// Cleanup preserves the binding; open a new handle to adopt another owner.
 pub struct CustodyStore {
     path: PathBuf,
     key: CustodyKey,
+    owner_auth_id: OnceLock<String>,
     uncertain: bool,
 }
 
@@ -262,6 +266,7 @@ impl CustodyStore {
         Ok(Self {
             path,
             key: CustodyKey(key),
+            owner_auth_id: OnceLock::new(),
             uncertain: false,
         })
     }
@@ -269,6 +274,7 @@ impl CustodyStore {
     pub fn save_record(&mut self, record: &CustodyRecord) -> Result<(), SecretChatError> {
         self.ensure_certain()?;
         record.validate_persistence()?;
+        self.ensure_owner(&record.owner_auth_id)?;
         let _lock = storage_file::lock_store(&self.path)
             .map_err(|_| self.storage_error("failed to acquire custody store lock"))?;
         let mut records = self.load_all()?;
@@ -315,6 +321,7 @@ impl CustodyStore {
                 ),
             });
         }
+        self.bind_owner(&record.owner_auth_id)?;
         Ok(())
     }
 
@@ -337,6 +344,7 @@ impl CustodyStore {
                 reason: "custody record belongs to a different authorization".into(),
             });
         }
+        self.bind_owner(expected_owner_auth_id)?;
         Ok(record)
     }
 
@@ -345,7 +353,10 @@ impl CustodyStore {
         let _lock = storage_file::lock_store(&self.path)
             .map_err(|_| self.storage_error("failed to acquire custody store lock"))?;
         // A filename alone is not evidence of ownership. Authenticate before deletion.
-        self.load_all()?;
+        let records = self.load_all()?;
+        if let Some(record) = records.first() {
+            self.bind_owner(&record.owner_auth_id)?;
+        }
         match std::fs::remove_file(&self.path) {
             Ok(()) => {
                 if storage_file::sync_parent(&self.path).is_err() {
@@ -402,7 +413,24 @@ impl CustodyStore {
                 return Err(self.storage_error("custody store identities are inconsistent"));
             }
         }
+        if let Some(owner) = owner {
+            self.ensure_owner(owner)?;
+        }
         Ok(records)
+    }
+
+    fn ensure_owner(&self, owner: &str) -> Result<(), SecretChatError> {
+        if self.owner_auth_id.get().is_some_and(|bound| bound != owner) {
+            return Err(self.storage_error(
+                "custody handle is bound to a different authorization; open a new handle",
+            ));
+        }
+        Ok(())
+    }
+
+    fn bind_owner(&self, owner: &str) -> Result<(), SecretChatError> {
+        self.owner_auth_id.get_or_init(|| owner.to_owned());
+        self.ensure_owner(owner)
     }
 
     fn storage_error(&self, reason: &str) -> SecretChatError {

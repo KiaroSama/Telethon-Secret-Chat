@@ -1,7 +1,8 @@
 //! Filesystem operations shared by authenticated stores.
 //!
 //! The caller owns directory protection. A persistent sidecar lock coordinates
-//! cooperating writers; it must never be unlinked while a store may be in use.
+//! cooperating writers; it must remain empty and must never be unlinked while a
+//! store may be in use. An encrypted data file cannot also act as a lock sidecar.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
@@ -78,6 +79,11 @@ pub(crate) fn lock_store(path: &Path) -> io::Result<File> {
         return Err(io::Error::from(io::ErrorKind::InvalidInput));
     }
     file.try_lock().map_err(io::Error::from)?;
+    // Store updates replace their data inode. Using one as a lock would let a
+    // cooperating store replace a held lock and admit another independent writer.
+    if file.metadata()?.len() != 0 {
+        return Err(io::Error::from(io::ErrorKind::InvalidData));
+    }
     restrict_permissions(&file)?;
     Ok(file)
 }

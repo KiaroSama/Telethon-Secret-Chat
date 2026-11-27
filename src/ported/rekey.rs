@@ -39,6 +39,8 @@ pub(crate) struct RuntimeRekey {
     pub(crate) exchange: Option<i64>,
     pub(crate) role: Option<ExchangeRole>,
     pub(crate) confirmed: bool,
+    pub(crate) incoming_key_cutover: Option<i64>,
+    pub(crate) accepted_exchange: Option<i64>,
     pub(crate) pending_noop: bool,
     pub(crate) messages: u64,
     pub(crate) outgoing: u64,
@@ -55,6 +57,8 @@ impl Default for RuntimeRekey {
             exchange: None,
             role: None,
             confirmed: false,
+            incoming_key_cutover: None,
+            accepted_exchange: None,
             pending_noop: false,
             messages: 0,
             outgoing: 0,
@@ -342,6 +346,10 @@ impl SecretChat {
         self.rekey.role = None;
         self.rekey.secret = None;
         self.rekey.pending = None;
+        if self.rekey.previous.is_none() {
+            self.rekey.incoming_key_cutover = None;
+            self.rekey.accepted_exchange = None;
+        }
         self.key_lifecycle = KeyLifecycleState::Active {
             fingerprint: self.active_fingerprint()?,
         };
@@ -371,10 +379,15 @@ impl SecretChat {
         key: KeySlot,
         confirmed: bool,
     ) -> Result<(), SecretChatError> {
+        let accepted_exchange = self
+            .rekey
+            .exchange
+            .filter(|_| self.rekey.role == Some(ExchangeRole::Accepted));
         self.rekey.previous = self.active_key.take();
         self.adopt_key(&key.0)?;
         self.clear_rekey_exchange()?;
         self.rekey.confirmed = confirmed;
+        self.rekey.accepted_exchange = accepted_exchange;
         self.rekey.started = Instant::now();
         self.rekey.messages = 0;
         self.rekey.outgoing = 0;
@@ -382,8 +395,14 @@ impl SecretChat {
     }
 
     pub(crate) fn retire_previous_key_if_settled(&mut self) {
-        if self.rekey.confirmed && !self.gap_requested() {
+        let preceding_gaps_filled = self
+            .rekey
+            .incoming_key_cutover
+            .map_or(!self.gap_requested(), |cutover| self.in_seq_no() >= cutover);
+        if self.rekey.confirmed && preceding_gaps_filled {
             self.rekey.previous = None;
+            self.rekey.incoming_key_cutover = None;
+            self.rekey.accepted_exchange = None;
         }
     }
 

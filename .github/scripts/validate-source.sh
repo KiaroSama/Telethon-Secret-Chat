@@ -22,6 +22,15 @@ inventory="$work/source-files.nul"
 git -C "$repo" ls-files -z > "$inventory"
 count=0
 while IFS= read -r -d '' path; do
+  # Ignore rules do not protect files already committed to the source archive.
+  # Public environment templates are the deliberate exceptions, not live data.
+  case "${path,,}" in
+    .env.example|*/.env.example|.env.sample|*/.env.sample|.env.template|*/.env.template) ;;
+    .env|*/.env|.env.*|*/.env.*|*.session|*.session-*|*.pem|*.key|*.pfx|*.p12)
+      log ERROR "Forbidden tracked credential/session path: $(printf '%q' "$path")"
+      exit 1
+      ;;
+  esac
   case "$path" in
     .ai/*|.specify/*|specs/*|secrets.md|graphify-out/*|.gpg-private/*|bin/*|uv.lock|\
     __pycache__/*|*/__pycache__/*|*.pyc|*.pyo|.pytest_cache/*|*/.pytest_cache/*|\

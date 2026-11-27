@@ -1,9 +1,10 @@
 mod helpers;
+mod receive_guard;
 
 pub use helpers::*;
 
 use serde_json::{Value, json};
-use subtle::ConstantTimeEq;
+use std::collections::BTreeMap;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::errors::SecretChatError;
@@ -106,6 +107,7 @@ pub struct SecretChat {
     pub(crate) active_key: Option<KeySlot>,
     pub(crate) rekey: crate::ported::rekey::RuntimeRekey,
     pending_frames: Vec<Value>,
+    pending_frame_keys: BTreeMap<i64, i64>,
     ready_messages: Vec<AcceptedMessage>,
     gap_requested: bool,
     gap_end: Option<i64>,
@@ -142,6 +144,7 @@ impl SecretChat {
             active_key: None,
             rekey: crate::ported::rekey::RuntimeRekey::default(),
             pending_frames: Vec::new(),
+            pending_frame_keys: BTreeMap::new(),
             ready_messages: Vec::new(),
             gap_requested: false,
             gap_end: None,
@@ -278,16 +281,13 @@ impl SecretChat {
         self.key_lifecycle = KeyLifecycleState::Zeroized;
         self.state = ChatState::Closed;
         self.pending_frames.clear();
+        self.pending_frame_keys.clear();
         self.ready_messages.clear();
         self.immediate_actions.clear();
         self.gap_requested = false;
         self.gap_end = None;
         self.resend_due = None;
         self.resend_request = None;
-    }
-
-    pub(crate) fn export_key_for_internal_frame(&self) -> Option<[u8; SHARED_KEY_LEN]> {
-        self.active_key.as_ref().map(|slot| slot.0)
     }
 
     pub fn receive_encrypted_frame(
@@ -330,30 +330,7 @@ impl SecretChat {
                 state: format!("{:?}", self.state).to_lowercase(),
             });
         }
-        let named = frame
-            .get(..8)
-            .ok_or_else(|| SecretChatError::MessageRejected {
-                chat_id: Some(self.chat_id),
-                reason: "the frame is too short to hold a message".into(),
-            })?;
-        let selected = [
-            self.active_key.as_ref(),
-            self.rekey.pending.as_ref(),
-            self.rekey.previous.as_ref(),
-        ]
-        .into_iter()
-        .enumerate()
-        .find_map(|(index, slot)| {
-            let slot = slot?;
-            let fingerprint = key_fingerprint(&slot.0).ok()?;
-            bool::from(named.ct_eq(&fingerprint.to_le_bytes()))
-                .then(|| (index, Zeroizing::new(slot.0)))
-        })
-        .ok_or_else(|| SecretChatError::MessageRejected {
-            chat_id: Some(self.chat_id),
-            reason: "the key fingerprint does not name a key this chat holds".into(),
-        })?;
-        let (key_slot, key_bytes) = selected;
+        let (key_slot, key_bytes) = self.select_receiving_key(frame)?;
 
         let chat_id = self.chat_id;
         let rejected = |reason| SecretChatError::MessageRejected {
@@ -361,6 +338,10 @@ impl SecretChat {
             reason,
         };
         let decrypted_body = Zeroizing::new(decrypt_frame(&*key_bytes, frame, self.in_x())?);
+        let fingerprint = key_fingerprint(&*key_bytes)?;
+        if self.authenticated_replay(&decrypted_body, fingerprint)? {
+            return Ok(Vec::new());
+        }
         let unwrapped = crate::ported::framing::unwrap(decrypted_body.to_vec(), Some(chat_id))
             .map_err(|err| rejected(sanitize_error_reason(&err)))?;
         if unwrapped.get("error_type").is_some() {
@@ -426,6 +407,18 @@ impl SecretChat {
         let action = decoded["object"]["fields"]["message"]["fields"]
             .get("action")
             .cloned();
+        let sequence = unwrapped["out_seq_no"]
+            .as_i64()
+            .ok_or_else(|| rejected("invalid authenticated outgoing counter".into()))?
+            / 2;
+        let key_cutover =
+            match self.received_key_cutover(sequence, fingerprint, key_slot, action.as_ref()) {
+                Ok(cutover) => cutover,
+                Err(error) => {
+                    self.close();
+                    return Err(error);
+                }
+            };
         let announced = action
             .as_ref()
             .filter(|action| action["id"] == 0xf3048883_u32)
@@ -481,6 +474,10 @@ impl SecretChat {
         if let Some(pending) = seq_result["pending"].as_array() {
             self.pending_frames = pending.clone();
         }
+        self.pending_frame_keys.insert(sequence, fingerprint);
+        self.pending_frame_keys
+            .retain(|sequence, _| *sequence >= self.in_seq_no);
+        self.rekey.incoming_key_cutover = key_cutover;
 
         if let Some(action) = immediate {
             self.immediate_actions.push(action);

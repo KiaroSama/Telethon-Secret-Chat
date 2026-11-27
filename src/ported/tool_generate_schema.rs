@@ -1,7 +1,68 @@
 //! Legacy schema helpers and checked input for the native maintenance command.
 
+fn valid_identifier(value: &str) -> bool {
+    value
+        .bytes()
+        .next()
+        .is_some_and(|byte| byte.is_ascii_alphabetic() || byte == b'_')
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+}
+
+fn valid_type(mut value: &str) -> bool {
+    // Iteration keeps deeply nested input from consuming the call stack.
+    while let Some(inner) = value
+        .strip_prefix("Vector<")
+        .or_else(|| value.strip_prefix("vector<"))
+    {
+        let Some(inner) = inner.strip_suffix('>') else {
+            return false;
+        };
+        value = inner;
+    }
+    value.split('.').all(valid_identifier)
+}
+
+fn valid_fields<'a>(fields: impl Iterator<Item = &'a str>) -> bool {
+    let mut names = std::collections::BTreeSet::new();
+    let mut flags = std::collections::BTreeSet::new();
+    for field in fields {
+        let Some((name, kind)) = field.split_once(':') else {
+            return false;
+        };
+        if !valid_identifier(name) || !names.insert(name) {
+            return false;
+        }
+        if kind == "#" {
+            flags.insert(name);
+            continue;
+        }
+        let kind = if let Some((condition, kind)) = kind.split_once('?') {
+            let Some((flag, bit)) = condition.split_once('.') else {
+                return false;
+            };
+            if !flags.contains(flag)
+                || !bit.bytes().all(|byte| byte.is_ascii_digit())
+                || !bit.parse::<u32>().is_ok_and(|bit| bit < 32)
+            {
+                return false;
+            }
+            kind
+        } else {
+            kind
+        };
+        if !valid_type(kind) {
+            return false;
+        }
+    }
+    true
+}
+
 /// Validate complete constructor rows before generating a native manifest.
 ///
+/// Supports the tracked end-to-end schema's named fields, flag conditions, and
+/// nested vectors. Unsupported TL combinator syntax is rejected explicitly.
 /// The historical adapter below intentionally retains its permissive behavior
 /// for differential replay. The executable must not silently discard malformed
 /// rows or collapse distinct declarations with the same numeric constructor ID.
@@ -19,21 +80,17 @@ pub fn inspect_checked_schema(text: String) -> Result<serde_json::Value, String>
             return Err(invalid());
         }
         let (head, result) = declaration.split_once('=').ok_or_else(invalid)?;
-        if result.trim().is_empty() {
+        if !valid_type(result.trim()) {
             return Err(invalid());
         }
-        let token = head.split_whitespace().next().ok_or_else(invalid)?;
+        let mut fields = head.split_whitespace();
+        let token = fields.next().ok_or_else(invalid)?;
         let (name, id) = token.split_once('#').ok_or_else(invalid)?;
-        if !name
-            .bytes()
-            .next()
-            .is_some_and(|b| b.is_ascii_alphabetic() || b == b'_')
-            || !name
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.'))
+        if !name.split('.').all(valid_identifier)
             || id.is_empty()
             || id.len() > 8
             || !id.bytes().all(|b| b.is_ascii_hexdigit())
+            || !valid_fields(fields)
         {
             return Err(invalid());
         }

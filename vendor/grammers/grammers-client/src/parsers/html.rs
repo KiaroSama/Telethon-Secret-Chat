@@ -548,7 +548,7 @@ fn parse_timestamp(s: &str) -> Option<Timestamp> {
         .offset_conflict(tz::OffsetConflict::AlwaysTimeZone)
         .disambiguation(tz::Disambiguation::Compatible);
 
-    if let Ok(zdt) = PARSER.parse_zoned(s) {
+    if let Ok(zdt) = PARSER.parse_zoned_datetime(s) {
         return Some(zdt.timestamp());
     }
 
@@ -809,6 +809,60 @@ mod tests {
                 .into(),
             ]
         );
+    }
+
+    #[test]
+    fn parse_time_uses_named_zone_when_offset_conflicts() {
+        let (text, entities) = parse_html_message(
+            "A <time datetime=\"2026-09-27T12:13:14+00:00[Europe/Stockholm]\">time</time>",
+        );
+        assert_eq!(text, "A time");
+        assert!(
+            matches!(entities.as_slice(), [tl::enums::MessageEntity::FormattedDate(date)]
+            if date.offset == 2 && date.length == 4 && date.date == 1_790_503_994)
+        );
+    }
+
+    #[test]
+    fn parse_timestamp_uses_compatible_dst_disambiguation() {
+        for (input, expected) in [
+            (
+                "2026-10-25T02:30:00[Europe/Stockholm]",
+                "2026-10-25T00:30:00Z",
+            ),
+            (
+                "2026-03-29T02:30:00[Europe/Stockholm]",
+                "2026-03-29T01:30:00Z",
+            ),
+        ] {
+            assert_eq!(
+                parse_timestamp(input)
+                    .map(|timestamp| timestamp.to_string())
+                    .as_deref(),
+                Some(expected),
+                "{input}",
+            );
+        }
+    }
+
+    #[test]
+    fn parse_timestamp_preserves_utc_and_offset_fallbacks() {
+        for (input, expected) in [
+            ("2026-09-27T12:13:14+02:00", "2026-09-27T10:13:14Z"),
+            ("2026-09-27T12:13:14Z", "2026-09-27T12:13:14Z"),
+            ("2026-09-27T12:13:14", "2026-09-27T12:13:14Z"),
+        ] {
+            assert_eq!(
+                parse_timestamp(input)
+                    .map(|timestamp| timestamp.to_string())
+                    .as_deref(),
+                Some(expected),
+                "{input}",
+            );
+        }
+        for invalid in ["", "invalid", "2026-02-30T12:13:14Z", "2026-09-27T25:00:00"] {
+            assert_eq!(parse_timestamp(invalid), None, "{invalid}");
+        }
     }
 
     #[test]

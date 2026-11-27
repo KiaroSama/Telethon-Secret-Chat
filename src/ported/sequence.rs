@@ -119,6 +119,22 @@ fn check_order(state: &Value, frame: &Frame) -> Outcome<()> {
     Err(reject(state, reason))
 }
 
+fn check_neighbors(state: &Value, before: &Frame, after: &Frame) -> Outcome<()> {
+    if before.input > after.input {
+        return Err(reject(
+            state,
+            "the peer's counter contradicts a buffered neighboring message",
+        ));
+    }
+    if before.layer > after.layer {
+        return Err(reject(
+            state,
+            "the wrapper layer contradicts a buffered neighboring message",
+        ));
+    }
+    Ok(())
+}
+
 fn check(state: &Value, frame: &Frame, waiting: &BTreeMap<i64, Value>) -> Outcome<bool> {
     let outbound = state
         .get("is_outbound")
@@ -139,6 +155,12 @@ fn check(state: &Value, frame: &Frame, waiting: &BTreeMap<i64, Value>) -> Outcom
         return Ok(false);
     }
     check_order(state, frame)?;
+    if let Some((_, before)) = waiting.range(..actual).next_back() {
+        check_neighbors(state, &Frame::from_record(before)?, frame)?;
+    }
+    if let Some((_, after)) = waiting.range(actual..).next() {
+        check_neighbors(state, frame, &Frame::from_record(after)?)?;
+    }
     if i128::from(actual) - i128::from(current) > i128::from(WINDOW)
         || (actual > current && waiting.len() >= WINDOW as usize)
     {

@@ -105,8 +105,103 @@ struct StoreKey([u8; 32]);
 #[serde(deny_unknown_fields)]
 struct PersistedIngressState {
     owner_auth_id: String,
+    #[serde(deserialize_with = "deserialize_seen_orders")]
     seen_orders: BTreeMap<String, BTreeSet<i64>>,
+    #[serde(deserialize_with = "deserialize_pending_streams")]
     pending_by_stream: BTreeMap<String, BTreeMap<i64, DurableIngressRecord>>,
+}
+
+#[derive(Deserialize)]
+#[serde(try_from = "Vec<i64>")]
+struct StoredOrders(BTreeSet<i64>);
+
+impl TryFrom<Vec<i64>> for StoredOrders {
+    type Error = &'static str;
+
+    fn try_from(orders: Vec<i64>) -> Result<Self, Self::Error> {
+        let mut unique = BTreeSet::new();
+        for order in orders {
+            if !unique.insert(order) {
+                return Err("duplicate durable ingress replay identity");
+            }
+        }
+        Ok(Self(unique))
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(transparent)]
+struct StoredPendingRecords(
+    #[serde(deserialize_with = "deserialize_unique_map")] BTreeMap<i64, DurableIngressRecord>,
+);
+
+fn deserialize_seen_orders<'de, D>(
+    deserializer: D,
+) -> Result<BTreeMap<String, BTreeSet<i64>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let streams: BTreeMap<String, StoredOrders> = deserialize_unique_map(deserializer)?;
+    Ok(streams
+        .into_iter()
+        .map(|(stream, orders)| (stream, orders.0))
+        .collect())
+}
+
+fn deserialize_pending_streams<'de, D>(
+    deserializer: D,
+) -> Result<BTreeMap<String, BTreeMap<i64, DurableIngressRecord>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let streams: BTreeMap<String, StoredPendingRecords> = deserialize_unique_map(deserializer)?;
+    Ok(streams
+        .into_iter()
+        .map(|(stream, records)| (stream, records.0))
+        .collect())
+}
+
+fn deserialize_unique_map<'de, D, K, V>(deserializer: D) -> Result<BTreeMap<K, V>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    K: Deserialize<'de> + Ord,
+    V: Deserialize<'de>,
+{
+    struct UniqueMap<K, V>(std::marker::PhantomData<(K, V)>);
+
+    impl<'de, K, V> serde::de::Visitor<'de> for UniqueMap<K, V>
+    where
+        K: Deserialize<'de> + Ord,
+        V: Deserialize<'de>,
+    {
+        type Value = BTreeMap<K, V>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("a map with unique durable ingress identities")
+        }
+
+        fn visit_map<A>(self, mut input: A) -> Result<Self::Value, A::Error>
+        where
+            A: serde::de::MapAccess<'de>,
+        {
+            let mut values = BTreeMap::new();
+            while let Some(key) = input.next_key()? {
+                match values.entry(key) {
+                    std::collections::btree_map::Entry::Vacant(entry) => {
+                        entry.insert(input.next_value()?);
+                    }
+                    std::collections::btree_map::Entry::Occupied(_) => {
+                        return Err(serde::de::Error::custom(
+                            "duplicate durable ingress map identity",
+                        ));
+                    }
+                }
+            }
+            Ok(values)
+        }
+    }
+
+    deserializer.deserialize_map(UniqueMap(std::marker::PhantomData))
 }
 
 /// AES-256-GCM authenticated, atomically replaced on-disk store for durable ingress state.
@@ -470,6 +565,7 @@ impl DurableIngressController {
 
     /// Atomically acknowledge and return the entire currently pending stream.
     /// For consumer crash recovery, prefer `pending_in_order` followed by `acknowledge`.
+    /// Even an empty result requires the durable snapshot to remain current.
     pub fn drain_in_order(
         &mut self,
         stream_id: &str,
@@ -477,6 +573,7 @@ impl DurableIngressController {
         self.validate_configuration()?;
         let drained = self.pending_in_order(stream_id);
         if drained.is_empty() {
+            self.store.ensure_current()?;
             return Ok(drained);
         }
         let mut next_pending = self.pending_by_stream.clone();
@@ -572,6 +669,7 @@ impl DurableIngressController {
         for (stream, orders) in &state.seen_orders {
             if stream.trim().is_empty()
                 || stream.len() > MAX_ID_BYTES
+                || orders.is_empty()
                 || orders.iter().any(|order| *order < 0)
             {
                 return Err(EncryptedIngressStore::refused(
@@ -588,6 +686,11 @@ impl DurableIngressController {
         let mut pending_count = 0usize;
         let mut payload_bytes = 0usize;
         for (stream, records) in &state.pending_by_stream {
+            if records.is_empty() || !state.seen_orders.contains_key(stream) {
+                return Err(EncryptedIngressStore::refused(
+                    "durable ingress pending stream is empty or untracked",
+                ));
+            }
             for (order, record) in records {
                 if stream != &record.stream_id
                     || order != &record.order

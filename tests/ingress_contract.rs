@@ -128,12 +128,8 @@ fn unavailable_or_tampered_storage_and_wrong_owner_refuse_without_advancing() {
         .capture_and_commit(sample_update("account-main", 1, 7, b"frame-1"))
         .unwrap_err();
     assert!(matches!(write_err, SecretChatError::IngressRefused { .. }));
-    assert!(
-        failing
-            .drain_in_order("account-main")
-            .expect("empty drain")
-            .is_empty()
-    );
+    assert!(failing.pending_in_order("account-main").is_empty());
+    assert!(failing.drain_in_order("account-main").is_err());
 }
 
 #[tokio::test]

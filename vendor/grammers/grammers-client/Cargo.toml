@@ -31,7 +31,7 @@ grammers-tl-types = { git = "https://codeberg.org/Lonami/grammers.git", rev = "1
     "tl-mtproto",
 ] }
 html5ever = { version = "0.40.1", optional = true }
-jiff = "0.2.40"
+jiff = "1.0.3"
 md5 = "0.8.1"
 mime_guess = "2.0.5"
 pin-project-lite = "0.2"

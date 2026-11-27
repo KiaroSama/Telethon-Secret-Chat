@@ -157,6 +157,22 @@ struct Reader<'a> {
     position: usize,
 }
 
+/// Read an authenticated wrapper header without interpreting the repeated message body.
+pub(crate) fn wrapper_counters(raw: &[u8]) -> Outcome<(i64, i64)> {
+    let mut reader = Reader { raw, position: 0 };
+    if reader.number()? != 0x1be31789 {
+        return Err("ValueError: expected decryptedMessageLayer".into());
+    }
+    let random_length = reader.bytes()?.len();
+    let layer = i32::from_le_bytes(reader.block()?);
+    if random_length < 15 || layer < 46 {
+        return Err("ValueError: invalid decryptedMessageLayer header".into());
+    }
+    let input = i64::from(i32::from_le_bytes(reader.block()?));
+    let output = i64::from(i32::from_le_bytes(reader.block()?));
+    Ok((input, output))
+}
+
 impl Reader<'_> {
     fn block<const N: usize>(&mut self) -> Outcome<[u8; N]> {
         let offset = self.position;

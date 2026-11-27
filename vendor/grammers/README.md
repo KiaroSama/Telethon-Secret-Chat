@@ -22,6 +22,12 @@ and HTML/Markdown parsing and generation. Session corrections preserve counters,
 deadline restoration, bulk peer caching and atomic optional SQLite operations.
 The sender preserves typed error causes and redacts proxy credentials.
 
+The client uses Jiff 1.0.3 and its renamed `parse_zoned_datetime` API. This local
+dependency adaptation preserves named-zone precedence over a conflicting offset,
+compatible daylight-saving disambiguation, and UTC fallback for date-times
+without a zone or offset. Parser regressions cover these behaviors and invalid
+date-time rejection.
+
 `local-patches.json` records the exact distributed source hashes and explicitly
 lists patched upstream files and added supplement sources. The original hashes
 in `upstream-hashes.json` remain the unmodified official reference; patched files
