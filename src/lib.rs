@@ -12,6 +12,7 @@ pub use grammers_session;
 pub use grammers_tl_types;
 
 pub mod autosave;
+pub mod binding_migration;
 pub mod custody;
 pub mod errors;
 pub mod establishment;
@@ -21,6 +22,7 @@ pub mod ingress;
 pub mod lifecycle;
 pub mod manager;
 pub mod media;
+pub mod orchestration;
 #[doc(hidden)]
 pub mod ported;
 pub mod protocol;

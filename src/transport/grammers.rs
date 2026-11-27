@@ -403,6 +403,52 @@ impl EstablishmentTransport for GrammersTransport {
         })
     }
 
+    fn send_encrypted_file_reference(
+        &self,
+        chat_id: i32,
+        access_hash: i64,
+        random_id: i64,
+        data: Vec<u8>,
+        file: EncryptedFileRef,
+    ) -> Rpc<'_, i32> {
+        use tl::enums::messages::SentEncryptedMessage::SentEncryptedFile;
+        Box::pin(async move {
+            if file.id == 0 {
+                return Err(rejected(
+                    Some(i64::from(chat_id)),
+                    "encrypted file reference id cannot be zero",
+                ));
+            }
+            let key_fingerprint = file.key_fingerprint;
+            let peer = peer(chat_id, access_hash);
+            let input = tl::enums::InputEncryptedFile::File(t::InputEncryptedFile {
+                id: file.id,
+                access_hash: file.access_hash,
+            });
+            let reply = self
+                .bound(&msg::SendEncryptedFile {
+                    silent: false,
+                    peer,
+                    random_id,
+                    data,
+                    file: input,
+                })
+                .await?;
+            match reply {
+                SentEncryptedFile(sent)
+                    if from_file(&sent.file)
+                        .is_some_and(|f| f.key_fingerprint == key_fingerprint) =>
+                {
+                    Ok(sent.date)
+                }
+                _ => Err(rejected(
+                    Some(i64::from(chat_id)),
+                    "server did not confirm the forwarded encrypted file",
+                )),
+            }
+        })
+    }
+
     fn upload_encrypted_bytes(
         &self,
         ciphertext: Vec<u8>,
@@ -638,6 +684,22 @@ fn check_file_size(size: u64) -> Result<usize, SecretChatError> {
 
 fn cache_error() -> SecretChatError {
     rejected(None, "transport cache unavailable")
+}
+
+pub(crate) fn compute_v2_authorization_identity(
+    user_id: i64,
+    key_tag: [u8; 32],
+    dc_id: i32,
+    generation: &str,
+) -> String {
+    binding::authorization_identity(
+        &Authorization {
+            user_id,
+            key_tag,
+            dc_id,
+        },
+        generation,
+    )
 }
 
 pub(crate) fn rejected(chat_id: Option<i64>, reason: &'static str) -> SecretChatError {

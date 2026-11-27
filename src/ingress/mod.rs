@@ -106,12 +106,23 @@ struct StoreKey([u8; 32]);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct PersistedIngressState {
-    owner_auth_id: String,
+pub(crate) struct PersistedIngressState {
+    pub(crate) owner_auth_id: String,
     #[serde(deserialize_with = "deserialize_seen_orders")]
-    seen_orders: BTreeMap<String, BTreeSet<i64>>,
+    pub(crate) seen_orders: BTreeMap<String, BTreeSet<i64>>,
     #[serde(deserialize_with = "deserialize_pending_streams")]
-    pending_by_stream: BTreeMap<String, BTreeMap<i64, DurableIngressRecord>>,
+    pub(crate) pending_by_stream: BTreeMap<String, BTreeMap<i64, DurableIngressRecord>>,
+}
+
+impl PersistedIngressState {
+    pub(crate) fn validate_for_migration(&self) -> Result<usize, SecretChatError> {
+        let hard_limits = IngressLimits {
+            max_pending_records: 4096,
+            max_payload_bytes: 1024 * 1024,
+        };
+        DurableIngressController::validate_state(self, hard_limits)?;
+        Ok(self.pending_by_stream.values().map(BTreeMap::len).sum())
+    }
 }
 
 #[derive(Deserialize)]

@@ -2,7 +2,7 @@
 
 mod grammers;
 pub use grammers::GrammersTransport;
-pub(crate) use grammers::rejected;
+pub(crate) use grammers::{compute_v2_authorization_identity, rejected};
 
 use crate::errors::SecretChatError;
 use crate::manager::{BoxFuture, SecretTransport};
@@ -109,6 +109,21 @@ pub trait EstablishmentTransport: SecretTransport + Send + Sync {
         data: Vec<u8>,
         file: EncryptedFileUpload,
     ) -> Rpc<'_, i32>;
+    fn send_encrypted_file_reference(
+        &self,
+        chat_id: i32,
+        _access_hash: i64,
+        _random_id: i64,
+        _data: Vec<u8>,
+        _file: EncryptedFileRef,
+    ) -> Rpc<'_, i32> {
+        Box::pin(async move {
+            Err(rejected(
+                Some(i64::from(chat_id)),
+                "transport does not support encrypted file-reference forwarding",
+            ))
+        })
+    }
     fn upload_encrypted_bytes(
         &self,
         ciphertext: Vec<u8>,

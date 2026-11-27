@@ -132,6 +132,14 @@ pub fn export_saved_chat(
     messages: &[SavedSecretMessage],
     options: &ExportOptions,
 ) -> Result<ExportReport, SecretChatError> {
+    export_saved_chat_with(messages, options, |_| Ok(()))
+}
+
+pub(crate) fn export_saved_chat_with(
+    messages: &[SavedSecretMessage],
+    options: &ExportOptions,
+    write_extra: impl FnOnce(&Path) -> Result<(), SecretChatError>,
+) -> Result<ExportReport, SecretChatError> {
     let html = options.format != ExportFormat::Json;
     if html && options.messages_per_page == 0 {
         return Err(parameter("messages per page must be greater than zero"));
@@ -223,6 +231,7 @@ pub fn export_saved_chat(
         fs::write(&path, text).map_err(|_| parameter("could not write archive JSON"))?;
         report.json_path = Some(options.output_dir.join("result.json"));
     }
+    write_extra(&stage.path)?;
     stage.publish(&options.output_dir)?;
     Ok(report)
 }

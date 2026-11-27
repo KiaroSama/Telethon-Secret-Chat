@@ -67,7 +67,7 @@ impl DurableIngressController {
                     reason: "durable ingress store belongs to a different authorization".into(),
                 });
             }
-            controller.validate_state(&state)?;
+            Self::validate_state(&state, controller.limits)?;
             controller.seen_orders = state.seen_orders;
             controller.pending_by_stream = state
                 .pending_by_stream
@@ -425,7 +425,10 @@ impl DurableIngressController {
         Ok(())
     }
 
-    fn validate_state(&self, state: &PersistedIngressState) -> Result<(), SecretChatError> {
+    pub(super) fn validate_state(
+        state: &PersistedIngressState,
+        limits: IngressLimits,
+    ) -> Result<(), SecretChatError> {
         let mut seen_count = 0usize;
         if state.seen_orders.len() > MAX_STREAMS || state.pending_by_stream.len() > MAX_STREAMS {
             return Err(EncryptedIngressStore::refused(
@@ -463,7 +466,7 @@ impl DurableIngressController {
                     || *order < 0
                     || !record.validated
                     || record.status == CommitReplayStatus::DuplicateIgnored
-                    || record.payload.len() > self.limits.max_payload_bytes
+                    || record.payload.len() > limits.max_payload_bytes
                     || !state
                         .seen_orders
                         .get(stream)
@@ -475,7 +478,7 @@ impl DurableIngressController {
                 }
                 pending_count = pending_count
                     .checked_add(1)
-                    .filter(|total| *total <= self.limits.max_pending_records)
+                    .filter(|total| *total <= limits.max_pending_records)
                     .ok_or_else(|| {
                         EncryptedIngressStore::refused(
                             "restored ingress exceeds the configured pending limit",

@@ -7,6 +7,31 @@ package by commit and reads this file before moving its pin. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Deterministic property-based state-machine tests (`tests/property_state_machine.rs`)
+  covering message reordering, replays, gap filling, PFS rekey cutovers, restart
+  checkpoints, and Strong-mode contiguous acknowledgement invariants.
+- Versioned typed protocol snapshots (`protocol::typed_state::{TypedPersistedProtocol,
+  PersistedGapState, PersistedRekeyExchange, migrate_json_v1_to_v2, decode_v2_json}`)
+  making illegal gap and rekey combinations unrepresentable while preserving `v1`
+  snapshot round-trip compatibility (`tests/typed_persisted_state.rs`).
+- Reproducible whole-file checkpoint benchmark suite (`tests/storage_checkpoint_bench.rs`)
+  and sizing guide (`docs/benchmarks/checkpoint-storage.md`) documenting when whole-file
+  atomic snapshots suffice versus when append-only or WAL storage is warranted.
+- Explicit offline `v1`-to-`v2` binding migration helpers (`binding_migration::{
+  BindingOwnershipProof, MigrationSummary, migrate_chat_store_v1_to_v2,
+  migrate_custody_store_v1_to_v2, migrate_ingress_store_v1_to_v2}`) with strict
+  caller-supplied old/new identity verification (`tests/binding_migration.rs`).
+- Caller-owned orchestration helpers (`orchestration::{MediaBudgets, MediaOrchestrator,
+  SentEncryptedMedia, AutoSaveSubscription, BoundedCustodySettlement, RichTextEntity,
+  ServiceArchiveEvent, RichArchiveRecord, render_rich_html, export_rich_saved_chat}`)
+  for bounded encrypted media transfer, per-chat autosave routing, rich entity/service-event
+  archive export, and in-memory bounded delivery settlement (`tests/orchestration_parity.rs`).
+- Opt-in manual live interoperability workflow (`.github/workflows/live-interop.yml`)
+  and three-tier verification guide (`docs/interop-testing.md`) separating offline
+  vectors, same-library live pairs, and official-client interoperability.
+
 ### Fixed
 
 - Bind `GrammersTransport` to the actual local authorization-key tag, verified user,

@@ -1,6 +1,7 @@
 mod helpers;
 mod receive_guard;
 mod snapshot;
+pub mod typed_state;
 
 pub use helpers::*;
 pub(crate) use snapshot::PersistedProtocolState;

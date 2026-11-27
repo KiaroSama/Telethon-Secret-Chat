@@ -49,7 +49,7 @@ impl Default for CustodyLimits {
 #[serde(try_from = "StoredCustodyRecord")]
 pub struct CustodyRecord {
     chat_id: i64,
-    owner_auth_id: String,
+    pub(crate) owner_auth_id: String,
     mode: CustodyMode,
     backend: CustodyBackend,
     limits: CustodyLimits,
@@ -230,7 +230,7 @@ impl CustodyRecord {
         Ok(())
     }
 
-    fn validate_persistence(&self) -> Result<(), SecretChatError> {
+    pub(crate) fn validate_persistence(&self) -> Result<(), SecretChatError> {
         self.validate()?;
         if self.backend != CustodyBackend::EncryptedFile || self.mode == CustodyMode::Transient {
             return Err(SecretChatError::ParameterRejected {
