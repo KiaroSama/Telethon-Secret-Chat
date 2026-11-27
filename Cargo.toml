@@ -1,0 +1,83 @@
+[package]
+name = "kiaro-secret-chat"
+version = "0.3.0"
+edition = "2024"
+rust-version = "1.95"
+license = "GPL-3.0-or-later"
+publish = false
+description = "Telegram MTProto 2.0 secret chats for a caller-owned grammers client"
+repository = "https://github.com/KiaroSama/Telethon-Secret-Chat"
+readme = "README.md"
+keywords = ["telegram", "grammers", "mtproto", "secret-chat", "encryption"]
+categories = ["cryptography", "network-programming"]
+include = [
+    "src/**",
+    "schema/**",
+    "data/**",
+    "assets/**",
+    "migration/**",
+    "Cargo.toml",
+    "Cargo.lock",
+    "README.md",
+    "LICENSE",
+    "NOTICE",
+    "docs/rust-*.md",
+    "docs/signing/publisher.json",
+    "vendor/grammers/*/src/**",
+    "vendor/grammers/*/Cargo.toml",
+    "vendor/grammers/*/LICENSE-*",
+    "vendor/grammers/README.md",
+    "vendor/grammers/upstream-hashes.json",
+    "vendor/grammers/local-patches.json",
+    "tools/secret-scan/src/**",
+    "tools/secret-scan/Cargo.toml",
+    "tools/secret-scan/Cargo.lock",
+]
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "check-test-matrix"
+path = "src/bin/check-test-matrix.rs"
+
+[[bin]]
+name = "generate-schema"
+path = "src/bin/generate-schema.rs"
+
+[dependencies]
+aes = { version = "0.9", features = ["zeroize"] }
+aes-gcm = "0.11.1"
+base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+crypto-bigint = { version = "0.7", features = ["alloc"] }
+getrandom = "0.4.3"
+grammers-client = { version = "=0.12.0", path = "vendor/grammers/grammers-client", features = ["markdown", "html"] }
+grammers-crypto = { version = "=0.12.0", git = "https://codeberg.org/Lonami/grammers.git", rev = "11e13a989a754f9cf01a798480a2e20ce9e5b1fd" }
+grammers-mtsender = { version = "=0.12.0", path = "vendor/grammers/grammers-mtsender" }
+grammers-session = { version = "=0.12.0", path = "vendor/grammers/grammers-session", default-features = false }
+grammers-tl-types = { version = "=0.12.0", git = "https://codeberg.org/Lonami/grammers.git", rev = "11e13a989a754f9cf01a798480a2e20ce9e5b1fd", features = ["impl-serde"] }
+hex = "0.4"
+jiff = { version = "1.0.2", default-features = false, features = ["std"] }
+mozjpeg = "=0.10.13"
+mozjpeg-sys = { version = "=2.2.3", features = ["jpeg80_abi"] }
+num-bigint = "0.5"
+punycode = "0.4"
+roxmltree = "0.21"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip", "unbounded_depth"] }
+sha1 = "0.11.0"
+sha2 = "0.11.1"
+stringprep = "0.1"
+subtle = "2.6"
+thiserror = "2"
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+unicode-general-category = "1"
+unicode-normalization = "0.1"
+zeroize = { version = "1.9", features = ["derive"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints.rust]
+unsafe_code = "forbid"

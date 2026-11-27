@@ -1,31 +1,20 @@
 version: 2
 
 updates:
-  # Committing this configuration enables version updates for this repository.
-  # Forks may additionally require enabling version updates in repository settings.
-  # uv owns both pyproject.toml and uv.lock; keep the existing updater rather than
-  # replace it with pip. Review transitive security alerts as well as version PRs.
-  - package-ecosystem: "uv"
-    directory: "/"
+  - package-ecosystem: cargo
+    directories:
+      - "/"
+      - "/tools/secret-scan"
     schedule:
-      interval: "daily"
+      interval: daily
     open-pull-requests-limit: 5
     groups:
-      # Grouped so a quiet week is one pull request rather than nine. Majors stay
-      # out of every group on purpose: they are the ones that need release notes
-      # read and a migration considered, which cannot be done in bulk.
-      python-minor-and-patch:
-        update-types: ["minor", "patch"]
-
-  # Actions are dependencies too. Major upgrades remain individually reviewed.
-  - package-ecosystem: "github-actions"
+      rust-minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
     directory: "/"
     schedule:
-      interval: "daily"
+      interval: daily
     groups:
       actions-minor-and-patch:
-        update-types: ["minor", "patch"]
-
-  # No `docker` ecosystem: this project ships a library, not an image. Add one
-  # here the day a Dockerfile appears - Dependabot silently watches nothing for
-  # an ecosystem that is not listed.
+        update-types: [minor, patch]

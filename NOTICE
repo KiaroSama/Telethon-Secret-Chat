@@ -105,27 +105,31 @@ telethon_secret_chat/tdexport/ is a Python port of the chat export in Telegram D
 (https://github.com/telegramdesktop/tdesktop, tag v7.2.10,
 Telegram/SourceFiles/export/), Copyright (C) the Telegram Desktop authors,
 licensed under the GNU General Public License version 3 with an OpenSSL
-exception. telethon_secret_chat/tdexport/assets/ (css/, js/, images/) is copied
+exception. assets/tdexport/ (css/, js/, images/) is copied
 unchanged from Telegram/Resources/export_html/ of the same tag. Both are
-included here under GPLv3, the licence of this work, so an export this server
+included here under GPLv3, the licence of this work, so an export this library
 writes is the same as one Telegram Desktop writes.
 
 Photo thumbnails port Telegram Desktop's Qt 5.15.19 scaling and JPEG settings:
-telethon_secret_chat/tdexport/qt_scale.py ports QImage's SmoothTransformation
+src/ported/tdexport_qt_scale.rs ports QImage's SmoothTransformation
 (qtbase src/gui/painting/qimagescale.cpp and interpolate_4_pixels from
 qdrawhelper_p.h), Copyright (C) The Qt Company Ltd., licensed under LGPL-3.0 /
 GPL-2.0-or-later / GPL-3.0; the smooth-scaling code there is derived from
 Imlib2 (Copyright (C) Carsten Haitzler and others; Daniel M. Duley), under its
-BSD-style licence, whose notice is kept here. telethon_secret_chat/tdexport/qt_jpeg.py
+BSD-style licence, whose notice is kept here. src/ported/tdexport_qt_jpeg.rs
 reproduces the settings of Qt's JPEG writer (qjpeghandler.cpp). The encoding
-itself is done by mozjpeg 4.1.5 (https://github.com/mozilla/mozjpeg; IJG,
+itself is done by mozjpeg (https://github.com/mozilla/mozjpeg; IJG,
 BSD-3-Clause and zlib licences, including the libjpeg-turbo code it contains),
-reached through the optional imagecodecs package (BSD-3-Clause); neither is
-bundled here. telethon_secret_chat/tdexport/qt_icc.py ports QtGui's matrix/TRC ICC parser,
+reached through the mozjpeg Rust crate. src/ported/tdexport_qt_icc.rs ports QtGui's matrix/TRC ICC parser,
 color-space matrices, transfer curves and color-transform LUTs from Qt 5.15.19,
 Copyright (C) 2016, 2018 The Qt Company Ltd., under the same GPL-3.0 option noted
 above. Synthetic oracle fixtures were generated with that exact patched source;
-no native Qt runtime is bundled or required by the Python port.
+no native Qt runtime is bundled or required by the Rust port.
+
+The vendored MTProto transport crates under vendor/grammers/ derive from
+Lonami/grammers (https://codeberg.org/Lonami/grammers), dual-licensed under
+MIT OR Apache-2.0; their upstream LICENSE-MIT and LICENSE-APACHE files and
+exact SHA-256 provenance manifests are retained in vendor/grammers/.
 
 
 QIMAGE SMOOTH-SCALING NOTICE AND CREDITS
