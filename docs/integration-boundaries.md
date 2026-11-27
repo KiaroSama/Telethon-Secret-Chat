@@ -38,6 +38,41 @@ gaps, outboxes, and owed receive batches. File stores persist across process
 restart; `MemoryStorage` only persists within its object. Strong mode adds the
 [explicit consumer settlement contract](strong-ingress.md).
 
+## Text TTL and retry identity
+
+Persistent and transient wrappers infer each new message's TTL from protocol
+state at sequence reservation, under the final chat-state lock after pending
+outbox transmission. Peer TTL updates processed while that send waits apply to
+the new frame. Public RAM `SecretChatManager::send_text` keeps its explicit TTL
+argument; an explicit retry must use the same text and TTL.
+
+For newly staged persistent requests, `send_text_with_id` binds the caller's ID
+to the text independently of the conversation TTL. While the outbox retains that
+ID, retrying the same ID and text returns and, when needed, retransmits the exact
+original ciphertext, even after a TTL change or restart. Changing the text is
+refused. A successful peer acknowledgement removes the retained entry; the ID
+is not a permanent application deduplication key after that retirement.
+
+Existing outbox entries keep their original identity digest and ciphertext. A
+legacy retry first checks the existing text/TTL digest with the current TTL. If
+that no longer matches, it authenticates the original outgoing frame with a
+still-held key, recovers its original TTL, and checks the original digest. This
+does not change the stored format, relabel the identity, or encrypt a replacement
+frame. If the original key has already retired and the current-TTL digest does
+not match, the request is safely refused with `retry_pending` guidance. The old
+digest alone cannot recover the missing TTL or distinguish changed text; no
+retired key is restored or retained merely for this fallback. `retry_pending`
+can still transmit entries marked pending using their exact retained ciphertext
+without decrypting it. Entries whose RPC already succeeded remain retained for
+peer acknowledgement and are not forcibly retransmitted; this call can correctly
+return `0`. New implicit identities do not need that legacy recovery path.
+
+The serialized record shape is unchanged, but the new implicit digest needs the
+updated matcher. Downgrading to older code may reject `send_text_with_id` for a
+new-format retained entry; `retry_pending` can still resend its original frame
+when the entry is pending.
+Unchanged serialization does not imply bidirectional retry compatibility.
+
 ## Media, saved history, and orchestration
 
 `media` provides metadata, encryption/decryption, forwarding descriptors, voice
@@ -53,8 +88,13 @@ identity; it is not ciphertext authentication.
 
 `AutoSaveStore` is independent opt-in storage. Applications may call
 `AutoSaveStore::record_message` directly or use `orchestration::AutoSaveSubscription`
-to route saved records per subscribed chat. Unknown stored fields and duplicate
-identities are refused instead of being silently discarded by a later rewrite.
+to route saved records per subscribed chat. Subscriptions store only records
+explicitly passed to `on_message`; they install no protocol or event hook.
+Persistent and transient wrappers do not retain a duplicate RAM event queue;
+their receive batches remain available through their existing delivery APIs.
+Direct RAM managers keep the public `drain_events` API. Unknown stored fields
+and duplicate identities are refused instead of being silently discarded by a
+later rewrite.
 
 `orchestration::BoundedCustodySettlement` tracks caller-owned pending
 deliveries in memory with ledger-wide ceilings, non-consuming polling, explicit

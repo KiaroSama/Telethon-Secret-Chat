@@ -161,6 +161,128 @@ pub fn smooth_scale(pixels: Image, width: i64, height: i64) -> Result<Image, Str
     Ok(result)
 }
 
+struct FlatPixels<T> {
+    values: Vec<T>,
+    width: usize,
+    height: usize,
+}
+
+fn axis_flat<T>(
+    source: (usize, usize),
+    taps: &Taps,
+    horizontal: bool,
+    shift: u32,
+    sample: impl Fn(usize, usize, usize) -> i64,
+    convert: impl Fn(i64) -> T,
+) -> Result<FlatPixels<T>, String> {
+    if taps.is_empty() {
+        return Err("ValueError: max() iterable argument is empty".into());
+    }
+    let (source_width, source_height) = source;
+    let (width, height) = if horizontal {
+        (taps.len(), source_height)
+    } else {
+        (source_width, taps.len())
+    };
+    let source_last = if horizontal {
+        source_width - 1
+    } else {
+        source_height - 1
+    };
+    let length = width
+        .checked_mul(height)
+        .and_then(|pixels| pixels.checked_mul(3))
+        .ok_or("ValueError: scaled image dimensions overflow")?;
+    let mut values = Vec::new();
+    values
+        .try_reserve_exact(length)
+        .map_err(|_| "MemoryError: could not allocate scaled image")?;
+    for y in 0..height {
+        for x in 0..width {
+            let (start, weights) = &taps[if horizontal { x } else { y }];
+            for channel in 0..3 {
+                let value = weights
+                    .iter()
+                    .enumerate()
+                    .map(|(index, &weight)| {
+                        let at = (*start + index as i64).clamp(0, source_last as i64) as usize;
+                        (if horizontal {
+                            sample(at, y, channel)
+                        } else {
+                            sample(x, at, channel)
+                        }) * weight
+                    })
+                    .sum::<i64>()
+                    >> shift;
+                values.push(convert(value));
+            }
+        }
+    }
+    Ok(FlatPixels {
+        values,
+        width,
+        height,
+    })
+}
+
+// The thumbnail path uses the same Qt tap weights, axis order, and integer
+// shifts as the public parity function. Only its intermediate storage differs.
+// Grayscale samples expand to RGB while sampling, without a source-sized copy.
+pub(crate) fn smooth_scale_rgb(
+    pixels: &[u8],
+    source: (usize, usize),
+    channels: usize,
+    target: (usize, usize),
+) -> Result<Vec<u8>, String> {
+    let (source_width, source_height) = source;
+    let (width, height) = target;
+    if source_width == 0
+        || source_height == 0
+        || !matches!(channels, 1 | 3)
+        || source_width
+            .checked_mul(source_height)
+            .and_then(|length| length.checked_mul(channels))
+            != Some(pixels.len())
+    {
+        return Err("ValueError: invalid source array shape".into());
+    }
+    if width == 0 || height == 0 {
+        return Err(ZERO.into());
+    }
+    let dimension =
+        |value| i64::try_from(value).map_err(|_| "OverflowError: image dimension out of range");
+    let (x, y) = (width >= source_width, height >= source_height);
+    let xt = taps(dimension(source_width)?, dimension(width)?, x)?;
+    let yt = taps(dimension(source_height)?, dimension(height)?, y)?;
+    let (horizontal, first_shift, second_shift) = match (x, y) {
+        (false, false) => (true, 4, 24),
+        (true, false) => (false, 0, 22),
+        (false, true) => (true, 0, 22),
+        (true, true) => (false, 8, 8),
+    };
+    let (first_taps, second_taps) = if horizontal { (&xt, &yt) } else { (&yt, &xt) };
+    let intermediate = axis_flat(
+        source,
+        first_taps,
+        horizontal,
+        first_shift,
+        |x, y, channel| {
+            let channel = if channels == 1 { 0 } else { channel };
+            i64::from(pixels[(y * source_width + x) * channels + channel])
+        },
+        |value| value,
+    )?;
+    Ok(axis_flat(
+        (intermediate.width, intermediate.height),
+        second_taps,
+        !horizontal,
+        second_shift,
+        |x, y, channel| intermediate.values[(y * intermediate.width + x) * 3 + channel],
+        |value| value as u8,
+    )?
+    .values)
+}
+
 #[test]
 fn interpolation_blends_the_middle_pixel() {
     assert_eq!(
@@ -175,4 +297,49 @@ fn downsample_taps_use_the_qt_fixed_point_weights() {
         down_taps(6, 3).map(|taps| taps[0].clone()),
         Ok(serde_json::json!({"$tuple":[0,[8192,8192]]}))
     );
+}
+
+#[test]
+fn flat_rgb_scaling_preserves_all_axis_orders_and_grayscale_replication() {
+    for (source_width, source_height) in [(1, 1), (2, 3), (7, 5)] {
+        for channels in [1, 3] {
+            let pixels: Vec<u8> = (0..source_width * source_height * channels)
+                .map(|index| ((index * 37 + 11) % 256) as u8)
+                .collect();
+            let rows: Image = pixels
+                .chunks_exact(source_width * channels)
+                .map(|row| {
+                    row.chunks_exact(channels)
+                        .map(|pixel| {
+                            if channels == 1 {
+                                vec![i64::from(pixel[0]); 3]
+                            } else {
+                                pixel.iter().map(|&value| i64::from(value)).collect()
+                            }
+                        })
+                        .collect()
+                })
+                .collect();
+            for (width, height) in [(1, 1), (2, 3), (9, 8), (7, 5), (1, 9), (9, 1)] {
+                let expected: Vec<u8> = smooth_scale(rows.clone(), width as i64, height as i64)
+                    .unwrap()
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                    .map(|value| value as u8)
+                    .collect();
+                assert_eq!(
+                    smooth_scale_rgb(
+                        &pixels,
+                        (source_width, source_height),
+                        channels,
+                        (width, height)
+                    )
+                    .unwrap(),
+                    expected,
+                    "source={source_width}x{source_height}, channels={channels}, target={width}x{height}"
+                );
+            }
+        }
+    }
 }

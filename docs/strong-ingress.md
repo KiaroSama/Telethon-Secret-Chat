@@ -39,6 +39,12 @@ failure preserves both the batch and retryable outbound ciphertext. A successful
 receive therefore does not imply every response RPC succeeded; use
 `retry_pending` when needed.
 
+Text sends use the persistent manager's [TTL and retry identity
+contract](integration-boundaries.md#text-ttl-and-retry-identity): a new implicit
+TTL is selected at sequence reservation, while a retained ID/text retry keeps
+its original ciphertext and TTL. Older retained entries whose original key has
+retired may require `retry_pending`; their obligations are not discarded.
+
 `list_pending_page(stream_id, offset, limit)` is non-consuming (`limit` 1..=100,
 `offset` 0..=4096). Snapshot loading refuses duplicate identities and inconsistent
 state. Operations verify stored revisions before replacing snapshots. Startup

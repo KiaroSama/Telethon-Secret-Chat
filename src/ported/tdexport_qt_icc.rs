@@ -379,6 +379,17 @@ pub fn convert_to_srgb(
     shape: Vec<i64>,
     profile: Vec<u8>,
 ) -> Result<Value, String> {
+    let (pixels, profile) = convert_to_srgb_bytes(pixels, shape, profile)?;
+    Ok(outcome(&pixels, &profile))
+}
+
+// Preserve the public parity wrapper while allowing image processing to retain
+// packed byte buffers instead of allocating one JSON value for every sample.
+pub(crate) fn convert_to_srgb_bytes(
+    pixels: Vec<u8>,
+    shape: Vec<i64>,
+    profile: Vec<u8>,
+) -> Result<(Vec<u8>, Vec<u8>), String> {
     let dims = shape
         .iter()
         .map(i64::to_string)
@@ -403,9 +414,8 @@ pub fn convert_to_srgb(
             pixels.len()
         ));
     }
-    let original = || outcome(&pixels, &profile);
     let Some((m, curves)) = parse(&profile) else {
-        return Ok(original());
+        return Ok((pixels, profile));
     };
     let target = matrix(PRIMARIES[0]);
     if near_matrix(m, target)
@@ -413,7 +423,7 @@ pub fn convert_to_srgb(
             .iter()
             .all(|c| matches!(c,Curve::Function(f) if match_fun(*f,srgb())))
     {
-        return Ok(original());
+        return Ok((pixels, profile));
     }
     let gray = shape.len() == 2;
     if !gray && (shape.len() != 3 || shape[2] != 3) {
@@ -421,16 +431,16 @@ pub fn convert_to_srgb(
     }
     let transform = mul(inverse(target), m);
     if det(transform).abs() <= 1e-5 {
-        return Ok(original());
+        return Ok((pixels, profile));
     }
     let Some(a) = lut(&curves[0]) else {
-        return Ok(original());
+        return Ok((pixels, profile));
     };
     let Some(g) = lut(&curves[1]) else {
-        return Ok(original());
+        return Ok((pixels, profile));
     };
     let Some(b) = lut(&curves[2]) else {
-        return Ok(original());
+        return Ok((pixels, profile));
     };
     let tables = if same(&curves[0], &curves[1]) && same(&curves[0], &curves[2]) {
         [a; 3]
@@ -448,7 +458,7 @@ pub fn convert_to_srgb(
         }
         let ix = lin.map(|x| (x * 4080.0).round_ties_even());
         if ix.iter().any(|x| !(0.0..=4080.0).contains(x)) {
-            return Ok(original());
+            return Ok((pixels, profile));
         }
         let [r, g, b] = ix.map(|i| (u32::from(TARGET_LUT[i as usize]) + 128) >> 8);
         if gray {
@@ -457,7 +467,7 @@ pub fn convert_to_srgb(
             result.extend([r as u8, g as u8, b as u8]);
         }
     }
-    Ok(outcome(&result, SRGB_PROFILE))
+    Ok((result, SRGB_PROFILE.to_vec()))
 }
 
 #[test]

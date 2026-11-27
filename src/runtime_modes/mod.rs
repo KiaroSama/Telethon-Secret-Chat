@@ -10,8 +10,8 @@ use zeroize::{Zeroize, Zeroizing};
 
 use crate::errors::SecretChatError;
 use crate::manager::{
-    BoxFuture, ChatCheckpoint, ManagerLimits, PersistedOutboxItem, ReceivedBatch,
-    SecretChatManager, SecretTransport,
+    BoxFuture, ChatCheckpoint, EventRetention, ManagerLimits, PersistedOutboxItem, ReceivedBatch,
+    SecretChatManager, SecretTransport, TextTtl,
 };
 use crate::protocol::{AcceptedMessage, ChatState, SecretChat};
 use crate::storage_backend::{
@@ -316,7 +316,11 @@ impl<T: SecretTransport, S: SecretChatStore> PersistentSecretChatManager<T, S> {
             records: RecordMutex::new(snapshot.chats),
             limits,
         });
-        let inner = Arc::new(SecretChatManager::with_limits(checkpoint.clone(), limits)?);
+        let inner = Arc::new(SecretChatManager::with_limits_and_event_retention(
+            checkpoint.clone(),
+            limits,
+            EventRetention::Discard,
+        )?);
         let records: Vec<_> = checkpoint.records()?.values().cloned().collect();
         for record in records.iter().filter(|r| !r.tombstoned) {
             checkpoint.check_delivery_capacity(record)?;
@@ -375,13 +379,13 @@ impl<T: SecretTransport, S: SecretChatStore> PersistentSecretChatManager<T, S> {
     }
 
     pub async fn send_text_with_id(&self, id: i32, random_id: i64, text: &str) -> Result<Vec<u8>> {
-        let ttl = self.require_live(id).await?.ttl;
+        self.require_live(id).await?;
         self.inner
             .send_text_checkpointed(
                 i64::from(id),
                 random_id,
                 text,
-                i64::from(ttl),
+                TextTtl::Conversation,
                 Some(self.checkpoint.as_ref()),
             )
             .await

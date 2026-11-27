@@ -1,5 +1,6 @@
 mod helpers;
 mod receive_guard;
+mod retained_text;
 mod snapshot;
 pub mod typed_state;
 

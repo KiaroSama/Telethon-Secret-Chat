@@ -34,6 +34,14 @@ package by commit and reads this file before moving its pin. The format follows
 
 ### Fixed
 
+- Resolve implicit text TTL at sequence reservation after queued transmissions,
+  and keep caller-ID retries stable across TTL changes, restart, and key retirement.
+  Preserve explicit RAM TTL and legacy digests; see the
+  [follow-up audit](docs/audits/2026-11-28-followup.md) for legacy recovery limits.
+- Disable inaccessible duplicate events at persistent/transient manager construction,
+  while preserving the direct RAM manager's public event stream.
+- Keep thumbnail ICC/scaling pixels in packed buffers. A valid 24 MP JPEG now has
+  regression coverage through both thumbnail and archive paths in a 512 MiB child.
 - Bind `GrammersTransport` to the actual local authorization-key tag, verified user,
   home DC, and generation; accept current-session management hash `0`, and guard
   RPC, multipart, download, and handshake await boundaries against identity changes.

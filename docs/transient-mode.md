@@ -5,7 +5,8 @@
 ## Core guarantees
 
 - Ordinary and service message payloads remain in RAM only; `CustodyStore::save_record` refuses disk persistence for records marked `CustodyMode::Transient` or `CustodyBackend::MemoryOnly`.
-- Outgoing messages use the protocol's current TTL, including peer TTL updates; there is no separate stale manager TTL cache.
+- Outgoing messages select the protocol's current TTL under the chat-state lock when their sequence is reserved, after older pending sends drain. An authenticated peer TTL update received while a send waits therefore applies to that new message. A retry retains the original ciphertext and its original TTL.
+- The wrapper does not retain a second, inaccessible RAM event queue. Its returned receive batches remain caller-owned; the public RAM `SecretChatManager` continues to expose all event categories through `drain_events`.
 - On process restart (`open_after_restart`), previously active transient chats are recorded as permanently suspended and cannot silently resume with missing volatile payloads.
 - Subsequent sends or receives on a permanently suspended transient chat fail closed with `SecretChatError::Protocol("transient chat permanently suspended after restart")` until explicitly closed or forgotten.
 

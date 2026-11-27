@@ -8,8 +8,8 @@ use tokio::sync::MutexGuard;
 use zeroize::Zeroizing;
 
 use super::{
-    ChatCheckpoint, ChatEntry, ManagedChat, OutboundMessage, ReceivedBatch, SecretChatManager,
-    SecretEvent, SecretTransport,
+    ChatCheckpoint, ChatEntry, EventRetention, ManagedChat, OutboundMessage, ReceivedBatch,
+    SecretChatManager, SecretEvent, SecretTransport,
 };
 use crate::errors::SecretChatError;
 use crate::protocol::{AcceptedMessage, ChatState, PreparedServiceMessage, SecretChat};
@@ -265,10 +265,6 @@ impl<T: SecretTransport> SecretChatManager<T> {
         Ok(self.entry(chat_id).await?.state.lock().await.chat.state())
     }
 
-    pub(crate) async fn chat_ttl(&self, chat_id: i64) -> Result<i32, SecretChatError> {
-        Ok(self.entry(chat_id).await?.state.lock().await.chat.ttl())
-    }
-
     pub async fn out_seq_no(&self, chat_id: i64) -> Result<i64, SecretChatError> {
         Ok(self
             .entry(chat_id)
@@ -290,6 +286,9 @@ impl<T: SecretTransport> SecretChatManager<T> {
     }
 
     pub(super) fn emit(&self, event: SecretEvent) {
+        if matches!(self.event_retention, EventRetention::Discard) {
+            return;
+        }
         self.events
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -485,12 +484,4 @@ impl<T: SecretTransport> SecretChatManager<T> {
             count += 1;
         }
     }
-}
-
-pub(super) fn text_identity(text: &str, ttl: i64) -> [u8; 32] {
-    let mut hash = Sha256::new();
-    hash.update(b"secret-chat-text\0");
-    hash.update(ttl.to_le_bytes());
-    hash.update(text.as_bytes());
-    hash.finalize().into()
 }

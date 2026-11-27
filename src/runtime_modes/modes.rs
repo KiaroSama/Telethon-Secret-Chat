@@ -175,7 +175,11 @@ impl<T: SecretTransport, S: SecretChatStore> TransientSecretChatManager<T, S> {
         markers.load_all()?.validate(transport.auth_identity())?;
         let transport = Arc::new(transport);
         Ok(Self {
-            inner: SecretChatManager::with_limits(transport.clone(), limits)?,
+            inner: SecretChatManager::with_limits_and_event_retention(
+                transport.clone(),
+                limits,
+                EventRetention::Discard,
+            )?,
             transport,
             markers,
             active_chats: Mutex::new(BTreeSet::new()),
@@ -206,9 +210,9 @@ impl<T: SecretTransport, S: SecretChatStore> TransientSecretChatManager<T, S> {
         Ok(())
     }
 
-    async fn active_ttl(&self, id: i32) -> Result<i32> {
+    async fn require_active(&self, id: i32) -> Result<()> {
         if self.active_chats.lock().await.contains(&id) {
-            return self.inner.chat_ttl(i64::from(id)).await;
+            return Ok(());
         }
         if self.markers.is_transient_suspended(id)? {
             return Err(SecretChatError::Protocol(SUSPENDED));
@@ -217,14 +221,20 @@ impl<T: SecretTransport, S: SecretChatStore> TransientSecretChatManager<T, S> {
     }
 
     pub async fn send_text(&self, id: i32, text: &str) -> Result<Vec<u8>> {
-        let ttl = self.active_ttl(id).await?;
+        self.require_active(id).await?;
         self.inner
-            .send_text(i64::from(id), random_id()?, text, i64::from(ttl))
+            .send_text_checkpointed(
+                i64::from(id),
+                random_id()?,
+                text,
+                TextTtl::Conversation,
+                None,
+            )
             .await
     }
 
     pub async fn handle_incoming(&self, id: i32, frame: &[u8]) -> Result<Vec<AcceptedMessage>> {
-        self.active_ttl(id).await?;
+        self.require_active(id).await?;
         self.inner.receive_frames(i64::from(id), frame).await
     }
 
@@ -449,5 +459,123 @@ impl<T: SecretTransport, S: SecretChatStore> StrongSecretChatManager<T, S> {
             }
         }
         Ok(outcome)
+    }
+}
+
+#[cfg(test)]
+mod event_retention_tests {
+    use super::*;
+    use crate::manager::SecretEvent;
+    use crate::protocol::{ChatRole, encrypt_frame, wrap_frame};
+    use crate::storage_backend::MemoryStorage;
+
+    struct Transport;
+
+    impl SecretTransport for Transport {
+        fn auth_identity(&self) -> &str {
+            "transient-event-audit"
+        }
+
+        fn send_encrypted<'a>(&'a self, _: i64, _: i64, _: Vec<u8>) -> BoxFuture<'a, Result<()>> {
+            Box::pin(async { Ok(()) })
+        }
+
+        fn discard_encryption(&self, _: i64, _: bool) -> BoxFuture<'_, Result<()>> {
+            Box::pin(async { Ok(()) })
+        }
+    }
+
+    fn incoming_frames(key: &[u8; 256], outbound: &[u8]) -> (Vec<u8>, Vec<u8>) {
+        let mut peer = SecretChat::new(7, 8, 9, "peer", ChatRole::Initiator);
+        peer.adopt_key(key).unwrap();
+        peer.receive_encrypted_frames(outbound).unwrap();
+        let service = peer
+            .prepare_service_action(&json!({"id": TTL_ACTION, "fields": {"ttl_seconds": 9}}))
+            .unwrap();
+        let body = wrap_frame(
+            &json!({"random_id": 12, "ttl": 9, "message": "inbound"}),
+            73,
+            2,
+            3,
+        )
+        .unwrap();
+        (service.frame, encrypt_frame(key, &body, 0).unwrap())
+    }
+
+    #[tokio::test]
+    async fn transient_wrapper_does_not_retain_inaccessible_ram_events() {
+        let key = [0x63; 256];
+        let manager = TransientSecretChatManager::open_after_restart(
+            Transport,
+            MemoryStorage::new("transient-event-audit").unwrap(),
+            ManagerLimits::default(),
+        )
+        .await
+        .unwrap();
+        manager
+            .register_chat(
+                PersistedChatRecord::established(7, 8, 9, ChatRole::Acceptor, key).unwrap(),
+            )
+            .await
+            .unwrap();
+        let outbound = manager.send_text(7, "outbound").await.unwrap();
+        let (service, ordinary) = incoming_frames(&key, &outbound);
+        assert_eq!(manager.handle_incoming(7, &service).await.unwrap().len(), 1);
+        assert_eq!(
+            manager.handle_incoming(7, &ordinary).await.unwrap().len(),
+            1
+        );
+        manager.close_and_forget(7, false).await.unwrap();
+        let retained = manager.inner.drain_events().await;
+        assert!(
+            retained.is_empty(),
+            "transient wrapper retained {} inaccessible plaintext/lifecycle events",
+            retained.len()
+        );
+    }
+
+    #[tokio::test]
+    async fn public_ram_manager_preserves_all_consumer_event_categories() {
+        let key = [0x63; 256];
+        let manager = SecretChatManager::new(Arc::new(Transport));
+        manager
+            .register_established_chat(7, 8, 9, ChatRole::Acceptor, &key)
+            .await
+            .unwrap();
+        let outbound = manager.send_text(7, 11, "outbound", 0).await.unwrap();
+        let (service, ordinary) = incoming_frames(&key, &outbound);
+        assert_eq!(manager.receive_frames(7, &service).await.unwrap().len(), 1);
+        assert_eq!(manager.receive_frames(7, &ordinary).await.unwrap().len(), 1);
+        manager
+            .close_chat(7, false, "closed by caller")
+            .await
+            .unwrap();
+        let events = manager.drain_events().await;
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, SecretEvent::ChatReady { .. }))
+        );
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, SecretEvent::MessageAcknowledged { .. }))
+        );
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, SecretEvent::ServiceActionReceived { .. }))
+        );
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, SecretEvent::MessageReceived { .. }))
+        );
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, SecretEvent::ChatClosed { .. }))
+        );
+        assert!(manager.drain_events().await.is_empty());
     }
 }

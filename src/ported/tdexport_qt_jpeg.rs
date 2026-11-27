@@ -168,13 +168,6 @@ fn decode(source: &[u8]) -> Option<(Vec<u8>, usize, usize, usize)> {
     };
     Some((pixels, w, h, if gray { 1 } else { 3 }))
 }
-fn json_bytes(v: &Value) -> Option<Vec<u8>> {
-    v.get("$bytes")?
-        .as_array()?
-        .iter()
-        .map(|n| u8::try_from(n.as_u64()?).ok())
-        .collect()
-}
 fn thumbnail(source: &[u8], width: usize, height: usize, quality: f32) -> Option<Vec<u8>> {
     let (pixels, w, h, channels) = decode(source)?;
     let (dpm, icc) = metadata(source);
@@ -182,37 +175,13 @@ fn thumbnail(source: &[u8], width: usize, height: usize, quality: f32) -> Option
     if channels == 3 {
         dims.push(3);
     }
-    let converted = super::tdexport_qt_icc::convert_to_srgb(pixels, dims, icc).ok()?;
-    let converted = converted.get("$tuple")?.as_array()?;
-    let mut samples = json_bytes(converted.first()?)?;
-    let icc = json_bytes(converted.get(1)?)?;
+    let (mut samples, icc) =
+        super::tdexport_qt_icc::convert_to_srgb_bytes(pixels, dims, icc).ok()?;
     let mut gray = channels == 1;
     if (width, height) != (w, h) {
-        let rows = samples
-            .chunks_exact(w * channels)
-            .map(|row| {
-                row.chunks_exact(channels)
-                    .map(|p| {
-                        if gray {
-                            vec![i64::from(p[0]); 3]
-                        } else {
-                            p.iter().map(|&c| i64::from(c)).collect()
-                        }
-                    })
-                    .collect()
-            })
-            .collect();
-        samples = super::tdexport_qt_scale::smooth_scale(
-            rows,
-            i64::try_from(width).ok()?,
-            i64::try_from(height).ok()?,
-        )
-        .ok()?
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|v| v as u8)
-        .collect();
+        samples =
+            super::tdexport_qt_scale::smooth_scale_rgb(&samples, (w, h), channels, (width, height))
+                .ok()?;
         gray = false;
     }
     let mut encoder = Compress::new(if gray {
