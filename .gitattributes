@@ -13,13 +13,21 @@
 # shows up immediately as a diff instead of hiding behind a clean filter.
 * text=auto eol=lf
 
-# The exception, and the reason it is one: a Windows batch file is read by
-# CMD.EXE, which mis-parses LF-only line endings - a `goto` label or a
-# multi-line `if` block can silently take the wrong branch. There are none in
-# the tree today; this is here so that adding one cannot break it.
+# Windows batch files require CRLF for CMD.EXE parsing.
 *.bat text eol=crlf
 *.cmd text eol=crlf
 
-# Desktop export resources are byte-identical originals (including CRLF).
-telethon_secret_chat/tdexport/assets/css/style.css -text
-telethon_secret_chat/tdexport/assets/js/script.js -text
+# Embedded image assets and golden binary fixtures retain their exact bytes.
+*.png -text
+*.jpg -text
+*.jpeg -text
+*.icc -text
+*.ogg -text
+
+# Desktop HTML export viewer assets are byte-identical vendored originals.
+assets/tdexport/css/style.css -text
+assets/tdexport/js/script.js -text
+assets/tdexport/** linguist-vendored
+
+# CI helper scripts do not define the crate's primary language.
+.github/scripts/** linguist-vendored

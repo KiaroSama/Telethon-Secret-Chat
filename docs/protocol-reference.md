@@ -147,7 +147,7 @@ The [official `decryptedMessageLayer` constructor documentation](https://core.te
 
 Also mandatory: "assign in_seq_no and out_seq_no to each message at the exact moment when the message is created, and never change them in the future", and outgoing messages go into an `invokeAfterMsgs` chain so the server queues them in order, because "Failure to do this may result in gaps on the remote client, which may in turn lead to aborted secret chats."
 
-The Rust [manager](../src/manager.rs) serializes sends per chat and awaits each RPC before the next, retrying retained pending frames first. It does not supply an `invokeAfterMsgs` chain. See [ADR 0005](adr/0005-serialized-sends-instead-of-invokeaftermsgs.md) for the historical design decision.
+The Rust [manager](../src/manager/mod.rs) serializes sends per chat and awaits each RPC before the next, retrying retained pending frames first. It does not supply an `invokeAfterMsgs` chain. See [ADR 0005](adr/0005-serialized-sends-instead-of-invokeaftermsgs.md) for the historical design decision.
 
 ### §3.5 Validating `out_seq_no` (the peer's counter)
 `[DOC:api/end-to-end/seq_no]`: "Your client must check that it has received each message with the sequence number out_seq_no starting from 0 to some current point C. It should then expect the next message to have the sequence number out_seq_no=C+1."

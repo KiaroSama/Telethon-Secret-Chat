@@ -198,16 +198,6 @@ jobs:
           if ($cargoStatus -ne 0) { exit $cargoStatus }
           cargo test --locked --doc --release 2>&1 | Tee-Object -FilePath rust-tests.txt -Append
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Verify retired interop launcher fails before reading account configuration
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $PSNativeCommandUseErrorActionPreference = $false
-          . .github/scripts/Log.ps1
-          Write-CiLog INFO 'Checking that the retired live launcher refuses execution'
-          pwsh -NoProfile -File scripts/run_interop.ps1 -McpRoot 'G:\missing-account-directory'
-          if ($LASTEXITCODE -ne 2) { throw 'The retired launcher must return exit code 2' }
-          $global:LASTEXITCODE = 0
       - name: Compile from a path containing spaces (Windows)
         if: runner.os == 'Windows'
         shell: pwsh

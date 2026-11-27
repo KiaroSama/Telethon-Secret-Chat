@@ -4,12 +4,21 @@
 
 **Rust protocol, runtime, and encrypted storage components for Telegram MTProto 2.0 secret chats.**
 
-[![Rust CI](https://img.shields.io/github/actions/workflow/status/KiaroSama/Telethon-Secret-Chat/rust.yml?branch=main&style=flat-square&label=CI)](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/rust.yml)
-[![Latest repository tag](https://img.shields.io/github/v/tag/KiaroSama/Telethon-Secret-Chat?sort=semver&style=flat-square&label=tag)](https://github.com/KiaroSama/Telethon-Secret-Chat/tags)
-[![GPL-3.0-or-later](https://img.shields.io/github/license/KiaroSama/Telethon-Secret-Chat?style=flat-square)](LICENSE)
-[![Rust toolchain](https://img.shields.io/badge/Rust-toolchain-8b5cf6?style=flat-square)](rust-toolchain.toml)
-[![Configured native targets](https://img.shields.io/badge/targets-Linux%20%7C%20Windows%20%C2%B7%20x64%20%7C%20arm64-0891b2?style=flat-square)](.github/workflows/rust.yml)
-[![Protocol and architecture](https://img.shields.io/badge/docs-protocol%20%7C%20architecture-0284c7?style=flat-square)](docs/architecture.md)
+[![Rust CI](https://img.shields.io/github/actions/workflow/status/KiaroSama/Telethon-Secret-Chat/rust.yml?branch=main&style=flat-square&color=16a34a&label=CI)](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/rust.yml)
+[![GPL-3.0-or-later](https://img.shields.io/github/license/KiaroSama/Telethon-Secret-Chat?style=flat-square&color=2563eb)](LICENSE)
+[![Latest repository tag](https://img.shields.io/github/v/tag/KiaroSama/Telethon-Secret-Chat?sort=semver&style=flat-square&color=ea580c&label=tag)](https://github.com/KiaroSama/Telethon-Secret-Chat/tags)
+[![Native first-party, vendor, and scanner tests](https://img.shields.io/badge/tests-native%20%7C%20vendor%20%7C%20scanner-0d9488?style=flat-square)](#verification-and-migration-evidence)
+[![Rust 1.100.0 toolchain, edition 2024, MSRV 1.95](https://img.shields.io/badge/Rust-1.100.0-8b5cf6?style=flat-square)](rust-toolchain.toml)
+[![Supported platforms: 64-bit Linux and Windows](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-0891b2?style=flat-square)](.github/workflows/rust.yml)
+[![Install from Git or signed release archives](https://img.shields.io/badge/install-Git%20%7C%20release-4f46e5?style=flat-square)](#build-and-use)
+[![Protocol reference, architecture, and ADRs](https://img.shields.io/badge/docs-protocol%20%7C%20architecture-0284c7?style=flat-square)](docs/architecture.md)
+[![Live GitHub repository size](https://img.shields.io/github/repo-size/KiaroSama/Telethon-Secret-Chat?style=flat-square&color=ca8a04)](https://github.com/KiaroSama/Telethon-Secret-Chat)
+[![Built with pinned grammers 0.12.0 on Layer 234](https://img.shields.io/badge/built%20with-grammers%200.12.0-15803d?style=flat-square)](vendor/grammers/README.md)
+[![MTProto 2.0 secret-chat layers 73 through 144](https://img.shields.io/badge/protocol-MTProto%202.0%20L73--144-b45309?style=flat-square)](docs/protocol-reference.md)
+[![64-bit x64 and arm64 architectures](https://img.shields.io/badge/arch-x64%20%7C%20arm64-334155?style=flat-square)](.github/workflows/rust.yml)
+[![First-party crate forbids unsafe Rust](https://img.shields.io/badge/safety-unsafe%20forbidden-7c3aed?style=flat-square)](Cargo.toml)
+[![CodeQL static analysis and Gitleaks secret scanning](https://img.shields.io/badge/security-CodeQL%20%7C%20Gitleaks-c2410c?style=flat-square)](.github/workflows/codeql.yml)
+[![Support donations](https://img.shields.io/badge/Support-donations-d04a9a?style=flat-square)](#donate)
 
 </div>
 
@@ -29,7 +38,7 @@
 | Export helpers | HTML/JSON escaping and formatting, URL validation, MIME lookup, ICC conversion, JPEG metadata/thumbnail helpers, and retained Desktop viewer assets. These are components rather than a complete saved-chat exporter. |
 | Media and archives | Media vocabulary constants exist. The Rust manager does not implement the Python upload/download/forward, auto-save, saved-history, or archive export APIs. |
 
-See [the manager](src/manager.rs), [protocol core](src/protocol.rs), [rekey implementation](src/ported/rekey.rs), [custody](src/custody.rs), [ingress](src/ingress.rs), and [export helpers](src/export.rs) for the actual compiled APIs. The crate implements MTProto 2.0; it does not fall back to MTProto 1.0. Outgoing secret-message layer encoding is capped at layer 144. The outer Telegram API layer is a separate transport concern.
+See [the manager](src/manager/mod.rs), [protocol core](src/protocol/mod.rs), [rekey implementation](src/ported/rekey.rs), [custody](src/custody.rs), [ingress](src/ingress.rs), and [export helpers](src/export.rs) for the actual compiled APIs. The crate implements MTProto 2.0; it does not fall back to MTProto 1.0. Outgoing secret-message layer encoding is capped at layer 144. The outer Telegram API layer is a separate transport concern.
 
 ## Integration boundary
 

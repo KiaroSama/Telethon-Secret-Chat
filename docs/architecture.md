@@ -6,9 +6,9 @@ This page describes the compiled Rust implementation. The retired Python package
 
 | Module | Responsibility and boundary |
 | --- | --- |
-| [protocol.rs](../src/protocol.rs) | Live chat keys, layers, sequence state, authenticated frames, gap queues, and batch acceptance. No manager restart serialization. |
+| [protocol/mod.rs](../src/protocol/mod.rs) | Live chat keys, layers, sequence state, authenticated frames, gap queues, and batch acceptance. No manager restart serialization. |
 | [ported/rekey.rs](../src/ported/rekey.rs) | Runtime DH configuration and RequestKey/AcceptKey/CommitKey/Noop exchange, collision/abort handling, key selection, and retirement. Also contains historical adapter helpers. |
-| [manager.rs](../src/manager.rs) | In-memory chat registry, retained outbox, per-chat operation coordination, transport calls, and queued events. |
+| [manager/mod.rs](../src/manager/mod.rs) | In-memory chat registry, retained outbox, per-chat operation coordination, transport calls, and queued events. |
 | [custody.rs](../src/custody.rs) | Payload-count/byte limits and encrypted snapshots of custody records. Not a protocol storage backend. |
 | [ingress.rs](../src/ingress.rs) | Opaque ingress record capture, duplicate identities, sorted polling, durable acknowledgement, and reconstruction of that container. |
 | [storage_file.rs](../src/storage_file.rs) | Shared private file locking, bounded reads, exclusive temporary creation, flushing, and atomic replacement. |
