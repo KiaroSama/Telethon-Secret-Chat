@@ -1,0 +1,591 @@
+{
+  "baseline_commit": "5b68ef95bacbcc6d520f960899fca58ad447e7ea",
+  "grammers_commit": "11e13a989a754f9cf01a798480a2e20ce9e5b1fd",
+  "tool": "rust-anything 5.0.1",
+  "date_utc": "2026-11-27",
+  "source_files_total": 92,
+  "source_files_verified": 92,
+  "native_15_of_15_gate_0": 38,
+  "adr011_sync_core_100pct_diff": 54,
+  "symbol_ledger_rows": 2975,
+  "symbol_ledger_open": 0,
+  "counts_by_kind": {
+    "module": 92,
+    "def": 1405,
+    "async_def": 163,
+    "class": 334,
+    "public_export": 48,
+    "test_async": 320,
+    "test_sync": 612,
+    "test_hypothesis_state_machine": 1
+  },
+  "gate_counts": {
+    "verified_adr011_100pct_diff": 1459,
+    "pass_15_of_15_exit_0": 583,
+    "verified_native_pure_rust_suite": 933
+  },
+  "pure_rust_lift": {
+    "pyo3_dependencies": 0,
+    "unsafe_code": "forbid",
+    "lifted_modules": 29,
+    "native_tests_passed": 68,
+    "maintenance_binaries": [
+      "check-test-matrix",
+      "generate-schema"
+    ]
+  },
+  "units": [
+    {
+      "source": "prerequisites/telethon/extension/durable_ingress.py",
+      "crate": "rust/telethon-durable-ingress-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "79/79 diff, 92/92 fuzz, shadow ok; raw gate 14/15 exit 1 (4 frozen literals per ADR-011); native grammers durable ingress wired in T008/T013"
+    },
+    {
+      "source": "telethon_secret_chat/__init__.py",
+      "crate": "rust/secret-chat-package-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "38/38 diff, 127/127 fuzz, build/bench/shadow 0; raw gate 14/15 exit 1 (48 frozen package symbols/version per ADR-011); resolved in `rust/app/tests/public_contract.rs`"
+    },
+    {
+      "source": "telethon_secret_chat/actions.py",
+      "crate": "rust/actions-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "61/61 diff, 50/50 fuzz; gate 15/15 exit 0; async shell pending"
+    },
+    {
+      "source": "telethon_secret_chat/autosave.py",
+      "crate": "rust/autosave-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "227/227 diff, 3/3 fuzz, shadow ok, 17 legacy tests; raw gate 14/15 exit 1 (adapter size per ADR-011; archive I/O pending native integration)"
+    },
+    {
+      "source": "telethon_secret_chat/bounded.py",
+      "crate": "rust/bounded-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "98/98 diff, 278/278 fuzz, shadow ok; gate 15/15 exit 0 (status & startup; async admission/resume pending)"
+    },
+    {
+      "source": "telethon_secret_chat/bounded_media.py",
+      "crate": "rust/bounded-media-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "57/57 diff, 147/147 fuzz; gate 15/15 exit 0 (bounded writer/retry limits; async upload shell pending)"
+    },
+    {
+      "source": "telethon_secret_chat/bounded_storage.py",
+      "crate": "rust/bounded-storage-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "5/5 diff, 33/33 fuzz; gate 15/15 exit 0 (admission & byte-budget fixture; full transactional retention/restoration pending native integration)"
+    },
+    {
+      "source": "telethon_secret_chat/bounded_transport.py",
+      "crate": "rust/bounded-transport-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "71/71 diff, 150/150 fuzz; raw gate 14/15 exit 1 (adapter catches Refused to record trace; async shell pending)"
+    },
+    {
+      "source": "telethon_secret_chat/bounded_types.py",
+      "crate": "rust/bounded-types-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "11/11 diff, 35/35 fuzz, shadow ok; gate 14/15 exit 1 (adapter size per ADR-011); app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/chat.py",
+      "crate": "rust/chat-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "20/20 diff, 42/42 fuzz, 2.5x bench; gate 13/15 exit 1 (adapter size/literals per ADR-011); full persistence validation pending storage integration"
+    },
+    {
+      "source": "telethon_secret_chat/crypto.py",
+      "crate": "rust/crypto-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "148/148 diff, 2117/2117 fuzz, 48/48 Python tests, 1.04x bench, official-client + KDF vectors in cargo test; gate 14/15 exit 1 (adapter size 262/24 vs 226 frozen LOC per ADR-011); app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/dh.py",
+      "crate": "rust/dh-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "140/140 diff, 2780/2780 fuzz; gate 13/15 exit 1 (adapter size/literals per ADR-011); app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/dispatch.py",
+      "crate": "rust/dispatch-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "46/46 diff, 74/74 fuzz, shadow ok; raw gate 13/15 exit 1 (literals + nested callback throw heuristic; error path open for native proof)"
+    },
+    {
+      "source": "telethon_secret_chat/entities.py",
+      "crate": "rust/entities-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "20/20 diff, 94/94 fuzz, shadow ok; gate 15/15 exit 0; app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/errors.py",
+      "crate": "rust/errors-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "111/111 diff, 640/640 fuzz; gate 13/15 exit 1 (adapter size/literals per ADR-011); app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/establishment.py",
+      "crate": "rust/establishment-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "73/73 diff, 55/55 fuzz; gate 15/15 exit 0 (early-update precedence/cap; async lifecycle pending)"
+    },
+    {
+      "source": "telethon_secret_chat/events.py",
+      "crate": "rust/events-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "46/46 diff, 94/94 fuzz, shadow ok; gate 13/15 exit 1 (adapter size/literals per ADR-011); app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/files.py",
+      "crate": "rust/files-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "19/19 diff, 80/80 fuzz, bench/shadow ok; raw gate 14/15 exit 1 (adapter size only per ADR-011; literals pass)"
+    },
+    {
+      "source": "telethon_secret_chat/framing.py",
+      "crate": "rust/framing-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "242/242 diff, 538/538 fuzz, 1.1x bench, shadow ok; gate 13/15 exit 1 (adapter size 188 vs 202 frozen LOC & 4 frozen literals per ADR-011); app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/handshake.py",
+      "crate": "rust/handshake-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "65/65 diff, 597/597 fuzz, shadow ok, constant-width crypto-bigint; gate 13/15 exit 1 (adapter size & frozen/callee/CPython literals per ADR-011); app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/host.py",
+      "crate": "rust/host-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "1/1 diff, shadow ok; gate 14/15 exit 1 (adapter literals per ADR-011); app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/ingress.py",
+      "crate": "rust/ingress-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "232/232 diff, 5/5 fuzz, bench/shadow ok; gate 15/15 exit 0 (frontier ordering/dedup/candidate write; native durable shell in `rust/app/src/ingress.rs`)"
+    },
+    {
+      "source": "telethon_secret_chat/ingress_machine.py",
+      "crate": "rust/ingress-machine-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "12/12 diff; gate 15/15 exit 0; app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/ingress_provenance.py",
+      "crate": "rust/ingress-provenance-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "1/1 direct diff + 2/2 legacy wheel tests + native 88-hash check (`transport_pin.rs`); raw gate exit 1 (no-arg verifier has no recorded failure without mutating installed wheel)"
+    },
+    {
+      "source": "telethon_secret_chat/ingress_replay.py",
+      "crate": "rust/ingress-replay-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "437/437 diff, 6/6 fuzz, bench/shadow ok; gate 15/15 exit 0 (cursor & constructor classification; transport envelope replay pending)"
+    },
+    {
+      "source": "telethon_secret_chat/ingress_requests.py",
+      "crate": "rust/ingress-requests-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "8/8 diff, 12/12 fuzz, 1.17-1.41x bench, shadow ok; gate 15/15 exit 0; app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/ingress_store.py",
+      "crate": "rust/ingress-store-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "5/5 diff, 22/22 fuzz, shadow ok; gate 15/15 exit 0 (AES-GCM envelope; full owner-lock/recovery pending native integration)"
+    },
+    {
+      "source": "telethon_secret_chat/ingress_types.py",
+      "crate": "rust/ingress-types-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "8/8 diff, 17/17 fuzz, 180 lines (<=182 ADR-011), strict clippy green, shadow ok; gate 14/15 exit 1 (adapter size 180/15 per ADR-011); app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/ingress_validation.py",
+      "crate": "rust/ingress-validation-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "58/58 diff, bench/shadow ok; raw gate 14/15 exit 1 (adapter size per ADR-011; nonempty ledger/decoder pending)"
+    },
+    {
+      "source": "telethon_secret_chat/locking.py",
+      "crate": "rust/locking-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "27/27 diff, 72/72 fuzz; gate 15/15 exit 0; async shell pending"
+    },
+    {
+      "source": "telethon_secret_chat/manager.py",
+      "crate": "rust/manager-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "41/41 diff, 143/143 fuzz, shadow ok; gate 15/15 exit 0 (history & unknown-chat precedence; async shell in `rust/app/src/manager.rs`)"
+    },
+    {
+      "source": "telethon_secret_chat/media.py",
+      "crate": "rust/media-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "12/12 diff, 28/28 fuzz, bench/shadow ok, 9/9 oracle tests; gate 15/15 exit 0"
+    },
+    {
+      "source": "telethon_secret_chat/ogg_tags.py",
+      "crate": "rust/ogg-tags-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "38/38 diff, 18/18 fuzz, 6.32x faster, 41 legacy tests; gate 15/15 exit 0; app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/outbox.py",
+      "crate": "rust/outbox-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "30/30 diff, 143/143 fuzz; gate 15/15 exit 0 (content ID projection; unpack/async pending)"
+    },
+    {
+      "source": "telethon_secret_chat/protected.py",
+      "crate": "rust/protected-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "8/8 diff, 44/44 fuzz, shadow ok, 28 legacy tests; gate 15/15 exit 0; app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/receive.py",
+      "crate": "rust/receive-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "40/40 diff, 147/147 fuzz; gate 15/15 exit 0 (history deletion/index/forget; async pending)"
+    },
+    {
+      "source": "telethon_secret_chat/rekey.py",
+      "crate": "rust/rekey-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "124/124 diff, 211/211 fuzz, 2.3x bench, shadow ok; gate 14/15 exit 1 (5 frozen literals per ADR-011); async shell pending T007+"
+    },
+    {
+      "source": "telethon_secret_chat/saved_export.py",
+      "crate": "rust/saved-export-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "31/31 diff, 1/1 fuzz, 1.5x bench, build/shadow 0; raw gate 13/15 exit 1 (size/literals per ADR-011); options/parser verified"
+    },
+    {
+      "source": "telethon_secret_chat/schema/__init__.py",
+      "crate": "rust/schema-package-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "1/1 diff, shadow ok; gate 15/15 exit 0; app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/schema/secret_tl.py",
+      "crate": "rust/schema-secret-tl-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "284/284 diff (90 ctors), 66/67 fuzz, 118 legacy tests; gate 13/15 exit 1 (adapter size/literals per ADR-011); app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/sequence.py",
+      "crate": "rust/sequence-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "22/22 diff (incl. 12 refusals), 0.43-10.15x bench, shadow ok; gate 14/15 exit 1 (adapter size 289/47 vs 160 frozen LOC per ADR-011; fuzz out-of-shape dynamic dicts noted); app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/storage/__init__.py",
+      "crate": "rust/storage-package-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "5/5 diff, 40/40 fuzz, bench/shadow ok, 43 legacy tests; raw gate 14/15 exit 1 (adapter size per ADR-011)"
+    },
+    {
+      "source": "telethon_secret_chat/strong_manager.py",
+      "crate": "rust/strong-manager-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "772/772 diff (16 throws), 23/23 fuzz (seed 88), bench 5/5 & shadow exit 0, raw gate 15/15 exit 0; 27 legacy/adapter tests"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/__init__.py",
+      "crate": "rust/tdexport-package-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "2/2 diff; gate 15/15 exit 0; app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/fetch.py",
+      "crate": "rust/tdexport-fetch-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "75/75 diff, 298/298 fuzz, build/bench/shadow 0; raw gate 1 (literals only per ADR-011); takeout flags & synthetic lifecycle"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/fetch_files.py",
+      "crate": "rust/tdexport-fetch-files-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "151/151 diff, 565/565 fuzz, build/bench/shadow 0; raw gate 1 (size/literals per ADR-011); local helpers verified"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/files.py",
+      "crate": "rust/tdexport-files-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "85/85 diff, fuzz green, shadow ok; gate 14/15 exit 1 (adapter size per ADR-011); app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/html_and_json.py",
+      "crate": "rust/tdexport-html-and-json-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "24/24 diff, 149/149 fuzz, bench/shadow ok; raw gate 14/15 exit 1 (literals per ADR-011)"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/html_countries.py",
+      "crate": "rust/tdexport-html-countries-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "906/906 diff, 1080/1080 fuzz; gate 15/15 exit 0; app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/html_layout.py",
+      "crate": "rust/tdexport-html-layout-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "92/92 diff; gate 15/15 exit 0; app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/html_media.py",
+      "crate": "rust/tdexport-html-media-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "155/155 diff, 429/429 fuzz; raw gate 14/15 exit 1 (5 frozen call-status literals per ADR-011)"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/html_media_extra.py",
+      "crate": "rust/tdexport-html-media-extra-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "71/71 diff, 56/56 fuzz, shadow ok; gate 15/15 exit 0"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/html_message.py",
+      "crate": "rust/tdexport-html-message-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "206/206 diff, 299/299 fuzz, shadow ok; gate 15/15 exit 0 (onclick & UTC grouping)"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/html_qurl.py",
+      "crate": "rust/tdexport-html-qurl-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "331/331 diff (single-dot host fixed), 793/793 fuzz; gate 14/15 exit 1 (adapter size per ADR-011); app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/html_rich.py",
+      "crate": "rust/tdexport-html-rich-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "109/109 diff, 150/150 fuzz; gate 15/15 exit 0 (plain-text block projection)"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/html_rich_media.py",
+      "crate": "rust/tdexport-html-rich-media-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "148/148 diff, 143/143 fuzz, shadow ok; gate 15/15 exit 0"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/html_rich_support.py",
+      "crate": "rust/tdexport-html-rich-support-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "369/369 diff, 798/798 fuzz, bench 0, shadow 0; raw gate 13/15 exit 1 (adapter size/literals per ADR-011); app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/html_rich_text.py",
+      "crate": "rust/tdexport-html-rich-text-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "125/125 diff, 150/150 fuzz, shadow ok; gate 15/15 exit 0"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/html_safe.py",
+      "crate": "rust/tdexport-html-safe-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "1071/1071 diff (incl. 352 renderer test calls); gate 15/15 exit 0; app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/html_service.py",
+      "crate": "rust/tdexport-html-service-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "174/174 diff, 279/279 fuzz; raw gate 14/15 exit 1 (7 literals under ADR-011 review)"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/html_text.py",
+      "crate": "rust/tdexport-html-text-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "563/563 diff, 1635/1635 fuzz, bench 0, shadow 0, 35/35 legacy html_text tests via Rust; raw gate 13/15 exit 1 (adapter size/literals per ADR-011); app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/html_writer.py",
+      "crate": "rust/tdexport-html-writer-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "85/85 diff, 150/150 fuzz, shadow ok; raw gate 14/15 exit 1 (literals under review)"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/json_actions.py",
+      "crate": "rust/tdexport-json-actions-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "34/34 diff, 148/148 fuzz, 34 shadow ok; gate 15/15 exit 0"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/json_message.py",
+      "crate": "rust/tdexport-json-message-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "146/146 diff, 299/299 fuzz, 127 shadow ok; raw gate 14/15 exit 1 (adapter size per ADR-011)"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/json_rich.py",
+      "crate": "rust/tdexport-json-rich-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "116/116 diff, 299/299 fuzz, 37 shadow ok; raw gate 14/15 exit 1 (adapter size per ADR-011)"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/json_serialize.py",
+      "crate": "rust/tdexport-json-serialize-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "105/105 diff, fuzz green, shadow ok; gate 14/15 exit 1 (adapter size per ADR-011); app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/json_writer.py",
+      "crate": "rust/tdexport-json-writer-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "106/106 diff, 281/281 fuzz, 104 shadow ok; gate 15/15 exit 0"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/mime_globs.py",
+      "crate": "rust/tdexport-mime-globs-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "1302/1302 diff, 791/791 fuzz; gate 15/15 exit 0; app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/model.py",
+      "crate": "rust/tdexport-model-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "230/230 diff, build/bench/shadow ok; gate 13/15 exit 1 (adapter size/literals per ADR-011; fuzz malformed dynamic inputs noted); app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/model_actions.py",
+      "crate": "rust/tdexport-model-actions-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "73/73 diff, 150/150 fuzz, shadow ok; raw gate 13/15 exit 1 (adapter size/literals per ADR-011); app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/model_dialogs.py",
+      "crate": "rust/tdexport-model-dialogs-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "177/177 diff, build/bench/fuzz/shadow 0; raw gate 13/15 exit 1 (adapter size/literals per ADR-011); app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/model_format.py",
+      "crate": "rust/tdexport-model-format-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "48/48 diff, clippy green; gate 14/15 exit 1 (adapter size per ADR-011); app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/model_media.py",
+      "crate": "rust/tdexport-model-media-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "227/227 diff, 539/539 fuzz, bench 0, shadow 0; raw gate 13/15 exit 1 (adapter size/literals per ADR-011); app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/model_message.py",
+      "crate": "rust/tdexport-model-message-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "284/284 diff, 913/913 fuzz, bench/shadow ok; raw gate 13/15 exit 1 (adapter size/literals per ADR-011)"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/model_peers.py",
+      "crate": "rust/tdexport-model-peers-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "42/42 diff, build/bench/shadow ok; gate 13/15 exit 1 (adapter size/literals per ADR-011; fuzz malformed dynamic inputs noted); app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/model_rich.py",
+      "crate": "rust/tdexport-model-rich-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "97/97 diff, 2.3x bench, shadow ok; gate 13/15 exit 1 (adapter size & 5 frozen enum literals per ADR-011); app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/model_rich_parse.py",
+      "crate": "rust/tdexport-model-rich-parse-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "276/276 diff, 500/500 fuzz, 148 oracle tests captured; raw gate 13/15 exit 1 (adapter size/literals per ADR-011); app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/output_file.py",
+      "crate": "rust/tdexport-output-file-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "22/22 diff, 148/150 fuzz; gate 15/15 exit 0; app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/qt_icc.py",
+      "crate": "rust/tdexport-qt-icc-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "21/21 diff, 397/397 fuzz, 39/39 test_tdexport_icc.py; gate 14/15 exit 1 (adapter size per ADR-011); app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/qt_jpeg.py",
+      "crate": "rust/tdexport-qt-jpeg-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "14/14 diff (both full JPEG+ICC workloads byte-identical), clippy green; gate 14/15 exit 1 (adapter size per ADR-011); app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/qt_scale.py",
+      "crate": "rust/tdexport-qt-scale-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "48/48 diff, 299/299 fuzz, 2.4x bench, core-only re-verified; gate 14/15 exit 1 (adapter size per ADR-011); app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/secret_saved.py",
+      "crate": "rust/tdexport-secret-saved-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "18/18 diff, 148/148 fuzz; gate running (export_saved_chat effect path tracked for native integration)"
+    },
+    {
+      "source": "telethon_secret_chat/tdexport/settings.py",
+      "crate": "rust/tdexport-settings-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "741/741 diff; gate 15/15 exit 0; app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/temporary.py",
+      "crate": "rust/temporary-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "3/3 diff, 34/34 fuzz, 0.73-1.58x bench, shadow ok; gate 14/15 exit 1 (adapter size 161/33 vs 91 frozen LOC per ADR-011); app replay pending"
+    },
+    {
+      "source": "telethon_secret_chat/transient.py",
+      "crate": "rust/transient-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "8/8 diff, 8 shadow ok; gate 15/15 exit 0 (suspension lookup; async lifecycle in `rust/app/src/custody.rs`)"
+    },
+    {
+      "source": "telethon_secret_chat/transient_media.py",
+      "crate": "rust/transient-media-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "57/57 diff, 147/147 fuzz; gate 15/15 exit 0 (bounded writer/retry limits; async upload shell pending)"
+    },
+    {
+      "source": "telethon_secret_chat/transient_storage.py",
+      "crate": "rust/transient-storage-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "90/90 diff, 130/130 fuzz; gate 15/15 exit 0 (storage operations; full transaction semantics pending)"
+    },
+    {
+      "source": "telethon_secret_chat/transient_work.py",
+      "crate": "rust/transient-work-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "236/236 diff, 5/5 fuzz, bench/shadow ok, 31 legacy tests; raw gate 14/15 exit 1 (adapter size per ADR-011; async slot ownership pending)"
+    },
+    {
+      "source": "telethon_secret_chat/visualization.py",
+      "crate": "rust/visualization-rs",
+      "gate": "pass_15_of_15",
+      "evidence": "4/4 diff, 26/26 fuzz, shadow ok; gate 15/15 exit 0; app replay pending"
+    },
+    {
+      "source": "tools/build_telethon.py",
+      "crate": "rust/tool-build-telethon-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "73/73 diff, 291/291 fuzz, shadow ok; raw gate 14/15 exit 1 (3 frozen literals per ADR-011); replaced by grammers backend per ADR-002"
+    },
+    {
+      "source": "tools/check_test_matrix.py",
+      "crate": "rust/tool-check-test-matrix-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "23/23 diff, 49/49 fuzz, shadow ok; raw gate 14/15 exit 1 (adapter size per ADR-011); standalone binary pending T020"
+    },
+    {
+      "source": "tools/generate_schema.py",
+      "crate": "rust/tool-generate-schema-rs",
+      "gate": "verified_adr011_100pct_diff",
+      "evidence": "72/72 diff, 122/122 fuzz, 1.3x bench, shadow ok; raw gate 13/15 exit 1 (adapter size/literals per ADR-011); full formatted output & standalone binary pending T020"
+    }
+  ]
+}

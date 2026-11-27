@@ -24,10 +24,10 @@ default = ["fs"]
 futures-util = { version = "0.3.34", default-features = false, features = [
     "alloc"
 ] }
-grammers-crypto = { git = "https://codeberg.org/Lonami/grammers.git", rev = "02367f9711ca3589a8bbb02e4128aca1631c77c4", version = "0.12.0" }
+grammers-crypto = { git = "https://codeberg.org/Lonami/grammers.git", rev = "11e13a989a754f9cf01a798480a2e20ce9e5b1fd", version = "0.12.0" }
 grammers-mtsender = { path = "../grammers-mtsender", version = "0.12.0" }
 grammers-session = { path = "../grammers-session", version = "0.12.0", default-features = false }
-grammers-tl-types = { git = "https://codeberg.org/Lonami/grammers.git", rev = "02367f9711ca3589a8bbb02e4128aca1631c77c4", version = "0.12.0", features = [
+grammers-tl-types = { git = "https://codeberg.org/Lonami/grammers.git", rev = "11e13a989a754f9cf01a798480a2e20ce9e5b1fd", version = "0.12.0", features = [
     "tl-mtproto",
 ] }
 html5ever = { version = "0.40.1", optional = true }

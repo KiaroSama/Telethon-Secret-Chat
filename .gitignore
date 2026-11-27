@@ -18,11 +18,11 @@
 .ignoreme
 **/.ignoreme
 
-# Rust build and verification products. Cargo.lock and vendor/grammers are tracked.
+# Rust
 /target/
 **/target/
-/debug/
 /bin/
+/debug/
 **/*.rs.bk
 *.pdb
 **/mutants.out*/
@@ -30,6 +30,10 @@ rustc-ice-*.txt
 /.cargo/*
 !/.cargo/config.toml
 **/.cargo/credentials*
+/vendor/*
+!/vendor/grammers/
+*.profraw
+*.profdata
 lcov.info
 tarpaulin-report.*
 cobertura.xml
@@ -37,41 +41,43 @@ flamegraph.svg
 perf.data
 perf.data.old
 /criterion/
-/coverage/
-/coverage.lcov
-/rust-tests.txt
-/proptest-regressions/
-*.profraw
-*.profdata
-*.tmp
-*.log
-.DS_Store
 
-# Account/session data and private application configuration.
+# Secrets and private key material
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+/.gpg-private/
 *.session
 *.session-journal
-*.session.sql
-*.session.sql-journal
-/claude_desktop_config.json
-/.personal/
+.env.live
+
+# Editors and OS
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# Logs and temporary files
+logs/
+*.log
+*.tmp
+*.bak
+tmp/
+temp/
+
+# Hook Maker: local/private files (auto-managed)
 /.env
 /.env.*
 !/.env.example
 !/.env.sample
 !/.env.template
 !/.env.dist
-
-# Project-local private instruction, research and signing files.
-**/.ai/
-/.gpg-private/
-/skills-lock.json
-/Original Repository.url
-
-# Scratch reference artifacts are never distribution inputs.
-/.coverage
-/build/
-__pycache__/
-.pytest_cache/
-.hypothesis/
-*.egg-info/
-.venv/

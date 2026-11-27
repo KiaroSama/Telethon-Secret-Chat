@@ -9,54 +9,6 @@ package by commit and reads this file before moving its pin. The format follows
 
 ### Added
 
-- The [usage guide](docs/usage-guide.md) walks through attaching an existing
-  grammers client, sending messages and media, choosing custody, and exporting
-  saved chats.
-- Hosted `numera-signing` jobs sign native packages for four targets. Windows
-  tools carry timestamped Authenticode signatures. See [Publisher signatures](docs/SIGNING.md).
-
-### Changed
-
-- AES-256-IGE now selects its AES backend once per buffer and reuses the expanded
-  key across file chunks. In one Windows x64 release benchmark, ten 4 MiB
-  encryption/decryption round trips took 70.99 ms (1,126.94 MiB/s). The four new
-  native tests run alongside the unchanged 1,851 legacy parity cases.
-- Updated the README badges and added a short license section above donations.
-
-## [0.3.0]
-
-### Changed
-
-- Rewrote the library, tools, schema generator and tests in Rust 2024. The
-  minimum supported Rust version is 1.95. Development and primary CI use 1.100.0.
-- Pinned grammers 0.12 and extended its receive path so strong ingress can
-  commit encrypted receipts before acknowledgement and restore SDK checkpoints.
-- Ported durable handshakes, mailboxes, exact retries and forward-secret rekeying.
-  The library supports eight media kinds, bounded and transient storage, auto-save,
-  and HTML or JSON export using the existing licensed viewer assets.
-- Mapped all 1,851 legacy cases to native Rust scenarios. CI checks those cases
-  across seven legs, builds installed Git consumer fixtures, and runs formatting,
-  Clippy, coverage, CodeQL and secret scanning.
-
-### Fixed
-
-- Cross-data-center authorization caching keeps a keyed tag in memory instead of
-  hashing the raw MTProto authorization key with SHA-256.
-
-### Breaking compatibility
-
-- The crate is `kiaro-secret-chat`. Its Rust API and persisted format replace the
-  Python API and format. The crate does not import Python stores or Telethon sessions.
-  Install from source or Git. See the [migration notes](docs/rust-migration.md).
-- Offline checks do not establish live Telegram or `telegram-mcp` interoperability.
-
-## Historical Python unreleased changes
-
-The entries below describe the previous implementation and its historical checks.
-They do not qualify the Rust rewrite or describe its current installation steps.
-
-### Added
-
 - Opt-in strong-ingress contracts: `EncryptedIngressStorage`, `DurableIngress`,
   `IngressLimits`, `IngressBatch` and `StrongSecretChatManager`, plus a checksum-pinned
   Telethon prerequisite builder. Public preparation validates a protected baseline

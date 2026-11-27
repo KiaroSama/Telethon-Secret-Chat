@@ -1,6 +1,6 @@
 {
   "repository": "https://codeberg.org/Lonami/grammers",
-  "revision": "02367f9711ca3589a8bbb02e4128aca1631c77c4",
+  "revision": "11e13a989a754f9cf01a798480a2e20ce9e5b1fd",
   "sha256": {
     "grammers-session/src/session.rs": "8f00c62835503496a32b708de5af636b4b6f58fa56203a9ae9959ab92b2bb298",
     "grammers-session/src/types.rs": "e308d484540caeeddffeeb72cb255cab2df8cf517bc6c483923502f6495ae13f",
@@ -24,7 +24,7 @@
     "grammers-mtsender/src/lib.rs": "5dde6b424c4dbf5a7f92f2fcf0fc996ee81c219b88822a9a482dbba8cd546225",
     "grammers-mtsender/src/sender.rs": "4ab4386d020ae03384a77cb2675b81088e5fea4353dfb3180ef3a191a0d9e9c8",
     "grammers-mtsender/src/net/mod.rs": "9eb4838443950482773ad180844916f6861c776f3bfd3fe3180166934d54dda7",
-    "grammers-mtsender/src/net/tcp.rs": "fb7700f93544a4f85f1351d2548acc4a6f6e1c54db331101b33642b443d6ac8f",
+    "grammers-mtsender/src/net/tcp.rs": "c89fef4b79a138b17ba0961abb7f05dcfe57122176db6fe2de19fa37c2472961",
     "grammers-client/src/lib.rs": "f37bdff46011b60bd1ff6cb8bb258c05e4c1e33704dd5530e2c9cf2468f3957d",
     "grammers-client/src/utils.rs": "b191aa215b475482c0d34f8d9256137e9abe9710e8601ac24caba5448ef4c920",
     "grammers-client/src/client/dialogs.rs": "2915d0db98551102bd6f5820669ec5365c14a5112c8a6383204c7a2c84c9fc48",

@@ -1,8 +1,5 @@
-# 0007. Transient payload refusal
+# Transient payloads refuse rather than invent restart recovery
 
-Status: accepted; carried into the Rust rewrite.
+The default atomic mailbox/outbox/gap contract retains ordinary payloads. The explicit transient manager instead commits only validated protected protocol state, keeping all ordinary and service frames in bounded RAM; the durable service-frame bound is zero. Every stop, reconstruction or required-state loss permanently suspends affected chats, retaining their protected keys and counters without automatic remote discard, sequence reset or replacement messages.
 
-TransientStorage retains ordinary payload obligations only in finite RAM over protected key/control state. Stop/reconstruction, lost payloads, deadlines and exhausted budgets suspend continuity and preserve keys/counters. Content cannot be reconstructed from keys, so no automatic resume or fabricated gap replacement is offered. This sacrifices availability for the explicit no-payload-write policy. Normal SDK queue acknowledgement remains application-owned; strong ingress is a separate policy.
-
-See [architecture](../architecture.md), [managed API](../rust-manager.md) and
-[mode selection](../../README.md#choose-a-custody-mode).
+This sacrifices recovery and availability for the requested no-payload-write/no-automatic-deletion boundary. It is local nonparticipation, not an extension of Telegram's protocol: an unsatisfiable Resend normally requires abort, and retained previous keys in suspended chats do not satisfy normal PFS retirement. The caller's existing Telethon connection owns transport qts acknowledgement, which callbacks cannot defer or undo. There is deliberately no resume/migration API; enabling ordinary durable storage later is not recovery of lost content.

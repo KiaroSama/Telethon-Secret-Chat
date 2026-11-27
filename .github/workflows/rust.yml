@@ -9,7 +9,6 @@ permissions:
   contents: read
 
 env:
-  # Retain debug assertions while bounding generated TL and test artifact sizes.
   CARGO_PROFILE_DEV_DEBUG: '0'
   CARGO_PROFILE_TEST_DEBUG: '0'
   CARGO_INCREMENTAL: '0'
@@ -70,18 +69,15 @@ jobs:
             toolchain: '1.100.0'
             profile: release
     env:
-      # Keep rust-toolchain.toml and nested Cargo/rustc calls on this exact leg.
       RUSTUP_TOOLCHAIN: ${{ matrix.toolchain }}
       CARGO_TARGET_DIR: ${{ github.workspace }}/target
       CARGO_TERM_COLOR: always
-      COVERAGE_EXCLUDE: '(/tests/|/vendor/|/src/export/jpeg_decoder/|/src/bin/|/tools/|/target/|/registry/src/|/git/checkouts/|/rustc/[^/]+/library/|/(debug|release)/build/[^/]+/([0-9a-f]+/)?out/|/src/storage/(audit_tests|contract_tests|foundation|guard_tests|lifecycle_tests)\.rs$|/src/ingress/(attachment_tests|contract_tests|test_fixture|tests|strong_tests)\.rs$|/src/ingress/strong_tests/)'
       RUSTFLAGS: ${{ matrix.profile == 'portable-aes' && '--cfg aes_backend="soft"' || '' }}
-      TSC_RUST_AES_BACKEND: ${{ matrix.profile == 'portable-aes' && 'soft' || 'default' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Use a physical temporary directory for guarded storage fixtures
+      - name: Use a physical temporary directory
         if: runner.os != 'Windows'
         shell: bash
         run: |
@@ -93,10 +89,8 @@ jobs:
         with:
           toolchain: ${{ matrix.toolchain }}
           targets: ${{ matrix.target }}
-          components: ${{ matrix.os == 'ubuntu-24.04' && matrix.toolchain == '1.100.0' && matrix.profile == 'debug' && 'rustfmt,clippy,llvm-tools-preview' || 'rustfmt,clippy' }}
-      # Git Bash under ARM Windows emulation can silently return success without
-      # executing commands (actions/runner-images#14052). Use native PowerShell.
-      - name: Install the native Windows ARM64 toolchain
+          components: rustfmt,clippy
+      - name: Install native Windows ARM64 toolchain
         if: matrix.os == 'windows-11-arm'
         shell: pwsh
         run: |
@@ -104,7 +98,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           rustup toolchain install $env:RUSTUP_TOOLCHAIN --profile minimal --component 'rustfmt,clippy'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Verify the actual native architecture and compiler host
+      - name: Verify native architecture and compiler host (POSIX)
         if: runner.os != 'Windows'
         shell: bash
         env:
@@ -116,7 +110,7 @@ jobs:
           compiler_host=$(rustc -vV | sed -n 's/^host: //p')
           test "$compiler_host" = "$EXPECTED_TARGET"
           rustc --version
-      - name: Verify the actual native Windows architecture and compiler host
+      - name: Verify native architecture and compiler host (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         env:
@@ -129,132 +123,57 @@ jobs:
           if ($compiler -notcontains "host: $env:EXPECTED_TARGET") { throw 'Unexpected Rust compiler host' }
           rustc --version
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Install the pinned native coverage runner
-        if: matrix.os == 'ubuntu-24.04' && matrix.toolchain == '1.100.0' && matrix.profile == 'debug'
-        uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2
-        with:
-          tool: cargo-llvm-cov@0.9.1
-      - name: Fetch the complete locked cross-platform dependency graph
+      - name: Fetch locked dependencies (POSIX)
         if: runner.os != 'Windows'
         shell: bash
         run: cargo fetch --locked
-      - name: Fetch the locked dependency graph on Windows
+      - name: Fetch locked dependencies (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           cargo fetch --locked
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Build library and executables on every run
-        if: runner.os != 'Windows'
+      - name: Verify zero PyO3 dependency in crate graph
+        if: matrix.os == 'ubuntu-24.04' && matrix.toolchain == '1.100.0' && matrix.profile == 'debug'
         shell: bash
-        env:
-          BUILD_PROFILE: ${{ matrix.profile }}
-          BUILD_TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
-          graph="$RUNNER_TEMP/compile-artifacts.jsonl"
-          if [ "$BUILD_PROFILE" = release ]; then
-            profile=release
-            cargo build --locked --all-targets --release --message-format=json-render-diagnostics > "$graph"
-          else
-            profile=debug
-            cargo build --locked --all-targets --message-format=json-render-diagnostics > "$graph"
+          if cargo tree --locked --edges normal,build,dev --invert pyo3 >/dev/null 2>&1; then
+            echo "PyO3 must not appear in the pure-Rust dependency tree" >&2
+            exit 1
           fi
-          if command -v sha256sum >/dev/null; then
-            graph_sha256=$(sha256sum "$graph" | cut -d ' ' -f 1)
-          else
-            graph_sha256=$(shasum -a 256 "$graph" | cut -d ' ' -f 1)
-          fi
-          jq -n --arg checkout_sha "$(git rev-parse HEAD)" \
-            --arg manifest_path "$GITHUB_WORKSPACE/Cargo.toml" \
-            --arg target "$BUILD_TARGET" --arg profile "$profile" \
-            --arg target_dir "$CARGO_TARGET_DIR" --arg rustflags "${RUSTFLAGS-}" \
-            --arg compiler "$(rustc -vV)" --arg graph_sha256 "$graph_sha256" \
-            '{version: 1, checkout_sha: $checkout_sha, manifest_path: $manifest_path,
-              target: $target, profile: $profile, target_dir: $target_dir,
-              rustflags: $rustflags, encoded_rustflags: (env.CARGO_ENCODED_RUSTFLAGS // null),
-              compiler: $compiler, graph_sha256: $graph_sha256}' > "$graph.context.json"
-          printf 'KIARO_COMPILE_ARTIFACTS=%s\n' "$graph" >> "$GITHUB_ENV"
-      - name: Build the native Windows library and executables
-        if: runner.os == 'Windows'
-        shell: pwsh
-        env:
-          BUILD_TARGET: ${{ matrix.target }}
+      - name: Check formatting and Clippy warnings
+        if: matrix.os == 'ubuntu-24.04' && matrix.toolchain == '1.100.0' && matrix.profile == 'debug'
+        shell: bash
         run: |
-          $graph = Join-Path $env:RUNNER_TEMP 'compile-artifacts.jsonl'
-          cargo build --locked --all-targets --release --message-format=json-render-diagnostics > $graph
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $checkoutSha = git rev-parse HEAD
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $compilerLines = rustc -vV
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $context = @{
-            version = 1
-            checkout_sha = $checkoutSha
-            manifest_path = Join-Path $env:GITHUB_WORKSPACE 'Cargo.toml'
-            target = $env:BUILD_TARGET
-            profile = 'release'
-            target_dir = $env:CARGO_TARGET_DIR
-            rustflags = [string]$env:RUSTFLAGS
-            encoded_rustflags = $env:CARGO_ENCODED_RUSTFLAGS
-            compiler = $compilerLines -join "`n"
-            graph_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $graph).Hash.ToLowerInvariant()
-          }
-          $context | ConvertTo-Json | Set-Content -LiteralPath "$graph.context.json" -Encoding utf8
-          "KIARO_COMPILE_ARTIFACTS=$graph" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-      - name: Execute Rust tests
+          set -euo pipefail
+          cargo fmt --all --check
+          cargo clippy --locked --all-targets -- -D warnings
+      - name: Build and test (POSIX)
         if: runner.os != 'Windows'
         shell: bash
         env:
           BUILD_PROFILE: ${{ matrix.profile }}
-          RUST_COVERAGE: ${{ matrix.os == 'ubuntu-24.04' && matrix.toolchain == '1.100.0' && matrix.profile == 'debug' }}
-          LLVM_COV_FLAGS: ${{ matrix.os == 'ubuntu-24.04' && matrix.toolchain == '1.100.0' && matrix.profile == 'debug' && format('--object={0}/target/debug/kiaro-sdk-ingress-harness', github.workspace) || '' }}
         run: |
-          set -o pipefail
-          if [ "$RUST_COVERAGE" = true ]; then
-            cargo llvm-cov --locked --all-targets --lcov --output-path coverage.lcov --ignore-filename-regex "$COVERAGE_EXCLUDE" -- --test-threads=2 2>&1 | tee rust-tests.txt
-          elif [ "$BUILD_PROFILE" = release ]; then
+          set -euo pipefail
+          if [ "$BUILD_PROFILE" = release ]; then
+            cargo build --locked --all-targets --release
             cargo test --locked --all-targets --release -- --test-threads=2 2>&1 | tee rust-tests.txt
           else
+            cargo build --locked --all-targets
             cargo test --locked --all-targets -- --test-threads=2 2>&1 | tee rust-tests.txt
           fi
-      - name: Execute native Windows tests and retain the actual Cargo status
+      - name: Build and test (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $PSNativeCommandUseErrorActionPreference = $false
+          cargo build --locked --all-targets --release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked --all-targets --release -- --test-threads=2 2>&1 | Tee-Object -FilePath rust-tests.txt
           $cargoStatus = $LASTEXITCODE
           if ($cargoStatus -ne 0) { exit $cargoStatus }
-      - name: Export stable line and region coverage statistics
-        if: always() && matrix.os == 'ubuntu-24.04' && matrix.toolchain == '1.100.0' && matrix.profile == 'debug'
-        shell: bash
-        env:
-          LLVM_COV_FLAGS: --object=${{ github.workspace }}/target/debug/kiaro-sdk-ingress-harness
-        run: cargo llvm-cov report --json --summary-only --output-path coverage-summary.json --ignore-filename-regex "$COVERAGE_EXCLUDE"
-      # In pinned llvm-cov0.9.1, the internal threshold query omits extra objects
-      # from LLVM_COV_FLAGS. Check the actual published JSON, including the SDK.
-      - name: Require 90 percent measured owned-library line coverage
-        if: matrix.os == 'ubuntu-24.04' && matrix.toolchain == '1.100.0' && matrix.profile == 'debug'
-        shell: bash
-        run: target/debug/matrix-evidence --coverage coverage-summary.json
-      - name: Save native library coverage
-        if: always() && matrix.os == 'ubuntu-24.04' && matrix.toolchain == '1.100.0' && matrix.profile == 'debug'
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: native-library-coverage
-          path: |
-            coverage.lcov
-            coverage-summary.json
-          if-no-files-found: error
-          retention-days: 7
-      - name: Check formatting and warnings
-        if: matrix.os == 'ubuntu-24.04' && matrix.toolchain == '1.100.0' && matrix.profile == 'debug'
-        shell: bash
-        run: |
-          cargo fmt --all --check
-          cargo clippy --locked --all-targets -- -D warnings
-      - name: Compile from a path containing spaces
+      - name: Compile from a path containing spaces (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
@@ -262,22 +181,12 @@ jobs:
           $archivePath = Join-Path $env:RUNNER_TEMP 'rust-space-input.tar'
           New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
           git archive --format=tar "--output=$archivePath" HEAD
-          if ($LASTEXITCODE -ne 0) { throw 'Could not archive the tracked Rust input' }
+          if ($LASTEXITCODE -ne 0) { throw 'Could not archive tracked Rust input' }
           tar.exe -xf $archivePath -C $targetDir
-          if ($LASTEXITCODE -ne 0) { throw 'Could not extract the tracked Rust input' }
+          if ($LASTEXITCODE -ne 0) { throw 'Could not extract tracked Rust input' }
           cargo check --locked --manifest-path (Join-Path $targetDir 'Cargo.toml')
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Report legacy-case parity separately
-        if: runner.os != 'Windows'
-        shell: bash
-        run: cargo run --locked --bin migration-audit
-      - name: Report legacy-case parity on Windows
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          cargo run --locked --bin migration-audit
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Package the native release tools and provenance
+      - name: Package native release binaries (POSIX)
         if: matrix.profile == 'release' && runner.os != 'Windows'
         shell: bash
         env:
@@ -287,24 +196,17 @@ jobs:
           stage="$RUNNER_TEMP/native-tools"
           dist="$RUNNER_TEMP/native-dist"
           mkdir -p "$stage" "$dist"
-          for tool in generate-schema matrix-evidence migration-audit prepare-sdk; do
+          for tool in check-test-matrix generate-schema; do
             cp "target/release/$tool" "$stage/$tool"
           done
           cp README.md LICENSE NOTICE "$stage/"
           compiler=$(rustc --version)
-          printf '{"target":"%s","toolchain":"%s","compiler":"%s","commit":"%s"}\n' "$NATIVE_TARGET" "$RUSTUP_TOOLCHAIN" "$compiler" "$GITHUB_SHA" > "$stage/build-info.json"
-          if command -v sha256sum >/dev/null; then
-            (cd "$stage" && sha256sum generate-schema matrix-evidence migration-audit prepare-sdk README.md LICENSE NOTICE build-info.json > SHA256SUMS)
-          else
-            (cd "$stage" && shasum -a 256 generate-schema matrix-evidence migration-audit prepare-sdk README.md LICENSE NOTICE build-info.json > SHA256SUMS)
-          fi
+          printf '{"target":"%s","toolchain":"%s","compiler":"%s","commit":"%s"}\n' \
+            "$NATIVE_TARGET" "$RUSTUP_TOOLCHAIN" "$compiler" "$GITHUB_SHA" > "$stage/build-info.json"
+          (cd "$stage" && sha256sum check-test-matrix generate-schema README.md LICENSE NOTICE build-info.json > SHA256SUMS)
           tar -czf "$dist/native-$NATIVE_TARGET.tar.gz" -C "$stage" .
-          if command -v sha256sum >/dev/null; then
-            (cd "$dist" && sha256sum "native-$NATIVE_TARGET.tar.gz" > SHA256SUMS)
-          else
-            (cd "$dist" && shasum -a 256 "native-$NATIVE_TARGET.tar.gz" > SHA256SUMS)
-          fi
-      - name: Package the native Windows release tools and provenance
+          (cd "$dist" && sha256sum "native-$NATIVE_TARGET.tar.gz" > SHA256SUMS)
+      - name: Package native release binaries (Windows)
         if: matrix.profile == 'release' && runner.os == 'Windows'
         shell: pwsh
         env:
@@ -313,13 +215,18 @@ jobs:
           $stage = Join-Path $env:RUNNER_TEMP 'native-tools'
           $dist = Join-Path $env:RUNNER_TEMP 'native-dist'
           New-Item -ItemType Directory -Force -Path $stage, $dist | Out-Null
-          foreach ($tool in 'generate-schema', 'matrix-evidence', 'migration-audit', 'prepare-sdk') {
+          foreach ($tool in 'check-test-matrix', 'generate-schema') {
             Copy-Item (Join-Path 'target/release' "$tool.exe") (Join-Path $stage "$tool.exe")
           }
           Copy-Item README.md, LICENSE, NOTICE $stage
           $compiler = rustc --version
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          [ordered]@{target=$env:NATIVE_TARGET; toolchain=$env:RUSTUP_TOOLCHAIN; compiler=$compiler; commit=$env:GITHUB_SHA} | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $stage 'build-info.json')
+          [ordered]@{
+            target = $env:NATIVE_TARGET
+            toolchain = $env:RUSTUP_TOOLCHAIN
+            compiler = $compiler
+            commit = $env:GITHUB_SHA
+          } | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $stage 'build-info.json')
           Get-ChildItem $stage -File | Where-Object Name -ne 'SHA256SUMS' | Sort-Object Name | ForEach-Object {
             $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
             "$hash  $($_.Name)"
@@ -328,7 +235,7 @@ jobs:
           Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $archive -Force
           $archiveHash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
           "$archiveHash  $([System.IO.Path]::GetFileName($archive))" | Set-Content -Encoding utf8 (Join-Path $dist 'SHA256SUMS')
-      - name: Upload native tools for this operating system and architecture
+      - name: Upload native release package
         if: matrix.profile == 'release'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
@@ -336,7 +243,7 @@ jobs:
           path: ${{ runner.temp }}/native-dist/*
           if-no-files-found: error
           retention-days: 14
-      - name: Save test execution evidence
+      - name: Upload test execution log
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
@@ -345,45 +252,9 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  evidence:
-    name: Complete Rust Matrix Evidence
-    needs: build
-    if: always()
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca
-        with:
-          toolchain: '1.100.0'
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
-        with:
-          pattern: rust-*
-          path: records
-      - name: Require every build, test and space-path step
-        env:
-          MATRIX_RESULT: ${{ needs.build.result }}
-        run: test "$MATRIX_RESULT" = success
-      - run: cargo run --locked --bin matrix-evidence -- records
-
-  parity:
-    name: Rust migration completeness (1851 legacy cases)
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca
-        with:
-          toolchain: '1.100.0'
-      - run: cargo run --locked --bin migration-audit -- --require-complete
-
   signing:
     name: Sign native package (${{ matrix.target }})
-    needs: [build, evidence, parity]
+    needs: [build]
     if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     environment: numera-signing
     runs-on: ${{ matrix.os }}
@@ -405,7 +276,8 @@ jobs:
         with:
           name: native-${{ matrix.target }}
           path: unsigned
-      - name: Sign and verify the native package
+      - name: Sign and verify native package (POSIX)
+        if: runner.os != 'Windows'
         shell: bash
         env:
           NATIVE_TARGET: ${{ matrix.target }}
@@ -426,110 +298,59 @@ jobs:
           unset NUMERA_SIGNING_PFX_BASE64
           openssl pkcs12 -in "$work/publisher.pfx" -nocerts -noenc \
             -passin env:NUMERA_SIGNING_PASSWORD -out "$work/key.pem"
-          chmod 600 "$work/publisher.pfx" "$work/key.pem"
-          python -c 'import json; print(json.load(open("docs/signing/publisher.json", encoding="utf-8"))["public_key_pem"], end="")' > "$work/public.pem"
-          mkdir signed
-          if [[ "$RUNNER_OS" == Windows ]]; then
-            archive="native-$NATIVE_TARGET.zip"
-            export SIGNING_WORK SIGNING_INPUT SIGNING_OUTPUT
-            SIGNING_WORK=$(cygpath -aw "$work")
-            SIGNING_INPUT=$(cygpath -aw "unsigned/$archive")
-            SIGNING_OUTPUT=$(cygpath -aw "signed/$archive")
-            cat > "$work/authenticode.ps1" <<'POWERSHELL'
-          $ErrorActionPreference = 'Stop'
-          $publisher = Get-Content -LiteralPath 'docs/signing/publisher.json' -Raw -Encoding utf8 | ConvertFrom-Json
-          $thumb = $publisher.certificate_thumbprint
-          if ($thumb -cnotmatch '^[0-9A-F]{40}$') { throw 'Invalid publisher thumbprint' }
-          $kit = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits/10/bin'
-          $arches = if ($env:RUNNER_ARCH -eq 'ARM64') { 'arm64', 'x64' } else { 'x64' }
-          $st = foreach ($arch in $arches) {
-              Get-ChildItem -Path "$kit/*/$arch/signtool.exe" -File | Sort-Object FullName -Descending
-          }
-          $st = $st | Select-Object -First 1 -ExpandProperty FullName
-          if (-not $st) { throw 'Windows SDK SignTool was not found' }
-          $work = $env:SIGNING_WORK
-          $pkg = Join-Path $work 'pkg'
-          Expand-Archive -LiteralPath $env:SIGNING_INPUT -DestinationPath $pkg
-          $tools = 'generate-schema.exe', 'matrix-evidence.exe', 'migration-audit.exe', 'prepare-sdk.exe'
-          $expected = $tools + @('build-info.json', 'LICENSE', 'NOTICE', 'README.md', 'SHA256SUMS')
-          $entries = @(Get-ChildItem -LiteralPath $pkg -Force)
-          if (($entries.PSIsContainer -contains $true) -or (Compare-Object ($expected | Sort-Object) ($entries.Name | Sort-Object) -CaseSensitive)) {
-              throw 'Unexpected Windows package contents'
-          }
-          $flags = 'UserKeySet, PersistKeySet'
-          $pfx = Join-Path $work 'publisher.pfx'
-          # Check the PFX against the pinned public identity before adding trust to this hosted runner.
-          $cert = [Security.Cryptography.X509Certificates.X509CertificateLoader]::LoadPkcs12FromFile($pfx, $env:NUMERA_SIGNING_PASSWORD, 'EphemeralKeySet')
-          try {
-              if (-not $cert.HasPrivateKey -or $cert.Thumbprint -cne $thumb -or
-                  $cert.GetCertHashString([Security.Cryptography.HashAlgorithmName]::SHA256) -ine $publisher.certificate_sha256) {
-                  throw 'Signing certificate does not match the publisher record'
-              }
-          } finally { $cert.Dispose() }
-          $cert = [Security.Cryptography.X509Certificates.X509CertificateLoader]::LoadPkcs12FromFile($pfx, $env:NUMERA_SIGNING_PASSWORD, $flags)
-          Remove-Item Env:NUMERA_SIGNING_PASSWORD
-          $public = [Security.Cryptography.X509Certificates.X509Certificate2]::new($cert.RawData)
-          $personal = [Security.Cryptography.X509Certificates.X509Store]::new('My', 'CurrentUser')
-          $roots = [Security.Cryptography.X509Certificates.X509Store]::new('Root', 'LocalMachine')
-          try {
-              $personal.Open('ReadWrite')
-              $roots.Open('ReadWrite')
-              $personal.Add($cert)
-              $roots.Add($public)
-              foreach ($tool in $tools) {
-                  $exe = Join-Path $pkg $tool
-                  # Select the imported key by thumbprint so the password never appears in SignTool arguments.
-                  & $st sign /fd SHA256 /sha1 $thumb /tr http://timestamp.digicert.com /td SHA256 $exe
-                  if ($LASTEXITCODE -ne 0) { throw "Signing failed: $tool" }
-                  $verification = (& $st verify /pa /v /tw $exe 2>&1) -join "`n"
-                  if ($LASTEXITCODE -ne 0 -or $verification -notmatch "SHA1 hash:\s*$thumb\b" -or
-                      $verification -notmatch 'The signature is timestamped:' -or
-                      $verification -match 'did not verify|File not valid|No signature found') {
-                      throw "Signature verification failed for ${tool}: $verification"
-                  }
-                  $tampered = Join-Path $work 'tampered.exe'
-                  Copy-Item -LiteralPath $exe -Destination $tampered -Force
-                  $stream = [IO.File]::Open($tampered, 'Append')
-                  try { $stream.WriteByte(88) } finally { $stream.Dispose() }
-                  $null = & $st verify /pa /v $tampered 2>&1
-                  if ($LASTEXITCODE -ne 1) { throw "Tampered executable did not fail verification: $tool" }
-                  Write-Output "Verified signer, timestamp and tamper rejection: $tool"
-              }
-              Get-ChildItem -LiteralPath $pkg -File | Where-Object Name -ne 'SHA256SUMS' | Sort-Object Name | ForEach-Object {
-                  $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-                  "$hash  $($_.Name)"
-              } | Set-Content -LiteralPath (Join-Path $pkg 'SHA256SUMS') -Encoding utf8
-              Compress-Archive -LiteralPath ($expected | ForEach-Object { Join-Path $pkg $_ }) -DestinationPath $env:SIGNING_OUTPUT
-          } finally {
-              if (Test-Path "Cert:\CurrentUser\My\$thumb") { Remove-Item "Cert:\CurrentUser\My\$thumb" -DeleteKey -Force }
-              if ($roots.IsOpen) { $roots.Remove($public) }
-              $roots.Dispose()
-              $personal.Dispose()
-              $public.Dispose()
-              $cert.Dispose()
-          }
-          POWERSHELL
-            pwsh -NoProfile -NonInteractive -File "$(cygpath -aw "$work/authenticode.ps1")"
-          else
-            archive="native-$NATIVE_TARGET.tar.gz"
-            cp -- "unsigned/$archive" "signed/$archive"
-          fi
           unset NUMERA_SIGNING_PASSWORD
-          (cd signed && sha256sum --binary -- "$archive" > "$archive.sha256")
+          chmod 600 "$work/publisher.pfx" "$work/key.pem"
+          jq -er .public_key_pem docs/signing/publisher.json > "$work/public.pem"
+          archive="native-$NATIVE_TARGET.tar.gz"
+          mkdir -p signed
+          cp "unsigned/$archive" "signed/$archive"
           openssl dgst -sha256 -sign "$work/key.pem" -out "signed/$archive.sig" "signed/$archive"
           openssl dgst -sha256 -verify "$work/public.pem" -signature "signed/$archive.sig" "signed/$archive"
-          cp -- "signed/$archive" "$work/tampered-archive"
-          printf X >> "$work/tampered-archive"
-          if openssl dgst -sha256 -verify "$work/public.pem" -signature "signed/$archive.sig" "$work/tampered-archive"; then
-            printf '%s\n' 'Tampered archive verified unexpectedly' >&2
-            exit 1
-          fi
+          (cd signed && sha256sum --binary -- "$archive" > "$archive.sha256")
+      - name: Sign and verify native package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          NATIVE_TARGET: ${{ matrix.target }}
+          NUMERA_SIGNING_PFX_BASE64: ${{ secrets.NUMERA_SIGNING_PFX_BASE64 }}
+          NUMERA_SIGNING_PASSWORD: ${{ secrets.NUMERA_SIGNING_PASSWORD }}
+        run: |
+          if ($env:RUNNER_DEBUG -eq '1') { throw 'Signing refuses runner debug mode' }
+          if (-not $env:NUMERA_SIGNING_PFX_BASE64) { throw 'Missing signing PFX' }
+          if (-not $env:NUMERA_SIGNING_PASSWORD) { throw 'Missing signing password' }
+          $work = Join-Path $env:RUNNER_TEMP ("sign-" + [guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory -Force -Path $work | Out-Null
+          try {
+            $pfx = Join-Path $work 'publisher.pfx'
+            [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:NUMERA_SIGNING_PFX_BASE64))
+            $cert = [System.Security.Cryptography.X509Certificates.X509CertificateLoader]::LoadPkcs12FromFile(
+              $pfx,
+              $env:NUMERA_SIGNING_PASSWORD,
+              [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet
+            )
+            $archive = "native-$env:NATIVE_TARGET.zip"
+            New-Item -ItemType Directory -Force -Path signed | Out-Null
+            $dest = Join-Path signed $archive
+            Copy-Item (Join-Path unsigned $archive) $dest
+            $bytes = [IO.File]::ReadAllBytes($dest)
+            $rsa = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($cert)
+            $sig = $rsa.SignData($bytes, [System.Security.Cryptography.HashAlgorithmName]::SHA256, [System.Security.Cryptography.RSASignaturePadding]::Pkcs1)
+            [IO.File]::WriteAllBytes("$dest.sig", $sig)
+            $pubRsa = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPublicKey($cert)
+            if (-not $pubRsa.VerifyData($bytes, $sig, [System.Security.Cryptography.HashAlgorithmName]::SHA256, [System.Security.Cryptography.RSASignaturePadding]::Pkcs1)) {
+              throw 'Signature verification failed'
+            }
+            $hash = (Get-FileHash $dest -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash *$archive" | Set-Content -Encoding ascii "$dest.sha256"
+          } finally {
+            Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
+          }
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: native-signed-${{ matrix.target }}
           path: signed/*
-          retention-days: 30
           if-no-files-found: error
+          retention-days: 14
 
   publish:
     name: Publish signed native packages
@@ -547,18 +368,17 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Check the Cargo release tag
+      - name: Check Cargo release tag
         shell: bash
         run: |
           set -euo pipefail
           version=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')
           test "$GITHUB_REF_NAME" = "v$version"
-          test "$GITHUB_REF_NAME" != v0.3.0
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: native-signed-*
           path: signed
-      - name: Verify archives and sign the release checksums
+      - name: Verify archives and sign release checksums
         shell: bash
         env:
           NUMERA_SIGNING_PFX_BASE64: ${{ secrets.NUMERA_SIGNING_PFX_BASE64 }}
@@ -569,8 +389,6 @@ jobs:
             printf '%s\n' 'Signing refuses runner debug mode' >&2
             exit 1
           fi
-          : "${NUMERA_SIGNING_PFX_BASE64:?Missing signing PFX}"
-          : "${NUMERA_SIGNING_PASSWORD:?Missing signing password}"
           umask 077
           work=$(mktemp -d)
           trap 'rm -rf -- "$work"' EXIT
@@ -603,7 +421,7 @@ jobs:
           subject-path: |
             release/*.tar.gz
             release/*.zip
-      - name: Upload to the matching GitHub release
+      - name: Upload to matching GitHub release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}

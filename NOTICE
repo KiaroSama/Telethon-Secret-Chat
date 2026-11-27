@@ -43,14 +43,14 @@ and cannot change that.
     SOFTWARE.
 
 
-HISTORICAL TELETHON PREREQUISITE
+PATCHED TELETHON PREREQUISITE
 
-The earlier Python implementation patched Telethon 1.45.0, authored by Lonami,
-at https://codeberg.org/Lonami/Telethon (MIT). Its checksum-pinned wheels retained
-the complete original MIT notice and upstream/modified-module provenance.
-The Rust distribution uses the grammers sources described below. This historical
-attribution preserves the upstream author and license and is separate from
-painor's telethon-secret-chat above and TDLib's reference role below.
+The optional project-owned prerequisite patches Telethon 1.45.0, authored by
+Lonami, at https://codeberg.org/Lonami/Telethon (MIT). The build downloads a
+checksum-pinned official wheel, retains its complete original MIT notice, and
+records upstream and modified-module provenance in the resulting wheel.
+No upstream author identity or license is changed. This attribution is separate
+from painor's telethon-secret-chat above and TDLib's reference role below.
 
 
 REFERENCE IMPLEMENTATION
@@ -99,56 +99,37 @@ LICENCE HISTORY
   * GPL-3.0-or-later from 2026-09-19 (first commit)
 
 
-GRAMMERS RUST SDK SUPPLEMENT
-
-vendor/grammers/ contains the grammers-client, grammers-session and
-grammers-mtsender Rust sources by Lonami Exo and contributors, from
-https://codeberg.org/Lonami/grammers at revision
-02367f9711ca3589a8bbb02e4128aca1631c77c4, under MIT OR Apache-2.0.
-The complete original license texts are retained in each crate. Local changes
-add the durable-ingress checkpoint, request guard and receipt/replay boundary
-to session and mtsender. Local client/session/sender corrections also fix
-request association, pagination, transfer/caching, parsers and optional-result
-boundaries; this source alpha documents its API differences explicitly.
-Original source hashes and the change description are in vendor/grammers/.
-
-
 TELEGRAM DESKTOP EXPORT
 
-src/export/ is a Rust port of the chat export in Telegram Desktop, carried
-forward from this project's original Python Desktop handoff
-(https://github.com/telegramdesktop/tdesktop, baseline tag v7.2.10,
-Telegram/SourceFiles/export/), with relevant export updates through v7.4.4
-(bf4f714036f21c750d535dab199c811b3f9bfdd4),
-Copyright (C) the Telegram Desktop authors,
+telethon_secret_chat/tdexport/ is a Python port of the chat export in Telegram Desktop
+(https://github.com/telegramdesktop/tdesktop, tag v7.2.10,
+Telegram/SourceFiles/export/), Copyright (C) the Telegram Desktop authors,
 licensed under the GNU General Public License version 3 with an OpenSSL
-exception. src/export/assets/ and src/export/assets.rs retain the static
-assets from Telegram/Resources/export_html/, represented as Rust data where
-needed. CSS follows v7.4.4 with the established emitted CRLF convention;
-JavaScript and all 42 PNG assets retain their byte-identical v7.2.10/v7.4.4
-content. These portions are included here under GPLv3, the licence of this work.
+exception. assets/tdexport/ (css/, js/, images/) is copied
+unchanged from Telegram/Resources/export_html/ of the same tag. Both are
+included here under GPLv3, the licence of this work, so an export this library
+writes is the same as one Telegram Desktop writes.
 
 Photo thumbnails port Telegram Desktop's Qt 5.15.19 scaling and JPEG settings:
-src/export/qt_scale.rs ports QImage's SmoothTransformation
+src/ported/tdexport_qt_scale.rs ports QImage's SmoothTransformation
 (qtbase src/gui/painting/qimagescale.cpp and interpolate_4_pixels from
 qdrawhelper_p.h), Copyright (C) The Qt Company Ltd., licensed under LGPL-3.0 /
 GPL-2.0-or-later / GPL-3.0; the smooth-scaling code there is derived from
 Imlib2 (Copyright (C) Carsten Haitzler and others; Daniel M. Duley), under its
-BSD-style licence, whose notice is kept here. src/export/qt_jpeg.rs
+BSD-style licence, whose notice is kept here. src/ported/tdexport_qt_jpeg.rs
 reproduces the settings of Qt's JPEG writer (qjpeghandler.cpp). The encoding
-itself uses mozjpeg-rs, a native Rust implementation, pinned to revision
-6e58cd382d58f06e05764328c609d273ab4cf59f at
-https://github.com/imazen/mozjpeg-rs. The previous Python handoff used native
-mozjpeg 4.1.5 through imagecodecs; those runtimes are not used by the Rust port.
-src/export/qt_icc.rs ports QtGui's matrix/TRC ICC parser,
+itself is done by mozjpeg (https://github.com/mozilla/mozjpeg; IJG,
+BSD-3-Clause and zlib licences, including the libjpeg-turbo code it contains),
+reached through the mozjpeg Rust crate. src/ported/tdexport_qt_icc.rs ports QtGui's matrix/TRC ICC parser,
 color-space matrices, transfer curves and color-transform LUTs from Qt 5.15.19,
 Copyright (C) 2016, 2018 The Qt Company Ltd., under the same GPL-3.0 option noted
 above. Synthetic oracle fixtures were generated with that exact patched source;
 no native Qt runtime is bundled or required by the Rust port.
 
-src/export/jpeg_decoder/ adapts image-rs/jpeg-decoder 0.3.2 to reproduce the
-reference integer IDCT and chroma upsampling. Its MIT and Apache-2.0 notices
-are retained alongside that source. No C JPEG implementation is bundled.
+The vendored MTProto transport crates under vendor/grammers/ derive from
+Lonami/grammers (https://codeberg.org/Lonami/grammers), dual-licensed under
+MIT OR Apache-2.0; their upstream LICENSE-MIT and LICENSE-APACHE files and
+exact SHA-256 provenance manifests are retained in vendor/grammers/.
 
 
 QIMAGE SMOOTH-SCALING NOTICE AND CREDITS

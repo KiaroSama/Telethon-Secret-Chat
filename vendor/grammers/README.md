@@ -1,7 +1,7 @@
 # Pinned Rust SDK supplement
 
 These three Rust crates come from official grammers revision
-`02367f9711ca3589a8bbb02e4128aca1631c77c4`. `upstream-hashes.json` records the
+`11e13a989a754f9cf01a798480a2e20ce9e5b1fd`. `upstream-hashes.json` records the
 SHA-256 of each original Rust source file before local changes and of the Layer 234
 TL schema used by the pinned Git dependency. Each crate retains
 the upstream MIT and Apache-2.0 license texts and source notices.

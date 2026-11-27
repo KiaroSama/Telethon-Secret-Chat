@@ -18,9 +18,9 @@ proxy = ["tokio-socks", "hickory-resolver", "url"]
 
 [dependencies]
 bytes = "1.12.1"
-grammers-mtproto = { git = "https://codeberg.org/Lonami/grammers.git", rev = "02367f9711ca3589a8bbb02e4128aca1631c77c4", version = "0.12.0" }
+grammers-mtproto = { git = "https://codeberg.org/Lonami/grammers.git", rev = "11e13a989a754f9cf01a798480a2e20ce9e5b1fd", version = "0.12.0" }
 grammers-session = { path = "../grammers-session", version = "0.12.0", default-features = false }
-grammers-tl-types = { git = "https://codeberg.org/Lonami/grammers.git", rev = "02367f9711ca3589a8bbb02e4128aca1631c77c4", version = "0.12.0", features = [ "tl-mtproto", "deserializable-functions" ] }
+grammers-tl-types = { git = "https://codeberg.org/Lonami/grammers.git", rev = "11e13a989a754f9cf01a798480a2e20ce9e5b1fd", version = "0.12.0", features = [ "tl-mtproto", "deserializable-functions" ] }
 locate-locale = "0.2.0"
 os_info = { version = "3.15.0", default-features = false }
 tokio = { version = "1.54.1", default-features = false, features = ["io-util", "sync", "time", "net", "macros", "rt"] }

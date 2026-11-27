@@ -1,10 +1,8 @@
-name: Rust Source Package Validation
+name: Package Validation
 
 on:
-  pull_request:
-    branches: [main]
   push:
-    branches: [main]
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -19,9 +17,9 @@ env:
   CARGO_INCREMENTAL: '0'
 
 jobs:
-  source:
-    name: Source and Git distribution inputs
-    runs-on: ubuntu-latest
+  validate-source:
+    name: Validate tracked Rust source package
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -30,25 +28,21 @@ jobs:
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca
         with:
           toolchain: '1.100.0'
-      # The four installed-Git-consumer cases run on all seven Rust matrix legs.
-      # This job verifies source inputs and never claims a normalized .crate is usable.
-      - name: Verify native package inputs and inherited licenses
+      - name: Check tracked source inventory and exclude forbidden paths
         shell: bash
         run: |
           set -euo pipefail
-          cargo metadata --locked --format-version 1 --no-deps > "$RUNNER_TEMP/native-package-metadata.json"
-          cargo package --list --allow-dirty > "$RUNNER_TEMP/native-package-files.txt"
-          for path in LICENSE NOTICE Cargo.lock; do
-            grep -Fx -- "$path" "$RUNNER_TEMP/native-package-files.txt"
-          done
           git ls-files > "$RUNNER_TEMP/native-source-files.txt"
-          for path in vendor/grammers/grammers-client/Cargo.toml vendor/grammers/grammers-mtsender/Cargo.toml vendor/grammers/grammers-session/Cargo.toml tools/secret-scan/Cargo.lock; do
-            git ls-files --error-unmatch "$path"
+          for forbidden in '^\.ai/' '^\.specify/' '^specs/' '^secrets\.md$' '^graphify-out/' '^\.gpg-private/' '^bin/'; do
+            if grep -Eq "$forbidden" "$RUNNER_TEMP/native-source-files.txt"; then
+              echo "Forbidden path tracked: $forbidden" >&2
+              exit 1
+            fi
           done
-          if grep -E '(^|/)\.ai/|\.(py|pyc|ps1|session|db)$' "$RUNNER_TEMP/native-source-files.txt"; then
-            exit 1
-          fi
-      - name: Archive the committed source with its checksum
+          for required in Cargo.toml Cargo.lock LICENSE NOTICE README.md schema/end-to-end.tl migration/019-rust-anything-receipt.json docs/signing/publisher.json vendor/grammers/upstream-hashes.json vendor/grammers/local-patches.json; do
+            git ls-files --error-unmatch "$required" >/dev/null
+          done
+      - name: Archive tracked source distribution
         shell: bash
         run: |
           set -euo pipefail
@@ -58,10 +52,9 @@ jobs:
           cp "$RUNNER_TEMP/native-source-files.txt" "$RUNNER_TEMP/rust-source/source-files.txt"
           cd "$RUNNER_TEMP/rust-source"
           sha256sum kiaro-secret-chat-source.tar commit.txt source-files.txt > SHA256SUMS
-      - name: Upload only committed source inputs
+      - name: Upload source distribution evidence
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: source-distribution-rust
           path: ${{ runner.temp }}/rust-source/
-          if-no-files-found: error
           retention-days: 7

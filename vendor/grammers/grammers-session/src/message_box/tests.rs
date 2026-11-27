@@ -492,6 +492,7 @@ fn test_process_socket_updates_flow_common_difference_ok() {
             new_encrypted_messages: Vec::new(),
             other_updates: vec![update(57)],
             chats: Vec::new(),
+            topics: None,
             users: Vec::new(),
             state: state(12, 34, 57, 78).into(),
         }
