@@ -1,9 +1,14 @@
-//! The Rust port of `rust/adapters/tool_check_test_matrix_adapter.py`.
+//! Validation of archived Python-baseline JUnit matrix evidence.
 //!
-//! Replace each `unimplemented!` with the port of the source function. Return `Err` where
-//! the source throws or raises: the caller gets an error there too. After changing a
-//! signature, run `rust-anything refresh` to regenerate the bindings. `rust-anything diff` checks
-//! behavior against what the source recorded.
+//! The current native Rust matrix runs Cargo directly. These declared skips
+//! describe historical Python fixtures, not current live interoperability.
+
+fn valid_leg_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+}
 
 const LIVE_SKIPS: [&str; 10] = [
     "tests.interop.test_live_roundtrip::test_both_ends_agree_on_the_key_fingerprint",
@@ -93,9 +98,9 @@ pub fn validate(
         return Ok(json!({"exit":2,"output":[]}));
     }
     let expected: BTreeSet<_> = legs.iter().map(String::as_str).collect();
-    if expected.len() != legs.len() {
+    if expected.len() != legs.len() || legs.iter().any(|leg| !valid_leg_name(leg)) {
         return Ok(rejected(
-            "matrix leg names must be nonempty and unique".into(),
+            "matrix leg names must be nonempty, unique, and use only letters, digits, hyphens, or underscores".into(),
         ));
     }
     if i64::try_from(expected.len()).ok() != Some(count) {
@@ -105,15 +110,16 @@ pub fn validate(
         )));
     }
     let mut records = BTreeMap::new();
-    for (leg, xml) in artifacts.as_object().into_iter().flatten() {
-        if !leg.is_empty()
-            && leg
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-            && let Some(xml) = xml.as_str()
-        {
-            records.insert(leg.as_str(), xml);
+    let Some(artifacts) = artifacts.as_object() else {
+        return Ok(rejected("matrix artifacts must be an object".into()));
+    };
+    for (leg, xml) in artifacts {
+        if !valid_leg_name(leg) || !xml.is_string() {
+            return Ok(rejected(
+                "invalid matrix artifact name or evidence type".into(),
+            ));
         }
+        records.insert(leg.as_str(), xml.as_str().unwrap_or_default());
     }
     let found: BTreeSet<_> = records.keys().copied().collect();
     if found != expected {
@@ -136,11 +142,41 @@ pub fn validate(
                 )));
             }
         };
+        if !matches!(
+            doc.root_element().tag_name().name(),
+            "testsuite" | "testsuites"
+        ) {
+            return Ok(rejected(format!(
+                "{leg}: evidence is not a JUnit test suite"
+            )));
+        }
+        for suite in doc
+            .descendants()
+            .filter(|node| node.has_tag_name("testsuite") || node.has_tag_name("testsuites"))
+        {
+            for attribute in ["failures", "errors"] {
+                if let Some(value) = suite.attribute(attribute)
+                    && value.parse::<u64>() != Ok(0)
+                {
+                    return Ok(rejected(format!(
+                        "{leg}: suite reports failures, errors, or invalid totals"
+                    )));
+                }
+            }
+        }
         let (mut cases, mut skipped) = (BTreeSet::new(), BTreeSet::new());
         for node in doc
             .descendants()
             .filter(|node| node.has_tag_name("testcase"))
         {
+            if ["classname", "name"].iter().any(|attribute| {
+                node.attribute(*attribute)
+                    .is_none_or(|value| value.trim().is_empty())
+            }) {
+                return Ok(rejected(format!(
+                    "{leg}: testcase identity must have a class and name"
+                )));
+            }
             let id = format!(
                 "{}::{}",
                 node.attribute("classname").unwrap_or_default(),

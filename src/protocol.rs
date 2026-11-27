@@ -3,7 +3,8 @@ use aes::{
     cipher::{Array, BlockCipherEncrypt, KeyInit},
 };
 use serde_json::{Value, json};
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use subtle::ConstantTimeEq;
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::errors::SecretChatError;
 
@@ -12,6 +13,11 @@ const SHARED_KEY_LEN: usize = 256;
 const MIN_PADDING_LEN: usize = 12;
 const WRAPPER_CONSTRUCTOR_ID: u32 = 0x1be3_1789;
 const DECRYPTED_MESSAGE_73_ID: u32 = 0x91cc_4674;
+
+/// Local resource ceiling for one complete encrypted frame, including its header.
+pub const MAX_ENCRYPTED_FRAME_LEN: usize = 1024 * 1024;
+/// Local ceiling for the serialized plaintext bodies held behind sequence gaps.
+pub const MAX_PENDING_FRAME_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChatRole {
@@ -36,9 +42,26 @@ pub enum KeyLifecycleState {
 }
 
 #[derive(Clone, Zeroize, ZeroizeOnDrop)]
-struct KeySlot([u8; SHARED_KEY_LEN]);
+pub(crate) struct KeySlot(pub(crate) [u8; SHARED_KEY_LEN]);
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
+pub struct PreparedServiceMessage {
+    pub random_id: i64,
+    /// Raw counter reserved by this preparation; the frame contains its wire form.
+    pub out_seq_no: i64,
+    pub frame: Vec<u8>,
+}
+
+impl std::fmt::Debug for PreparedServiceMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PreparedServiceMessage")
+            .field("out_seq_no", &self.out_seq_no)
+            .field("frame_length", &self.frame.len())
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
 pub struct AcceptedMessage {
     pub layer: i64,
     pub in_seq_no: i64,
@@ -46,9 +69,27 @@ pub struct AcceptedMessage {
     pub message_type: String,
     pub text: Option<String>,
     pub raw_inner_bytes: Vec<u8>,
+    pub random_id: i64,
+    pub action: Option<Value>,
+}
+
+impl std::fmt::Debug for AcceptedMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AcceptedMessage")
+            .field("layer", &self.layer)
+            .field("in_seq_no", &self.in_seq_no)
+            .field("out_seq_no", &self.out_seq_no)
+            .field("message_type", &self.message_type)
+            .field("text_length", &self.text.as_ref().map(String::len))
+            .field("raw_inner_length", &self.raw_inner_bytes.len())
+            .field("has_action", &self.action.is_some())
+            .finish()
+    }
 }
 
 /// Core MTProto 2.0 secret-chat state aligned with `specs/019-rust-anything-full-rewrite/data-model.md`.
+/// Clones support atomic manager transactions; every cloned key slot zeroizes on drop.
+#[derive(Clone)]
 pub struct SecretChat {
     chat_id: i64,
     access_hash: i64,
@@ -57,12 +98,20 @@ pub struct SecretChat {
     role: ChatRole,
     state: ChatState,
     negotiated_layer: i64,
+    wrapper_layer: i64,
     in_seq_no: i64,
     out_seq_no: i64,
     peer_in_seq_no: i64,
-    key_lifecycle: KeyLifecycleState,
-    active_key: Option<KeySlot>,
+    pub(crate) key_lifecycle: KeyLifecycleState,
+    pub(crate) active_key: Option<KeySlot>,
+    pub(crate) rekey: crate::ported::rekey::RuntimeRekey,
     pending_frames: Vec<Value>,
+    ready_messages: Vec<AcceptedMessage>,
+    gap_requested: bool,
+    gap_end: Option<i64>,
+    resend_due: Option<(i64, i64)>,
+    resend_request: Option<(i64, i64)>,
+    immediate_actions: Vec<Value>,
 }
 
 impl SecretChat {
@@ -85,12 +134,20 @@ impl SecretChat {
             role,
             state: initial_state,
             negotiated_layer: INITIAL_REMOTE_LAYER,
+            wrapper_layer: INITIAL_REMOTE_LAYER,
             in_seq_no: 0,
             out_seq_no: 0,
             peer_in_seq_no: 0,
             key_lifecycle: KeyLifecycleState::Unset,
             active_key: None,
+            rekey: crate::ported::rekey::RuntimeRekey::default(),
             pending_frames: Vec::new(),
+            ready_messages: Vec::new(),
+            gap_requested: false,
+            gap_end: None,
+            resend_due: None,
+            resend_request: None,
+            immediate_actions: Vec::new(),
         }
     }
 
@@ -126,6 +183,33 @@ impl SecretChat {
         self.negotiated_layer
     }
 
+    pub fn wrapper_layer(&self) -> i64 {
+        self.wrapper_layer
+    }
+
+    pub fn gap_requested(&self) -> bool {
+        self.gap_requested
+    }
+
+    pub fn resend_due(&self) -> Option<(i64, i64)> {
+        self.resend_due
+    }
+
+    /// Consume a newly discovered gap request after retaining its outgoing frame.
+    pub fn take_resend_request(&mut self) -> Option<(i64, i64)> {
+        self.resend_request.take()
+    }
+
+    /// Drain messages recovered by the compatibility single-message receive API.
+    pub fn take_ready_messages(&mut self) -> Vec<AcceptedMessage> {
+        std::mem::take(&mut self.ready_messages)
+    }
+
+    /// Resend actions bypass gaps, and must be handled before pruning the outbox.
+    pub fn take_immediate_actions(&mut self) -> Vec<Value> {
+        std::mem::take(&mut self.immediate_actions)
+    }
+
     pub fn in_seq_no(&self) -> i64 {
         self.in_seq_no
     }
@@ -135,6 +219,11 @@ impl SecretChat {
     }
 
     pub fn set_out_seq_no(&mut self, value: i64) {
+        if value > self.out_seq_no {
+            let count = value.abs_diff(self.out_seq_no);
+            self.rekey.messages = self.rekey.messages.saturating_add(count);
+            self.rekey.outgoing = self.rekey.outgoing.saturating_add(count);
+        }
         self.out_seq_no = value;
     }
 
@@ -155,6 +244,18 @@ impl SecretChat {
     }
 
     pub fn adopt_key(&mut self, key: &[u8]) -> Result<i64, SecretChatError> {
+        if self.state == ChatState::Closed {
+            return Err(SecretChatError::ChatClosed {
+                chat_id: self.chat_id,
+                reason: "chat is closed".into(),
+            });
+        }
+        if self.active_key.is_some() {
+            return Err(SecretChatError::ParameterRejected {
+                chat_id: Some(self.chat_id),
+                reason: "an active key must be replaced through the rekey lifecycle".into(),
+            });
+        }
         if key.len() != SHARED_KEY_LEN {
             return Err(SecretChatError::ParameterRejected {
                 chat_id: Some(self.chat_id),
@@ -167,14 +268,22 @@ impl SecretChat {
         self.active_key = Some(KeySlot(buf));
         self.key_lifecycle = KeyLifecycleState::Active { fingerprint };
         self.state = ChatState::Ready;
+        self.rekey.started = std::time::Instant::now();
         Ok(fingerprint)
     }
 
     pub fn close(&mut self) {
         self.active_key = None;
+        self.rekey = crate::ported::rekey::RuntimeRekey::default();
         self.key_lifecycle = KeyLifecycleState::Zeroized;
         self.state = ChatState::Closed;
         self.pending_frames.clear();
+        self.ready_messages.clear();
+        self.immediate_actions.clear();
+        self.gap_requested = false;
+        self.gap_end = None;
+        self.resend_due = None;
+        self.resend_request = None;
     }
 
     pub(crate) fn export_key_for_internal_frame(&self) -> Option<[u8; SHARED_KEY_LEN]> {
@@ -185,52 +294,86 @@ impl SecretChat {
         &mut self,
         frame: &[u8],
     ) -> Result<AcceptedMessage, SecretChatError> {
+        let mut accepted = self.receive_encrypted_frames(frame)?;
+        if accepted.is_empty() {
+            return Err(SecretChatError::MessageRejected {
+                chat_id: Some(self.chat_id),
+                reason: "duplicate or out-of-order frame was not accepted".into(),
+            });
+        }
+        let first = accepted.remove(0);
+        self.ready_messages.extend(accepted);
+        Ok(first)
+    }
+
+    /// Accept a frame and return every message whose preceding gap has closed.
+    /// Authenticated queued messages and replays return an empty batch.
+    pub fn receive_encrypted_frames(
+        &mut self,
+        frame: &[u8],
+    ) -> Result<Vec<AcceptedMessage>, SecretChatError> {
         if self.state == ChatState::Closed {
             return Err(SecretChatError::ChatClosed {
                 chat_id: self.chat_id,
                 reason: "chat is closed".into(),
             });
         }
-        let key_bytes = match &self.active_key {
-            Some(slot) => slot.0,
-            None => {
-                return Err(SecretChatError::ChatNotReady {
-                    chat_id: self.chat_id,
-                    state: format!("{:?}", self.state).to_lowercase(),
-                });
-            }
-        };
-
-        let decrypted_body = decrypt_frame(&key_bytes, frame, self.in_x())?;
-        let unwrapped = unwrap_frame(&decrypted_body, Some(self.chat_id))?;
-
-        let wrapper_layer =
-            unwrapped["layer"]
-                .as_i64()
-                .ok_or_else(|| SecretChatError::MessageRejected {
-                    chat_id: Some(self.chat_id),
-                    reason: "missing wrapper layer".into(),
-                })?;
-        let wire_in_seq =
-            unwrapped["in_seq_no"]
-                .as_i64()
-                .ok_or_else(|| SecretChatError::MessageRejected {
-                    chat_id: Some(self.chat_id),
-                    reason: "missing wrapper in_seq_no".into(),
-                })?;
-        let wire_out_seq =
-            unwrapped["out_seq_no"]
-                .as_i64()
-                .ok_or_else(|| SecretChatError::MessageRejected {
-                    chat_id: Some(self.chat_id),
-                    reason: "missing wrapper out_seq_no".into(),
-                })?;
-        let inner_bytes = extract_tagged_bytes(&unwrapped["message"]).ok_or_else(|| {
-            SecretChatError::MessageRejected {
+        if frame.len() > MAX_ENCRYPTED_FRAME_LEN {
+            return Err(SecretChatError::MessageRejected {
                 chat_id: Some(self.chat_id),
-                reason: "missing inner message bytes".into(),
-            }
+                reason: "the encrypted frame exceeds the local size limit".into(),
+            });
+        }
+        if self.active_key.is_none() {
+            return Err(SecretChatError::ChatNotReady {
+                chat_id: self.chat_id,
+                state: format!("{:?}", self.state).to_lowercase(),
+            });
+        }
+        let named = frame
+            .get(..8)
+            .ok_or_else(|| SecretChatError::MessageRejected {
+                chat_id: Some(self.chat_id),
+                reason: "the frame is too short to hold a message".into(),
+            })?;
+        let selected = [
+            self.active_key.as_ref(),
+            self.rekey.pending.as_ref(),
+            self.rekey.previous.as_ref(),
+        ]
+        .into_iter()
+        .enumerate()
+        .find_map(|(index, slot)| {
+            let slot = slot?;
+            let fingerprint = key_fingerprint(&slot.0).ok()?;
+            bool::from(named.ct_eq(&fingerprint.to_le_bytes()))
+                .then(|| (index, Zeroizing::new(slot.0)))
+        })
+        .ok_or_else(|| SecretChatError::MessageRejected {
+            chat_id: Some(self.chat_id),
+            reason: "the key fingerprint does not name a key this chat holds".into(),
         })?;
+        let (key_slot, key_bytes) = selected;
+
+        let chat_id = self.chat_id;
+        let rejected = |reason| SecretChatError::MessageRejected {
+            chat_id: Some(chat_id),
+            reason,
+        };
+        let decrypted_body = Zeroizing::new(decrypt_frame(&*key_bytes, frame, self.in_x())?);
+        let unwrapped = crate::ported::framing::unwrap(decrypted_body.to_vec(), Some(chat_id))
+            .map_err(|err| rejected(sanitize_error_reason(&err)))?;
+        if unwrapped.get("error_type").is_some() {
+            if unwrapped["fatal"] == true {
+                self.close();
+            }
+            return Err(rejected(
+                unwrapped["reason"]
+                    .as_str()
+                    .unwrap_or("invalid message wrapper")
+                    .to_owned(),
+            ));
+        }
 
         let state_json = json!({
             "id": self.chat_id,
@@ -239,64 +382,120 @@ impl SecretChat {
             "out_seq_no": self.out_seq_no,
             "peer_in_seq_no": self.peer_in_seq_no,
             "layer": self.negotiated_layer,
-            "wrapper_layer": self.negotiated_layer,
-            "gap_requested": false,
-            "gap_end": Value::Null,
-            "resend_due": Value::Null,
+            "wrapper_layer": self.wrapper_layer,
+            "gap_requested": self.gap_requested,
+            "gap_end": self.gap_end,
+            "resend_due": self.resend_due.map(|span| [span.0, span.1]),
         });
-        let frame_json = json!({
-            "body": hex::encode(&decrypted_body),
+        let mut frame_json = json!({
+            "body": hex::encode(&*decrypted_body),
             "file": Value::Null,
         });
-
-        let seq_result =
-            crate::ported::sequence::accept(state_json, frame_json, self.pending_frames.clone())
-                .map_err(|err| SecretChatError::MessageRejected {
-                    chat_id: Some(self.chat_id),
-                    reason: sanitize_error_reason(&err),
-                })?;
-
-        let ready = seq_result["ready"].as_array().cloned().unwrap_or_default();
-        if ready.is_empty() {
-            return Err(SecretChatError::MessageRejected {
-                chat_id: Some(self.chat_id),
-                reason: "duplicate or out-of-order frame was not accepted".into(),
-            });
+        match crate::ported::sequence::preflight(
+            state_json.clone(),
+            frame_json.clone(),
+            self.pending_frames.clone(),
+        ) {
+            Ok(false) => return Ok(Vec::new()),
+            Ok(true) => (),
+            Err(error) => {
+                self.close();
+                return Err(rejected(sanitize_error_reason(&error)));
+            }
         }
-
-        let new_state = &seq_result["state"];
-        let decoded_inner = crate::ported::schema_secret_tl::decode_object(
-            hex::encode(&inner_bytes),
-            String::new(),
+        if unwrapped["out_seq_no"]
+            .as_i64()
+            .is_some_and(|wire| wire / 2 > self.in_seq_no)
+        {
+            let pending_bytes = self.pending_frames.iter().fold(0usize, |total, record| {
+                total.saturating_add(record["body"].as_str().map_or(0, |body| body.len() / 2))
+            });
+            if pending_bytes.saturating_add(decrypted_body.len()) > MAX_PENDING_FRAME_BYTES {
+                self.close();
+                return Err(rejected(
+                    "the incoming gap exceeds the local byte limit".into(),
+                ));
+            }
+        }
+        let mut decoded = crate::ported::schema_secret_tl::decode_object(
+            hex::encode(&*decrypted_body),
+            "DecryptedMessageLayer".into(),
             0,
         )
-        .map_err(|err| SecretChatError::MessageRejected {
-            chat_id: Some(self.chat_id),
-            reason: sanitize_error_reason(&err),
-        })?;
-
-        let inner_obj = &decoded_inner["object"];
-        let message_type = constructor_name(inner_obj["id"].as_u64().unwrap_or(0));
-        let text = inner_obj["fields"]["message"].as_str().map(str::to_owned);
+        .map_err(|err| rejected(sanitize_error_reason(&err)))?;
+        let action = decoded["object"]["fields"]["message"]["fields"]
+            .get("action")
+            .cloned();
+        let announced = action
+            .as_ref()
+            .filter(|action| action["id"] == 0xf3048883_u32)
+            .and_then(|action| action["fields"]["layer"].as_i64())
+            .unwrap_or(self.negotiated_layer);
+        let immediate = action.filter(|action| action["id"] == 0x511110b0_u32);
+        if immediate.is_some() {
+            decoded["object"]["fields"]["message"]["fields"]["action"] =
+                json!({"id":0xa82fdd63_u32,"fields":{}});
+            frame_json["body"] = json!(
+                crate::ported::schema_secret_tl::encode_object(decoded["object"].clone())
+                    .map_err(|err| rejected(sanitize_error_reason(&err)))?
+            );
+        }
+        let seq_result = match crate::ported::sequence::accept(
+            state_json,
+            frame_json,
+            self.pending_frames.clone(),
+        ) {
+            Ok(result) => result,
+            Err(error) => {
+                self.close();
+                return Err(rejected(sanitize_error_reason(&error)));
+            }
+        };
+        let ready = seq_result["ready"].as_array().cloned().unwrap_or_default();
+        let new_state = &seq_result["state"];
+        let accepted = ready
+            .iter()
+            .map(|record| accepted_record(record, chat_id))
+            .collect::<Result<Vec<_>, _>>()?;
 
         // Commit state updates only after every cryptographic, schema, and sequence check succeeded.
         self.in_seq_no = new_state["in_seq_no"].as_i64().unwrap_or(self.in_seq_no);
         self.peer_in_seq_no = new_state["peer_in_seq_no"]
             .as_i64()
             .unwrap_or(self.peer_in_seq_no);
-        self.negotiated_layer = raise_remote_layer(self.negotiated_layer, wrapper_layer)?;
+        self.negotiated_layer = new_state["layer"]
+            .as_i64()
+            .unwrap_or(self.negotiated_layer)
+            .max(announced);
+        self.wrapper_layer = new_state["wrapper_layer"]
+            .as_i64()
+            .unwrap_or(self.wrapper_layer);
+        self.gap_requested = new_state["gap_requested"] == true;
+        self.gap_end = new_state["gap_end"].as_i64();
+        self.resend_due = sequence_span(&new_state["resend_due"]);
+        if let Some(span) = sequence_span(&seq_result["resend"]) {
+            self.resend_request = Some(span);
+        } else if !self.gap_requested {
+            self.resend_request = None;
+        }
         if let Some(pending) = seq_result["pending"].as_array() {
             self.pending_frames = pending.clone();
         }
 
-        Ok(AcceptedMessage {
-            layer: wrapper_layer,
-            in_seq_no: wire_in_seq,
-            out_seq_no: wire_out_seq,
-            message_type,
-            text,
-            raw_inner_bytes: inner_bytes,
-        })
+        if let Some(action) = immediate {
+            self.immediate_actions.push(action);
+        }
+        if key_slot == 1 {
+            self.adopt_rekey_key(KeySlot(*key_bytes), true)?;
+            self.rekey.pending_noop = true;
+        } else if key_slot == 0 && self.rekey.previous.is_some() {
+            self.rekey.confirmed = true;
+        }
+        if key_slot != 2 {
+            self.rekey.messages = self.rekey.messages.saturating_add(1);
+        }
+        self.retire_previous_key_if_settled();
+        Ok(accepted)
     }
 }
 
@@ -309,7 +508,7 @@ pub fn generate_secret_bytes() -> Result<[u8; SHARED_KEY_LEN], SecretChatError> 
 }
 
 pub fn key_fingerprint(shared_key: &[u8]) -> Result<i64, SecretChatError> {
-    crate::ported::crypto::key_fingerprint(shared_key.to_vec()).map_err(|err| {
+    crate::ported::crypto::key_fingerprint_native(shared_key).map_err(|err| {
         SecretChatError::ParameterRejected {
             chat_id: None,
             reason: sanitize_error_reason(&err),
@@ -322,17 +521,12 @@ pub fn compute_msg_key(
     payload: &[u8],
     x: i64,
 ) -> Result<[u8; 16], SecretChatError> {
-    let bytes = crate::ported::crypto::compute_msg_key(shared_key.to_vec(), payload.to_vec(), x)
-        .map_err(|err| SecretChatError::ParameterRejected {
+    crate::ported::crypto::compute_msg_key_native(shared_key, payload, x).map_err(|err| {
+        SecretChatError::ParameterRejected {
             chat_id: None,
             reason: sanitize_error_reason(&err),
-        })?;
-    bytes
-        .try_into()
-        .map_err(|_| SecretChatError::ParameterRejected {
-            chat_id: None,
-            reason: "derived message key length mismatch".into(),
-        })
+        }
+    })
 }
 
 pub fn derive_keys(
@@ -340,38 +534,12 @@ pub fn derive_keys(
     msg_key: &[u8],
     x: i64,
 ) -> Result<([u8; 32], [u8; 32]), SecretChatError> {
-    let val = crate::ported::crypto::derive_keys(shared_key.to_vec(), msg_key.to_vec(), x)
-        .map_err(|err| SecretChatError::ParameterRejected {
+    crate::ported::crypto::derive_keys_native(shared_key, msg_key, x).map_err(|err| {
+        SecretChatError::ParameterRejected {
             chat_id: None,
             reason: sanitize_error_reason(&err),
-        })?;
-    let pair = val["$tuple"]
-        .as_array()
-        .ok_or_else(|| SecretChatError::ParameterRejected {
-            chat_id: None,
-            reason: "malformed key derivation tuple".into(),
-        })?;
-    let k = extract_tagged_bytes(&pair[0]).ok_or_else(|| SecretChatError::ParameterRejected {
-        chat_id: None,
-        reason: "malformed derived AES key".into(),
-    })?;
-    let iv = extract_tagged_bytes(&pair[1]).ok_or_else(|| SecretChatError::ParameterRejected {
-        chat_id: None,
-        reason: "malformed derived AES IV".into(),
-    })?;
-    let key_arr: [u8; 32] = k
-        .try_into()
-        .map_err(|_| SecretChatError::ParameterRejected {
-            chat_id: None,
-            reason: "derived AES key must be 32 bytes".into(),
-        })?;
-    let iv_arr: [u8; 32] = iv
-        .try_into()
-        .map_err(|_| SecretChatError::ParameterRejected {
-            chat_id: None,
-            reason: "derived AES IV must be 32 bytes".into(),
-        })?;
-    Ok((key_arr, iv_arr))
+        }
+    })
 }
 
 pub fn pad_payload(body: &[u8]) -> Result<Vec<u8>, SecretChatError> {
@@ -395,10 +563,18 @@ pub fn pad_payload(body: &[u8]) -> Result<Vec<u8>, SecretChatError> {
 }
 
 pub fn encrypt_frame(shared_key: &[u8], body: &[u8], x: i64) -> Result<Vec<u8>, SecretChatError> {
+    if !body.len().is_multiple_of(4) {
+        return Err(SecretChatError::ParameterRejected {
+            chat_id: None,
+            reason: "serialized TL body length must be divisible by four".into(),
+        });
+    }
     let fp = key_fingerprint(shared_key)?;
-    let mut padded = pad_payload(body)?;
+    let mut padded = Zeroizing::new(pad_payload(body)?);
     let msg_key = compute_msg_key(shared_key, &padded, x)?;
     let (aes_key, aes_iv) = derive_keys(shared_key, &msg_key, x)?;
+    let aes_key = Zeroizing::new(aes_key);
+    let aes_iv = Zeroizing::new(aes_iv);
     encrypt_ige_in_place(&mut padded, &aes_key, &aes_iv);
     let mut frame = Vec::with_capacity(8 + 16 + padded.len());
     frame.extend_from_slice(&fp.to_le_bytes());
@@ -428,20 +604,11 @@ fn encrypt_ige_in_place(payload: &mut [u8], key: &[u8; 32], iv: &[u8; 32]) {
 }
 
 pub fn decrypt_frame(shared_key: &[u8], frame: &[u8], x: i64) -> Result<Vec<u8>, SecretChatError> {
-    let res = crate::ported::crypto::decrypt_frame(shared_key.to_vec(), frame.to_vec(), x, None)
-        .map_err(|err| SecretChatError::MessageRejected {
+    crate::ported::crypto::decrypt_frame_native(shared_key, frame, x).map_err(|err| {
+        SecretChatError::MessageRejected {
             chat_id: None,
             reason: sanitize_error_reason(&err),
-        })?;
-    if let Some(reason) = res["reason"].as_str() {
-        return Err(SecretChatError::MessageRejected {
-            chat_id: None,
-            reason: reason.to_owned(),
-        });
-    }
-    extract_tagged_bytes(&res["body"]).ok_or_else(|| SecretChatError::MessageRejected {
-        chat_id: None,
-        reason: "decrypted frame body missing".into(),
+        }
     })
 }
 
@@ -460,6 +627,8 @@ pub fn wrap_frame(
         "id": DECRYPTED_MESSAGE_73_ID,
         "fields": {
             "random_id": inner["random_id"].as_i64().unwrap_or(1),
+            "silent": inner.get("silent").cloned().unwrap_or(Value::Bool(false)),
+            "no_webpage": inner.get("no_webpage").cloned().unwrap_or(Value::Bool(false)),
             "ttl": inner["ttl"].as_i64().unwrap_or(0),
             "message": inner["message"].as_str().unwrap_or(""),
             "media": inner.get("media").cloned().unwrap_or(Value::Null),
@@ -615,6 +784,16 @@ pub fn rekey_collision(mine: i64, theirs: i64) -> Result<String, SecretChatError
 }
 
 pub fn dh_public_value(g: &[u8], secret: &[u8], p: &[u8]) -> Result<String, SecretChatError> {
+    validate_dh_secret(secret, None)?;
+    if p.len() == SHARED_KEY_LEN {
+        let public = crate::ported::handshake::fixed_power(g, secret, p).map_err(|err| {
+            SecretChatError::ParameterRejected {
+                chat_id: None,
+                reason: sanitize_error_reason(&err),
+            }
+        })?;
+        return Ok(num_bigint::BigUint::from_bytes_be(&public).to_string());
+    }
     crate::ported::handshake::public_value(
         to_signed_be_positive(g),
         to_signed_be_positive(secret),
@@ -632,6 +811,16 @@ pub fn dh_shared_key(
     p: &[u8],
     chat_id: Option<i64>,
 ) -> Result<[u8; SHARED_KEY_LEN], SecretChatError> {
+    validate_dh_secret(secret, chat_id)?;
+    if p.len() == SHARED_KEY_LEN {
+        check_peer_value(peer_value, p, chat_id)?;
+        return crate::ported::handshake::fixed_power(peer_value, secret, p).map_err(|err| {
+            SecretChatError::ParameterRejected {
+                chat_id,
+                reason: sanitize_error_reason(&err),
+            }
+        });
+    }
     let val = crate::ported::handshake::shared_key(
         to_signed_be_positive(peer_value),
         to_signed_be_positive(secret),
@@ -672,20 +861,26 @@ fn to_signed_be_positive(bytes: &[u8]) -> Vec<u8> {
     }
 }
 
+fn validate_dh_secret(secret: &[u8], chat_id: Option<i64>) -> Result<(), SecretChatError> {
+    if secret.is_empty() || secret.len() > SHARED_KEY_LEN || secret.iter().all(|&byte| byte == 0) {
+        return Err(SecretChatError::ParameterRejected {
+            chat_id,
+            reason: "the DH secret must be a positive value of at most 2048 bits".into(),
+        });
+    }
+    Ok(())
+}
+
 pub fn verify_dh_fingerprint(
     chat_id: i64,
     key: &[u8],
     claimed: i64,
 ) -> Result<(), SecretChatError> {
-    let val = crate::ported::handshake::verify_fingerprint(chat_id, key.to_vec(), claimed)
-        .map_err(|err| SecretChatError::ParameterRejected {
-            chat_id: Some(chat_id),
-            reason: sanitize_error_reason(&err),
-        })?;
-    if let Some(reason) = val["reason"].as_str() {
+    let expected = key_fingerprint(key)?;
+    if !bool::from(expected.to_le_bytes().ct_eq(&claimed.to_le_bytes())) {
         return Err(SecretChatError::ParameterRejected {
             chat_id: Some(chat_id),
-            reason: reason.to_owned(),
+            reason: "the key fingerprint the peer published does not match the key this side derived: the exchange did not produce a shared key and the chat must be discarded".into(),
         });
     }
     Ok(())
@@ -752,6 +947,48 @@ fn constructor_name(id: u64) -> String {
         0xaa48_327d => "DecryptedMessageService8".to_owned(),
         _ => "DecryptedMessage".to_owned(),
     }
+}
+
+fn sequence_span(value: &Value) -> Option<(i64, i64)> {
+    Some((value.get(0)?.as_i64()?, value.get(1)?.as_i64()?))
+}
+
+fn accepted_record(record: &Value, chat_id: i64) -> Result<AcceptedMessage, SecretChatError> {
+    let rejected = |reason| SecretChatError::MessageRejected {
+        chat_id: Some(chat_id),
+        reason,
+    };
+    let body = record["body"]
+        .as_str()
+        .ok_or_else(|| rejected("missing recovered message body".into()))?;
+    let decoded = crate::ported::schema_secret_tl::decode_object(
+        body.to_owned(),
+        "DecryptedMessageLayer".into(),
+        0,
+    )
+    .map_err(|err| rejected(sanitize_error_reason(&err)))?;
+    let fields = &decoded["object"]["fields"];
+    let number = |name| {
+        fields[name]
+            .as_i64()
+            .ok_or_else(|| rejected("invalid recovered message counter".into()))
+    };
+    let inner = &fields["message"];
+    let encoded = crate::ported::schema_secret_tl::encode_object(inner.clone())
+        .map_err(|err| rejected(sanitize_error_reason(&err)))?;
+    Ok(AcceptedMessage {
+        layer: number("layer")?,
+        in_seq_no: number("in_seq_no")?,
+        out_seq_no: number("out_seq_no")?,
+        message_type: constructor_name(inner["id"].as_u64().unwrap_or(0)),
+        text: inner["fields"]["message"].as_str().map(str::to_owned),
+        raw_inner_bytes: hex::decode(encoded)
+            .map_err(|_| rejected("invalid recovered message encoding".into()))?,
+        random_id: inner["fields"]["random_id"]
+            .as_i64()
+            .ok_or_else(|| rejected("missing recovered random identifier".into()))?,
+        action: inner["fields"].get("action").cloned(),
+    })
 }
 
 fn sanitize_error_reason(raw: &str) -> String {

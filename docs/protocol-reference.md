@@ -2,6 +2,8 @@
 
 Engineering reference for MTProto 2.0 end-to-end encryption, written so a spec and an implementation can cite it. Constitution Principle II makes the published protocol the specification; this file is the working index into it. Section numbers are stable — cite as `protocol-reference.md §2.3`.
 
+This is a protocol reference, not a declaration that every described lifecycle or media feature exists in the Rust crate. See [current architecture](architecture.md) for implementation boundaries. Section §8 is historical analysis of the earlier Python package. The receive-padding rule in §2.2/§2.7 and wrapper-randomness rule in §3.3 were reverified on 2026-11-27.
+
 **How to read a claim.** `[DOC:<page>]` = `https://core.telegram.org/<page>`, followed by the sentence actually read. `[TD:<path>:<line>]` = TDLib `master` (`https://github.com/tdlib/td`), path and line as of retrieval 2026-09-19, followed by what the code does there. **UNVERIFIED** = established by neither; never treat as settled — a spec decision or an oracle test must close it.
 
 ## §0. Sources
@@ -14,6 +16,8 @@ Engineering reference for MTProto 2.0 end-to-end encryption, written so a spec a
 | `DOC:mtproto/security_guidelines` | Security guidelines for developers | 2026-09-19 |
 | `DOC:schema/end-to-end` | End-to-End TL schema, page marked **Layer 223** | 2026-09-19 |
 | `TD:*` | TDLib `master`, Boost Software License 1.0 | 2026-09-19 |
+| `TD:Transport-padding` | [TDLib `td/mtproto/Transport.cpp`](https://github.com/tdlib/td/blob/master/td/mtproto/Transport.cpp), retrieved blob `3c110dac24449a04f41776ff60f36a370b2dded8` | 2026-11-27 |
+| `DOC:constructor/decryptedMessageLayer` | [Wrapper parameters and minimum random bytes](https://core.telegram.org/constructor/decryptedMessageLayer) | 2026-11-27 |
 
 `https://core.telegram.org/api/end-to-end/files` **does not exist** (server answers "The page has not been saved"); all file rules live in the parent page, see §6. TDLib is the reference oracle (Principle I); logic ported from it must be marked at the site with the file it came from (Principle V).
 
@@ -79,9 +83,9 @@ All of §2 is `[DOC:api/end-to-end]` unless marked otherwise.
 ### §2.2 Padding
 "The byte array is padded with 12 to 1024 random padding bytes to make its length divisible by 16 bytes. (In the older MTProto 1.0 encryption, only 0 to 15 padding bytes were used.)" Two mandatory constraints: padding length in `[12, 1024]`, and `(4 + payload + padding) % 16 == 0`. The smallest conforming choice is `12 + ((16 - (4 + payload + 12) % 16) % 16)`, i.e. 12..27 bytes.
 
-`[TD:td/mtproto/Transport.cpp:165-183]` TDLib does not take the minimum: `do_calc_crypto_size2_basic` applies `(enc_size + data_size + 12 + 15) & ~15` then rounds up to the next of `{64, 128, 192, 256, 384, 512, 768, 1024, 1280}` and beyond 1280 in 448-byte steps — the `>= 12` floor and 16-alignment hold, but padding routinely exceeds 27 bytes and the total can exceed 1024 for large messages. `do_calc_crypto_size2_rand` (line 180) instead adds `Random::secure_uint32() & 0xff` bytes.
+`[TD:Transport-padding]` TDLib's `do_calc_crypto_size2_basic` rounds the **total encrypted size** to buckets through 1280 bytes and then uses 448-byte increments. Those bucket values are not padding lengths. A large message can exceed 1024 bytes in total while its padding remains within the required range. The randomized path also adds a bounded random amount before alignment.
 
-**UNVERIFIED:** no consulted source says a receiver must reject padding longer than 1024 bytes, and the oracle itself can produce more. Treat 1024 as a sender-side guideline; do not add a receive-side upper bound without an interop test proving official clients honour it.
+**Receive rule, reverified 2026-11-27:** the actual remaining padding must be between 12 and 1024 bytes inclusive. Telegram's [security guidelines, Checking message length](https://core.telegram.org/mtproto/security_guidelines#checking-message-length) require this receive-side check. TDLib's `read_crypto_impl` explicitly rejects `pad_size < 12 || pad_size > 1024`. The [end-to-end encryption specification](https://core.telegram.org/api/end-to-end#serialization-and-encryption-of-outgoing-messages) specifies the same padding range. The former note treating 1024 as a sender-only guideline was incorrect and conflated total encrypted bucket size with padding.
 
 ### §2.3 `msg_key`
 Verbatim from `[DOC:api/end-to-end]`:
@@ -110,7 +114,7 @@ aes_iv   = substr (sha256_b, 0, 8) + substr (sha256_a, 8, 16) + substr (sha256_b
 "Encryption key fingerprint key_fingerprint and the message key msg_key are added at the top of the resulting byte array." That is `key_fingerprint` (8 bytes, §1.5, little-endian int64 of the last 8 bytes of `SHA1(key)`) `|| msg_key` (16 bytes, §2.3) `|| ciphertext` (AES-256-IGE, length `% 16 == 0`). The result goes into `messages.sendEncrypted`, `messages.sendEncryptedService` or `messages.sendEncryptedFile`. `key_fingerprint` is what lets a receiver pick between the current and previous key during a rekey (§4.5): `[TD:td/telegram/SecretChatActor.cpp:771-773]` compares the incoming `auth_key_id` against `pfs_state_.auth_key.id()` then `pfs_state_.other_auth_key.id()`.
 
 ### §2.7 Receive-side checks
-`[DOC:api/end-to-end]`: "When an encrypted message is received, you must check that msg_key is in fact equal to the 128 middle bits of the SHA256 hash of the decrypted message, prepended by 32 bytes taken from the shared key." A conforming receiver verifies, in order: (1) `key_fingerprint` matches a key it holds (current or, during rekey, previous); (2) after IGE decryption the recomputed `msg_key` equals the received one — the integrity check; (3) the 4-byte length prefix does not exceed the decrypted buffer; (4) remaining padding `>= 12` (§2.2); (5) total decrypted length is a multiple of 16; (6) the layer and `seq_no` checks of §3.
+`[DOC:api/end-to-end]` requires recomputing and checking `msg_key` after decryption. A conforming receiver checks: (1) the fingerprint selects an eligible held key; (2) the recomputed message key authenticates the decrypted content and padding; (3) the length prefix is valid and within the decrypted buffer; (4) remaining padding is within `[12, 1024]` (§2.2); (5) encrypted/decrypted block alignment is valid; and (6) the layer and `seq_no` rules of §3. Invalid unauthenticated data must not drive protocol state.
 
 Constitution "Secret Material Handling": a message failing any of these MUST be rejected, not repaired. Checks 2 and 3 in particular are the difference between a decryption failure and a buffer-length oracle.
 
@@ -127,9 +131,9 @@ Both service constructors appear on the wire: `decryptedMessageService#73164160 
 `[DOC:api/end-to-end]`: "the object must be wrapped in the constructor decryptedMessageLayer with an indication of the supported layer (starting with 46)." Handling of the value is §7.
 
 ### §3.3 `random_bytes`
-The published schema types the field as `bytes` and no consulted page states a minimum length. `[TD:td/telegram/SecretChatActor.cpp:215-216]` TDLib always sends **exactly 31 bytes**: `BufferSlice random_bytes(31); Random::secure_bytes(random_bytes.as_mutable_slice());`
+The [official `decryptedMessageLayer` constructor documentation](https://core.telegram.org/constructor/decryptedMessageLayer#parameters) requires at least 15 random bytes and instructs clients to ignore messages with shorter values. This field is separate from the encrypted-frame padding in §2.2.
 
-**UNVERIFIED:** whether any minimum is enforced by peers or the server. 31 bytes is the oracle's behaviour and is the safe choice; a shorter value is neither documented as rejected nor documented as acceptable. Do not derive a rule from the base package here (§8.3).
+`[TD:td/telegram/SecretChatActor.cpp:215-216]` the previously inspected TDLib sender uses 31 random bytes. That sender choice is compatible with the documented minimum; it does not make the minimum 31 or leave shorter-than-15 values acceptable. The former note saying no documented minimum existed was incorrect. This receive condition was reverified against the constructor documentation on 2026-11-27.
 
 ### §3.4 `in_seq_no` / `out_seq_no` — the transform
 `[DOC:api/end-to-end/seq_no]`: "The seq_no counters in their raw form are initialized with (out_seq_no, in_seq_no) := (0,0), and incremented strictly by 1 after any message (service or not) is sent/received and processed. They must be protected from mirroring before being sent to the remote client by transformation according to formula 2*raw_seq_no+x, where x is 0 or 1".
@@ -143,7 +147,7 @@ The published schema types the field as `bytes` and no consulted page states a m
 
 Also mandatory: "assign in_seq_no and out_seq_no to each message at the exact moment when the message is created, and never change them in the future", and outgoing messages go into an `invokeAfterMsgs` chain so the server queues them in order, because "Failure to do this may result in gaps on the remote client, which may in turn lead to aborted secret chats."
 
-This package does not chain `invokeAfterMsgs`; it serializes sends per chat and awaits each RPC before the next, retrying unsent records first (`outbox._send`, `outbox.retry_pending`). See [ADR 0005](adr/0005-serialized-sends-instead-of-invokeaftermsgs.md).
+The Rust [manager](../src/manager.rs) serializes sends per chat and awaits each RPC before the next, retrying retained pending frames first. It does not supply an `invokeAfterMsgs` chain. See [ADR 0005](adr/0005-serialized-sends-instead-of-invokeaftermsgs.md) for the historical design decision.
 
 ### §3.5 Validating `out_seq_no` (the peer's counter)
 `[DOC:api/end-to-end/seq_no]`: "Your client must check that it has received each message with the sequence number out_seq_no starting from 0 to some current point C. It should then expect the next message to have the sequence number out_seq_no=C+1."

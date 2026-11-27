@@ -141,3 +141,51 @@ pub fn real_git() -> Result<PathBuf> {
     }
     Err("The Git executable is unavailable.")
 }
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn failed_child_status_and_private_output_are_preserved() {
+        let dir = PrivateDir::new(&std::env::temp_dir()).unwrap();
+        let result = run(
+            Command::new("sh").args(["-c", "printf private-output; exit 7"]),
+            &dir.0,
+            "failure",
+            Duration::from_secs(2),
+            1024,
+        )
+        .unwrap();
+        assert_eq!(result.status.code(), Some(7));
+        assert!(!result.empty());
+        assert_eq!(fs::read(result.stdout).unwrap(), b"private-output");
+    }
+
+    #[test]
+    fn excessive_output_and_hanging_children_fail_closed() {
+        let dir = PrivateDir::new(&std::env::temp_dir()).unwrap();
+        assert!(
+            run(
+                Command::new("sh").args(["-c", "printf excessive-output"]),
+                &dir.0,
+                "large",
+                Duration::from_secs(2),
+                4,
+            )
+            .is_err()
+        );
+        let started = Instant::now();
+        assert!(
+            run(
+                Command::new("sh").args(["-c", "sleep 5"]),
+                &dir.0,
+                "timeout",
+                Duration::from_millis(50),
+                1024,
+            )
+            .is_err()
+        );
+        assert!(started.elapsed() < Duration::from_secs(2));
+    }
+}

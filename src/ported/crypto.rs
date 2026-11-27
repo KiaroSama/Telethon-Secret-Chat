@@ -13,11 +13,13 @@ use serde_json::json;
 use sha1::Sha1;
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
+use zeroize::Zeroizing;
 
 const KEY_LENGTH: usize = 256;
 const HEADER: usize = 24;
 const BLOCK: usize = 16;
 const MIN_PADDING: usize = 12;
+const MAX_PADDING: usize = 1024;
 
 fn direction(x: i64) -> Result<usize, String> {
     match x {
@@ -80,7 +82,9 @@ fn pad(payload: &mut Vec<u8>) -> Result<(), String> {
 }
 
 fn ige(payload: &mut [u8], key: [u8; 32], iv: [u8; 32], encrypt: bool) {
-    let cipher = Aes256::new(&Array::from(key));
+    let key = Zeroizing::new(key);
+    let iv = Zeroizing::new(iv);
+    let cipher = Aes256::new(&Array::from(*key));
     let (mut previous_cipher, mut previous_plain) = ([0; BLOCK], [0; BLOCK]);
     previous_cipher.copy_from_slice(&iv[..BLOCK]);
     previous_plain.copy_from_slice(&iv[BLOCK..]);
@@ -114,6 +118,9 @@ fn ige(payload: &mut [u8], key: [u8; 32], iv: [u8; 32], encrypt: bool) {
 fn encode(key: &[u8], body: &[u8], x: i64) -> Result<Vec<u8>, String> {
     let x = direction(x)?;
     check_key(key)?;
+    if !body.len().is_multiple_of(4) {
+        return Err("ValueError: serialized TL body length must be divisible by four".into());
+    }
     let size = u32::try_from(body.len()).map_err(|_| "OverflowError: int too big to convert")?;
     let mut payload = size.to_le_bytes().to_vec();
     payload.extend_from_slice(body);
@@ -134,7 +141,7 @@ fn decode(key: &[u8], frame: &[u8], x: usize) -> Result<Vec<u8>, &'static str> {
     if !bool::from(frame[..8].ct_eq(&fingerprint(key))) {
         return Err("the key fingerprint does not name a key this chat holds");
     }
-    let mut payload = frame[HEADER..].to_vec();
+    let mut payload = Zeroizing::new(frame[HEADER..].to_vec());
     if !payload.len().is_multiple_of(BLOCK) {
         return Err("the ciphertext is not a whole number of cipher blocks");
     }
@@ -150,6 +157,9 @@ fn decode(key: &[u8], frame: &[u8], x: usize) -> Result<Vec<u8>, &'static str> {
     let mut size = [0; 4];
     size.copy_from_slice(&payload[..4]);
     let size = u32::from_le_bytes(size) as usize;
+    if !size.is_multiple_of(4) {
+        return Err("the declared body length is not divisible by four");
+    }
     let rest = &payload[4..];
     if size > rest.len() {
         return Err("the declared body length runs past the decrypted buffer");
@@ -157,17 +167,58 @@ fn decode(key: &[u8], frame: &[u8], x: usize) -> Result<Vec<u8>, &'static str> {
     if rest.len() - size < MIN_PADDING {
         return Err("the padding is shorter than the 12 bytes required");
     }
+    if rest.len() - size > MAX_PADDING {
+        return Err("the padding exceeds the maximum of 1024 bytes");
+    }
     Ok(rest[..size].to_vec())
+}
+
+pub(crate) fn key_fingerprint_native(shared_key: &[u8]) -> Result<i64, String> {
+    check_key(shared_key)?;
+    Ok(i64::from_le_bytes(fingerprint(shared_key)))
+}
+
+pub(crate) fn compute_msg_key_native(
+    shared_key: &[u8],
+    payload: &[u8],
+    x: i64,
+) -> Result<[u8; 16], String> {
+    check_key(shared_key)?;
+    Ok(message_key(shared_key, payload, direction(x)?))
+}
+
+pub(crate) fn derive_keys_native(
+    shared_key: &[u8],
+    msg_key: &[u8],
+    x: i64,
+) -> Result<([u8; 32], [u8; 32]), String> {
+    check_key(shared_key)?;
+    if msg_key.len() != 16 {
+        return Err("ValueError: a message key is exactly 16 bytes".into());
+    }
+    Ok(derive(shared_key, msg_key, direction(x)?))
+}
+
+pub(crate) fn decrypt_frame_native(
+    shared_key: &[u8],
+    frame: &[u8],
+    x: i64,
+) -> Result<Vec<u8>, String> {
+    check_key(shared_key)?;
+    decode(shared_key, frame, direction(x)?).map_err(String::from)
 }
 
 /// Port of `key_fingerprint` (`rust/adapters/crypto_adapter.py:11`).
 pub fn key_fingerprint(shared_key: Vec<u8>) -> Result<i64, String> {
-    Ok(i64::from_le_bytes(fingerprint(&shared_key)))
+    let shared_key = Zeroizing::new(shared_key);
+    key_fingerprint_native(&shared_key)
 }
 
 /// Port of `compute_msg_key` (`rust/adapters/crypto_adapter.py:15`).
 pub fn compute_msg_key(shared_key: Vec<u8>, payload: Vec<u8>, x: i64) -> Result<Vec<u8>, String> {
-    Ok(message_key(&shared_key, &payload, direction(x)?).to_vec())
+    let shared_key = Zeroizing::new(shared_key);
+    let payload = Zeroizing::new(payload);
+    compute_msg_key_native(&shared_key, &payload, x).map(|key| key.to_vec())
 }
 
 /// Port of `derive_keys` (`rust/adapters/crypto_adapter.py:19`).
@@ -176,7 +227,8 @@ pub fn derive_keys(
     msg_key: Vec<u8>,
     x: i64,
 ) -> Result<serde_json::Value, String> {
-    let (key, iv) = derive(&shared_key, &msg_key, direction(x)?);
+    let shared_key = Zeroizing::new(shared_key);
+    let (key, iv) = derive_keys_native(&shared_key, &msg_key, x)?;
     Ok(json!({"$tuple": [{"$bytes": key}, {"$bytes": iv}]}))
 }
 
@@ -193,9 +245,11 @@ pub fn encrypt_frame(
     body: Vec<u8>,
     x: i64,
 ) -> Result<serde_json::Value, String> {
+    let shared_key = Zeroizing::new(shared_key);
+    let body = Zeroizing::new(body);
     let frame = encode(&shared_key, &body, x)?;
     let decoded = decode(&shared_key, &frame, direction(x)?).map_err(String::from)?;
-    Ok(json!({"length": frame.len(), "body_preserved": decoded == body}))
+    Ok(json!({"length": frame.len(), "body_preserved": decoded == *body}))
 }
 
 /// Port of `decrypt_frame` (`rust/adapters/crypto_adapter.py:34`).
@@ -207,6 +261,7 @@ pub fn decrypt_frame(
     x: i64,
     chat_id: Option<i64>,
 ) -> Result<serde_json::Value, String> {
+    let shared_key = Zeroizing::new(shared_key);
     let x = direction(x)?;
     check_key(&shared_key)?;
     Ok(match decode(&shared_key, &frame, x) {

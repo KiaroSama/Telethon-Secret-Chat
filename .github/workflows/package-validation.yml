@@ -1,8 +1,7 @@
 name: Package Validation
 
 on:
-  push:
-  pull_request:
+  workflow_call:
   workflow_dispatch:
 
 permissions:
@@ -20,7 +19,7 @@ jobs:
   validate-source:
     name: Validate tracked Rust source package
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -28,33 +27,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca
         with:
           toolchain: '1.100.0'
-      - name: Check tracked source inventory and exclude forbidden paths
+      - name: Validate source archive, downstream Git consumer, and installed tools
         shell: bash
         run: |
           set -euo pipefail
-          git ls-files > "$RUNNER_TEMP/native-source-files.txt"
-          for forbidden in '^\.ai/' '^\.specify/' '^specs/' '^secrets\.md$' '^graphify-out/' '^\.gpg-private/' '^bin/'; do
-            if grep -Eq "$forbidden" "$RUNNER_TEMP/native-source-files.txt"; then
-              echo "Forbidden path tracked: $forbidden" >&2
-              exit 1
-            fi
-          done
-          for required in Cargo.toml Cargo.lock LICENSE NOTICE README.md schema/end-to-end.tl migration/019-rust-anything-receipt.json docs/signing/publisher.json vendor/grammers/upstream-hashes.json vendor/grammers/local-patches.json; do
-            git ls-files --error-unmatch "$required" >/dev/null
-          done
-      - name: Archive tracked source distribution
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/rust-source"
-          git archive --format=tar "--output=$RUNNER_TEMP/rust-source/kiaro-secret-chat-source.tar" HEAD
-          git rev-parse HEAD > "$RUNNER_TEMP/rust-source/commit.txt"
-          cp "$RUNNER_TEMP/native-source-files.txt" "$RUNNER_TEMP/rust-source/source-files.txt"
-          cd "$RUNNER_TEMP/rust-source"
-          sha256sum kiaro-secret-chat-source.tar commit.txt source-files.txt > SHA256SUMS
+          bash .github/scripts/validate-source.sh --output "$RUNNER_TEMP/rust-source"
       - name: Upload source distribution evidence
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: source-distribution-rust
           path: ${{ runner.temp }}/rust-source/
+          if-no-files-found: error
           retention-days: 7

@@ -315,3 +315,35 @@ fn main() -> ExitCode {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_or_failed_git_observation_never_reports_success() {
+        let dir = PrivateDir::new(&std::env::temp_dir()).unwrap();
+        let status = dir.0.join("git-status");
+        assert!(verify_child_status(&status).is_err());
+        for value in ["", "1", "-1", "0\n", "0\n1"] {
+            fs::write(&status, value).unwrap();
+            assert!(verify_child_status(&status).is_err());
+        }
+        fs::write(&status, "0").unwrap();
+        assert!(verify_child_status(&status).is_ok());
+    }
+
+    #[test]
+    fn only_full_hexadecimal_revisions_reach_git_arguments() {
+        assert!(valid_revision("0123456789abcdef0123456789abcdef01234567"));
+        for revision in [
+            "",
+            "HEAD",
+            "--all",
+            "abc..def",
+            "0123456789abcdef0123456789abcdef0123456g",
+        ] {
+            assert!(!valid_revision(revision));
+        }
+    }
+}

@@ -173,6 +173,9 @@ impl Reader<'_> {
 
     fn bytes(&mut self) -> Outcome<&[u8]> {
         let [first] = self.block()?;
+        if first == 255 {
+            return Err("ValueError: reserved TL bytes length prefix".into());
+        }
         let (count, header) = if first == 254 {
             let [lo] = self.block()?;
             let [mid] = self.block()?;
@@ -181,10 +184,16 @@ impl Reader<'_> {
         } else {
             (usize::from(first), 1)
         };
+        if first == 254 && count < 254 {
+            return Err("ValueError: noncanonical TL bytes length".into());
+        }
         let end = self.position + count;
         let stop = end + ((4 - ((count + header) % 4)) % 4);
         if stop > self.raw.len() {
             return Err("ValueError: BufferError".into());
+        }
+        if self.raw[end..stop].iter().any(|&byte| byte != 0) {
+            return Err("ValueError: nonzero TL bytes padding".into());
         }
         let start = self.position;
         self.position = stop;
@@ -294,7 +303,10 @@ fn field_value<'a>(fields: &'a Map<String, Value>, field: &Field) -> &'a Value {
     fields.get(field.name).unwrap_or(&Value::Null)
 }
 
-fn encode_box(value: &Value, out: &mut Vec<u8>) -> Outcome<()> {
+fn encode_box(value: &Value, out: &mut Vec<u8>, depth: usize) -> Outcome<()> {
+    if depth >= 32 {
+        return Err("ValueError: nesting too deep".into());
+    }
     let (c, fields) = object_parts(value)?;
     out.extend(c.id.to_le_bytes());
     for field in &c.fields {
@@ -319,7 +331,7 @@ fn encode_box(value: &Value, out: &mut Vec<u8>) -> Outcome<()> {
         } else if field.kind != "true" {
             let data = field_value(fields, field);
             if field.flag.is_none() || !data.is_null() {
-                encode_field(field.kind, data, out)?;
+                encode_field(field.kind, data, out, depth + 1)?;
             }
         }
     }
@@ -346,7 +358,7 @@ fn pack_integer<const N: usize>(data: &Value, out: &mut Vec<u8>) -> Outcome<()> 
     Ok(())
 }
 
-fn encode_field(kind: &str, data: &Value, out: &mut Vec<u8>) -> Outcome<()> {
+fn encode_field(kind: &str, data: &Value, out: &mut Vec<u8>, depth: usize) -> Outcome<()> {
     match kind {
         "int" => pack_integer::<4>(data, out)?,
         "long" => pack_integer::<8>(data, out)?,
@@ -399,10 +411,15 @@ fn encode_field(kind: &str, data: &Value, out: &mut Vec<u8>) -> Outcome<()> {
             out.extend(VECTOR.to_le_bytes());
             out.extend(len.to_le_bytes());
             for item in items {
-                encode_field(&kind[7..kind.len() - 1], item, out)?;
+                encode_field(&kind[7..kind.len() - 1], item, out, depth)?;
             }
         }
-        _ => encode_box(data, out)?,
+        _ => {
+            if object_parts(data)?.0.family != kind {
+                return Err("ValueError: unexpected TL result family".into());
+            }
+            encode_box(data, out, depth)?;
+        }
     }
     Ok(())
 }
@@ -417,7 +434,7 @@ pub fn encode_object(constructor: Value) -> Outcome<String> {
             hex_decode(hex)?
         } else {
             let mut raw = Vec::new();
-            encode_box(&constructor, &mut raw)?;
+            encode_box(&constructor, &mut raw, 0)?;
             raw
         }
     } else if let Some(items) = constructor.as_array() {
@@ -454,6 +471,9 @@ pub fn encode_object(constructor: Value) -> Outcome<String> {
 }
 
 pub fn decode_object(raw: String, expected: String, depth: i64) -> Outcome<Value> {
+    if depth < 0 {
+        return Err("ValueError: invalid initial nesting depth".into());
+    }
     let data = hex_decode(&raw)?;
     let mut reader = Reader {
         raw: &data,

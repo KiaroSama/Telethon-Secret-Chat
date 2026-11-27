@@ -150,8 +150,16 @@ pub fn unwrap(body: Vec<u8>, chat_id: Option<i64>) -> Result<serde_json::Value, 
     let random = fields["random_bytes"]["hex"]
         .as_str()
         .ok_or("Missing wrapper bytes")?;
+    let random = decode_hex(random)?;
+    if random.len() < 15 {
+        return Ok(rejected(
+            "the wrapper contains fewer than 15 random bytes",
+            chat_id,
+            false,
+        ));
+    }
     Ok(
-        json!({"random_bytes":byte_value(decode_hex(random)?),"layer":fields["layer"],"in_seq_no":fields["in_seq_no"],"out_seq_no":fields["out_seq_no"],"message":byte_value(decode_hex(&encode_object(inner.clone())?)?)}),
+        json!({"random_bytes":byte_value(random),"layer":fields["layer"],"in_seq_no":fields["in_seq_no"],"out_seq_no":fields["out_seq_no"],"message":byte_value(decode_hex(&encode_object(inner.clone())?)?)}),
     )
 }
 

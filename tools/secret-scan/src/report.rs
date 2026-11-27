@@ -90,3 +90,43 @@ pub fn write(path: &Path, findings: &[Value], scope: &str) -> Result<()> {
         .write_all(summary(findings, scope).as_bytes())
         .map_err(|_| "The redacted scan summary could not be written.")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scanner_status_and_report_must_agree() {
+        assert!(validate_report(b"[]", 0).unwrap().is_empty());
+        assert!(validate_report(b"[{}]", 2).is_ok());
+        for (bytes, code) in [
+            (b"[]".as_slice(), 2),
+            (b"[{}]".as_slice(), 0),
+            (b"[]".as_slice(), 1),
+            (b"{}".as_slice(), 0),
+            (b"[null]".as_slice(), 2),
+            (br#"[{"StartLine":-1}]"#.as_slice(), 2),
+            (br#"[{"File":42}]"#.as_slice(), 2),
+        ] {
+            assert!(validate_report(bytes, code).is_err());
+        }
+    }
+
+    #[test]
+    fn published_summary_omits_secret_fields_and_escapes_location_markup() {
+        let finding = serde_json::json!({
+            "RuleID": "example-rule",
+            "File": "a|<script>\nfile.rs",
+            "StartLine": 7,
+            "Commit": "abcdef",
+            "Secret": "SECRET_FIELD_MUST_NOT_BE_PUBLISHED",
+            "Match": "MATCH_FIELD_MUST_NOT_BE_PUBLISHED",
+            "Message": "COMMIT_MESSAGE_MUST_NOT_BE_PUBLISHED"
+        });
+        let rendered = summary(&[finding], "Test scope");
+        for marker in ["SECRET_FIELD", "MATCH_FIELD", "COMMIT_MESSAGE", "<script>"] {
+            assert!(!rendered.contains(marker));
+        }
+        assert!(rendered.contains("a&#124;&lt;script&gt; file.rs"));
+    }
+}

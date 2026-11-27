@@ -51,6 +51,7 @@ jobs:
           cp "$GITHUB_WORKSPACE/tools/secret-scan/src/"*.rs "$scan_source/src/"
           cargo fmt --manifest-path "$scan_source/Cargo.toml" --check
           cargo clippy --locked --manifest-path "$scan_source/Cargo.toml" --target-dir "$RUNNER_TEMP/kiaro-scanner-target" -j 1 -- -D warnings
+          cargo test --locked --manifest-path "$scan_source/Cargo.toml" --target-dir "$RUNNER_TEMP/kiaro-scanner-target" --all-targets -j 1
           cargo build --locked --manifest-path "$scan_source/Cargo.toml" --target-dir "$RUNNER_TEMP/kiaro-scanner-target" -j 1
       - name: Scan with verified Gitleaks and observe the actual Git child
         working-directory: ${{ runner.temp }}

@@ -62,7 +62,9 @@ fn durable_ingress_preserves_order_deduplicates_and_replays_across_restart() {
         DurableIngressController::restore("auth-owner-1", reopened, IngressLimits::default())
             .expect("restore");
 
-    let replayed: Vec<DurableIngressRecord> = restored.drain_in_order("account-main");
+    let replayed: Vec<DurableIngressRecord> = restored
+        .drain_in_order("account-main")
+        .expect("durable drain");
     let orders: Vec<i64> = replayed.iter().map(|r| r.order).collect();
     assert_eq!(orders, vec![41, 42, 43]);
     assert!(
@@ -70,7 +72,12 @@ fn durable_ingress_preserves_order_deduplicates_and_replays_across_restart() {
             .iter()
             .all(|r| r.status == CommitReplayStatus::Replayed)
     );
-    assert!(restored.drain_in_order("account-main").is_empty());
+    assert!(
+        restored
+            .drain_in_order("account-main")
+            .expect("empty drain")
+            .is_empty()
+    );
 }
 
 #[test]
@@ -121,7 +128,12 @@ fn unavailable_or_tampered_storage_and_wrong_owner_refuse_without_advancing() {
         .capture_and_commit(sample_update("account-main", 1, 7, b"frame-1"))
         .unwrap_err();
     assert!(matches!(write_err, SecretChatError::IngressRefused { .. }));
-    assert!(failing.drain_in_order("account-main").is_empty());
+    assert!(
+        failing
+            .drain_in_order("account-main")
+            .expect("empty drain")
+            .is_empty()
+    );
 }
 
 #[tokio::test]
@@ -173,7 +185,7 @@ async fn stalled_and_cancelled_ingress_requests_do_not_advance_or_lose_prior_com
 
     // Frontier must still hold only record 1; record 2 was never committed or adopted.
     let mut guard = controller.lock().await;
-    let drained = guard.drain_in_order("account-main");
+    let drained = guard.drain_in_order("account-main").expect("durable drain");
     let orders: Vec<i64> = drained.iter().map(|r| r.order).collect();
     assert_eq!(orders, vec![1]);
 }

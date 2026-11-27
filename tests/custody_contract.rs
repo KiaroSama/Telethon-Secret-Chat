@@ -68,8 +68,9 @@ fn pause_resume_corruption_bounds_and_cleanup_preserve_unrelated_files() {
     assert!(!rec.is_paused());
     rec.push_payload(b"msg-1").expect("push 1");
     rec.push_payload(b"msg-2").expect("push 2");
-    // Retaining a 3rd message respects the bounded max_retained_messages=2 window.
-    rec.push_payload(b"msg-3").expect("push 3");
+    // Capacity refusal preserves the two existing obligations and pauses custody.
+    assert!(rec.push_payload(b"msg-3").is_err());
+    assert!(rec.is_paused());
     assert_eq!(rec.retained_count(), 2);
 
     // Oversized single payload is refused without mutating retained state.
@@ -79,7 +80,8 @@ fn pause_resume_corruption_bounds_and_cleanup_preserve_unrelated_files() {
     store.save_record(&rec).expect("save");
 
     // Corrupting the on-disk file fails closed without leaking key bytes.
-    let mut disk = std::fs::read(&store_path).expect("read");
+    let pristine = std::fs::read(&store_path).expect("read");
+    let mut disk = pristine.clone();
     disk[0] ^= 0xff;
     std::fs::write(&store_path, disk).expect("corrupt");
     assert!(matches!(
@@ -87,7 +89,12 @@ fn pause_resume_corruption_bounds_and_cleanup_preserve_unrelated_files() {
         Err(SecretChatError::StoreCorrupt { .. })
     ));
 
-    // Cleanup removes only owned store artifact and never erases unrelated files.
+    // Unauthenticated data is preserved for explicit caller recovery.
+    assert!(store.cleanup_owned_files().is_err());
+    assert!(store_path.exists());
+    std::fs::write(&store_path, pristine).expect("restore authenticated snapshot");
+
+    // Cleanup removes only an authenticated store and never erases unrelated files.
     store.cleanup_owned_files().expect("cleanup");
     assert!(!store_path.exists());
     assert_eq!(

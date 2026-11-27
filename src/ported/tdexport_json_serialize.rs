@@ -14,7 +14,6 @@ fn escape(data: &[u8]) -> Vec<u8> {
             } else {
                 b"\\u2029"
             });
-            out.extend([0x80, *last]);
             i += 3;
             continue;
         }
@@ -26,7 +25,9 @@ fn escape(data: &[u8]) -> Vec<u8> {
             b'"' | b'\\' => out.extend([b'\\', b]),
             0..=31 => out.extend([
                 b'\\',
-                b'x',
+                b'u',
+                b'0',
+                b'0',
                 HEX[usize::from(b >> 4)],
                 HEX[usize::from(b & 15)],
             ]),
@@ -75,6 +76,8 @@ pub fn serialize_string(value: String) -> Result<Vec<u8>, String> {
     Ok(escape(value.as_bytes()))
 }
 pub fn serialize_bytes(value: Vec<u8>) -> Result<Vec<u8>, String> {
+    std::str::from_utf8(&value)
+        .map_err(|_| "ValueError: JSON string bytes must be valid UTF-8".to_owned())?;
     Ok(escape(&value))
 }
 pub fn serialize_date(date: i64) -> Result<Vec<u8>, String> {
@@ -235,9 +238,9 @@ pub fn format_file_path(path: String) -> Result<Vec<u8>, String> {
 }
 
 #[test]
-fn desktop_escapes_controls_and_preserves_unicode_separator_continuations() {
+fn exported_controls_and_unicode_separators_form_valid_json() {
     assert_eq!(
         serialize_string("\0\u{2028}".into()),
-        Ok(b"\"\\x00\\u2028\x80\xa8\"".to_vec())
+        Ok(b"\"\\u0000\\u2028\"".to_vec())
     );
 }

@@ -3,6 +3,7 @@ name: Rust Build and Tests
 on:
   push:
   pull_request:
+  merge_group:
   workflow_dispatch:
 
 permissions:
@@ -138,17 +139,33 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if cargo tree --locked --edges normal,build,dev --invert pyo3 >/dev/null 2>&1; then
-            echo "PyO3 must not appear in the pure-Rust dependency tree" >&2
+          source .github/scripts/log.sh
+          cargo metadata --locked --format-version 1 > "$RUNNER_TEMP/cargo-metadata.json"
+          has_python_bindings=$(jq -r 'any(.packages[]; .name == "pyo3" or (.name | startswith("pyo3-")))' "$RUNNER_TEMP/cargo-metadata.json")
+          if [[ "$has_python_bindings" == true ]]; then
+            log ERROR 'PyO3 must not appear in the pure-Rust dependency graph'
             exit 1
           fi
+          log INFO 'Validated the resolved graph without Python bindings'
       - name: Check formatting and Clippy warnings
         if: matrix.os == 'ubuntu-24.04' && matrix.toolchain == '1.100.0' && matrix.profile == 'debug'
         shell: bash
         run: |
           set -euo pipefail
-          cargo fmt --all --check
-          cargo clippy --locked --all-targets -- -D warnings
+          source .github/scripts/log.sh
+          log INFO 'Checking first-party Rust formatting and warnings'
+          cargo fmt --package kiaro-secret-chat --check
+          cargo clippy --locked --package kiaro-secret-chat --all-targets --no-deps -- -D warnings
+      - name: Test the standalone secret scanner helper
+        if: matrix.os == 'ubuntu-24.04' && matrix.toolchain == '1.100.0' && matrix.profile == 'debug'
+        shell: bash
+        run: |
+          set -euo pipefail
+          source .github/scripts/log.sh
+          log INFO 'Checking scanner formatting, warnings, and refusal-path tests'
+          cargo fmt --manifest-path tools/secret-scan/Cargo.toml --check
+          cargo clippy --locked --manifest-path tools/secret-scan/Cargo.toml --all-targets -- -D warnings
+          cargo test --locked --manifest-path tools/secret-scan/Cargo.toml --all-targets
       - name: Build and test (POSIX)
         if: runner.os != 'Windows'
         shell: bash
@@ -156,23 +173,41 @@ jobs:
           BUILD_PROFILE: ${{ matrix.profile }}
         run: |
           set -euo pipefail
+          source .github/scripts/log.sh
+          log INFO 'Building and executing native targets plus documentation tests'
           if [ "$BUILD_PROFILE" = release ]; then
             cargo build --locked --all-targets --release
             cargo test --locked --all-targets --release -- --test-threads=2 2>&1 | tee rust-tests.txt
+            cargo test --locked --doc --release 2>&1 | tee -a rust-tests.txt
           else
             cargo build --locked --all-targets
             cargo test --locked --all-targets -- --test-threads=2 2>&1 | tee rust-tests.txt
+            cargo test --locked --doc 2>&1 | tee -a rust-tests.txt
           fi
       - name: Build and test (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $PSNativeCommandUseErrorActionPreference = $false
+          . .github/scripts/Log.ps1
+          Write-CiLog INFO 'Building and executing native targets plus documentation tests'
           cargo build --locked --all-targets --release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cargo test --locked --all-targets --release -- --test-threads=2 2>&1 | Tee-Object -FilePath rust-tests.txt
           $cargoStatus = $LASTEXITCODE
           if ($cargoStatus -ne 0) { exit $cargoStatus }
+          cargo test --locked --doc --release 2>&1 | Tee-Object -FilePath rust-tests.txt -Append
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify retired interop launcher fails before reading account configuration
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $false
+          . .github/scripts/Log.ps1
+          Write-CiLog INFO 'Checking that the retired live launcher refuses execution'
+          pwsh -NoProfile -File scripts/run_interop.ps1 -McpRoot 'G:\missing-account-directory'
+          if ($LASTEXITCODE -ne 2) { throw 'The retired launcher must return exit code 2' }
+          $global:LASTEXITCODE = 0
       - name: Compile from a path containing spaces (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -193,25 +228,35 @@ jobs:
           NATIVE_TARGET: ${{ matrix.target }}
         run: |
           set -euo pipefail
+          source .github/scripts/log.sh
+          log INFO 'Packaging and smoke-testing the complete native tool archive'
           stage="$RUNNER_TEMP/native-tools"
           dist="$RUNNER_TEMP/native-dist"
-          mkdir -p "$stage" "$dist"
+          mkdir -p "$stage/schema" "$dist"
           for tool in check-test-matrix generate-schema; do
             cp "target/release/$tool" "$stage/$tool"
           done
           cp README.md LICENSE NOTICE "$stage/"
+          cp schema/end-to-end.tl "$stage/schema/"
+          "$stage/generate-schema" --schema "$stage/schema/end-to-end.tl" --out "$stage/schema/secret_tl.generated.json"
           compiler=$(rustc --version)
           printf '{"target":"%s","toolchain":"%s","compiler":"%s","commit":"%s"}\n' \
             "$NATIVE_TARGET" "$RUSTUP_TOOLCHAIN" "$compiler" "$GITHUB_SHA" > "$stage/build-info.json"
-          (cd "$stage" && sha256sum check-test-matrix generate-schema README.md LICENSE NOTICE build-info.json > SHA256SUMS)
+          (cd "$stage" && sha256sum check-test-matrix generate-schema README.md LICENSE NOTICE build-info.json schema/end-to-end.tl schema/secret_tl.generated.json > SHA256SUMS)
           tar -czf "$dist/native-$NATIVE_TARGET.tar.gz" -C "$stage" .
           (cd "$dist" && sha256sum "native-$NATIVE_TARGET.tar.gz" > SHA256SUMS)
+          verify="$RUNNER_TEMP/native-verify"
+          mkdir -p "$verify"
+          tar -xzf "$dist/native-$NATIVE_TARGET.tar.gz" -C "$verify"
+          (cd "$verify" && sha256sum --strict --check SHA256SUMS && ./generate-schema --check && ./check-test-matrix --help)
       - name: Package native release binaries (Windows)
         if: matrix.profile == 'release' && runner.os == 'Windows'
         shell: pwsh
         env:
           NATIVE_TARGET: ${{ matrix.target }}
         run: |
+          . .github/scripts/Log.ps1
+          Write-CiLog INFO 'Packaging and smoke-testing the complete native tool archive'
           $stage = Join-Path $env:RUNNER_TEMP 'native-tools'
           $dist = Join-Path $env:RUNNER_TEMP 'native-dist'
           New-Item -ItemType Directory -Force -Path $stage, $dist | Out-Null
@@ -219,6 +264,10 @@ jobs:
             Copy-Item (Join-Path 'target/release' "$tool.exe") (Join-Path $stage "$tool.exe")
           }
           Copy-Item README.md, LICENSE, NOTICE $stage
+          New-Item -ItemType Directory -Force -Path (Join-Path $stage 'schema') | Out-Null
+          Copy-Item schema/end-to-end.tl (Join-Path $stage 'schema/end-to-end.tl')
+          & (Join-Path $stage 'generate-schema.exe') --schema (Join-Path $stage 'schema/end-to-end.tl') --out (Join-Path $stage 'schema/secret_tl.generated.json')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $compiler = rustc --version
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           [ordered]@{
@@ -227,14 +276,29 @@ jobs:
             compiler = $compiler
             commit = $env:GITHUB_SHA
           } | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $stage 'build-info.json')
-          Get-ChildItem $stage -File | Where-Object Name -ne 'SHA256SUMS' | Sort-Object Name | ForEach-Object {
+          Get-ChildItem $stage -File -Recurse | Where-Object Name -ne 'SHA256SUMS' | Sort-Object FullName | ForEach-Object {
             $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-            "$hash  $($_.Name)"
+            $relative = [IO.Path]::GetRelativePath($stage, $_.FullName).Replace('\', '/')
+            "$hash  $relative"
           } | Set-Content -Encoding utf8 (Join-Path $stage 'SHA256SUMS')
           $archive = Join-Path $dist "native-$env:NATIVE_TARGET.zip"
           Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $archive -Force
           $archiveHash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
           "$archiveHash  $([System.IO.Path]::GetFileName($archive))" | Set-Content -Encoding utf8 (Join-Path $dist 'SHA256SUMS')
+          $verify = Join-Path $env:RUNNER_TEMP 'native-verify'
+          Expand-Archive -LiteralPath $archive -DestinationPath $verify
+          foreach ($line in Get-Content (Join-Path $verify 'SHA256SUMS')) {
+            if ($line -notmatch '^(?<hash>[0-9a-f]{64})  (?<path>.+)$') { throw 'Invalid archive checksum record' }
+            $actual = (Get-FileHash (Join-Path $verify $Matches.path) -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actual -ne $Matches.hash) { throw 'Packaged file checksum mismatch' }
+          }
+          Push-Location -LiteralPath $verify
+          try {
+            & ./generate-schema.exe --check
+            if ($LASTEXITCODE -ne 0) { throw 'Packaged schema manifest check failed' }
+            & ./check-test-matrix.exe --help
+            if ($LASTEXITCODE -ne 0) { throw 'Packaged matrix tool failed to start' }
+          } finally { Pop-Location }
       - name: Upload native release package
         if: matrix.profile == 'release'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -252,10 +316,67 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  source:
+    name: Source distribution and Git consumer
+    uses: ./.github/workflows/package-validation.yml
+
+  vendored:
+    name: Vendored transport tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca
+        with:
+          toolchain: '1.100.0'
+      - name: Run patched transport and optional-feature tests
+        shell: pwsh
+        run: |
+          . .github/scripts/Log.ps1
+          Write-CiLog INFO 'Testing vendored session, proxy, client, and parser code with the workspace lock'
+          foreach ($crate in 'grammers-session', 'grammers-mtsender', 'grammers-client') {
+            cargo test --locked --package $crate --all-features
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+  ci:
+    name: Rust CI
+    if: always()
+    needs: [build, source, vendored]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Require every test and distribution job to succeed
+        shell: bash
+        env:
+          BUILD_RESULT: ${{ needs.build.result }}
+          SOURCE_RESULT: ${{ needs.source.result }}
+          VENDORED_RESULT: ${{ needs.vendored.result }}
+        run: |
+          set -euo pipefail
+          source .github/scripts/log.sh
+          for result in "$BUILD_RESULT" "$SOURCE_RESULT" "$VENDORED_RESULT"; do
+            if [[ "$result" != success ]]; then
+              log ERROR 'A required build, test, or source distribution job did not succeed'
+              exit 1
+            fi
+          done
+          log INFO 'All native, documentation, scanner, vendored, and distribution checks passed'
+          printf '## Rust CI\n\nCommit: `%s`\n\nAll required jobs passed. Signing is a separate protected release operation.\n' "$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+
   signing:
     name: Sign native package (${{ matrix.target }})
-    needs: [build]
-    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    needs: [ci]
+    if: github.event_name != 'pull_request' && (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
     environment: numera-signing
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20

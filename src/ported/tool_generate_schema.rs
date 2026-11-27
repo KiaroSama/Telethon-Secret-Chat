@@ -1,9 +1,52 @@
-//! The Rust port of `rust/adapters/tool_generate_schema_adapter.py`.
-//!
-//! Replace each `unimplemented!` with the port of the source function. Return `Err` where
-//! the source throws or raises: the caller gets an error there too. After changing a
-//! signature, run `rust-anything refresh` to regenerate the bindings. `rust-anything diff` checks
-//! behavior against what the source recorded.
+//! Legacy schema helpers and checked input for the native maintenance command.
+
+/// Validate complete constructor rows before generating a native manifest.
+///
+/// The historical adapter below intentionally retains its permissive behavior
+/// for differential replay. The executable must not silently discard malformed
+/// rows or collapse distinct declarations with the same numeric constructor ID.
+pub fn inspect_checked_schema(text: String) -> Result<serde_json::Value, String> {
+    let mut ids = std::collections::BTreeSet::new();
+    let mut normalized = String::new();
+    for (index, raw) in text.lines().enumerate() {
+        let line = raw.split_once("//").map_or(raw, |(line, _)| line).trim();
+        if line.is_empty() || matches!(line, "---types---" | "---functions---") {
+            continue;
+        }
+        let invalid = || format!("invalid constructor declaration on line {}", index + 1);
+        let declaration = line.strip_suffix(';').ok_or_else(invalid)?;
+        if declaration.matches('=').count() != 1 {
+            return Err(invalid());
+        }
+        let (head, result) = declaration.split_once('=').ok_or_else(invalid)?;
+        if result.trim().is_empty() {
+            return Err(invalid());
+        }
+        let token = head.split_whitespace().next().ok_or_else(invalid)?;
+        let (name, id) = token.split_once('#').ok_or_else(invalid)?;
+        if !name
+            .bytes()
+            .next()
+            .is_some_and(|b| b.is_ascii_alphabetic() || b == b'_')
+            || !name
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.'))
+            || id.is_empty()
+            || id.len() > 8
+            || !id.bytes().all(|b| b.is_ascii_hexdigit())
+        {
+            return Err(invalid());
+        }
+        let numeric_id = u32::from_str_radix(id, 16).map_err(|_| invalid())?;
+        if !ids.insert(numeric_id) {
+            return Err(format!("duplicate constructor ID on line {}", index + 1));
+        }
+        // Normalize whitespace for the frozen adapter's single-space tokenizer.
+        normalized.push_str(&line.split_whitespace().collect::<Vec<_>>().join(" "));
+        normalized.push('\n');
+    }
+    inspect_schema(normalized)
+}
 
 /// Port of `inspect_schema` (`rust/adapters/tool_generate_schema_adapter.py:9`).
 pub fn inspect_schema(text: String) -> Result<serde_json::Value, String> {

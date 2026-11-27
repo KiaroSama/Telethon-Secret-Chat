@@ -21,3 +21,4 @@ pub mod manager;
 pub mod ported;
 pub mod protocol;
 pub mod public_api;
+mod storage_file;

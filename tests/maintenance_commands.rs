@@ -175,3 +175,105 @@ fn generate_schema_binary_generates_and_checks_tracked_tl_schema_without_python(
         .expect("run generate-schema empty");
     assert_eq!(check_empty.status.code(), Some(1));
 }
+
+#[test]
+fn maintenance_commands_support_help_and_reject_unknown_options() {
+    for bin in [
+        env!("CARGO_BIN_EXE_check-test-matrix"),
+        env!("CARGO_BIN_EXE_generate-schema"),
+    ] {
+        let help = Command::new(bin).arg("--help").output().unwrap();
+        assert!(help.status.success(), "{bin} --help must succeed");
+        assert!(String::from_utf8_lossy(&help.stdout).contains("Usage:"));
+        let invalid = Command::new(bin).arg("--unknown-option").output().unwrap();
+        assert_eq!(invalid.status.code(), Some(2));
+    }
+}
+
+#[test]
+fn check_test_matrix_rejects_an_incomplete_extra_artifact() {
+    let dir = tempfile::tempdir().unwrap();
+    let expected = dir.path().join("linux-x64");
+    std::fs::create_dir(&expected).unwrap();
+    std::fs::write(expected.join("junit.xml"), valid_junit_xml(false)).unwrap();
+    std::fs::create_dir(dir.path().join("unexpected-leg")).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_check-test-matrix"))
+        .arg(dir.path())
+        .args(["--expect-legs", "1", "linux-x64"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "an incomplete artifact must not be silently discarded"
+    );
+}
+
+#[test]
+fn check_test_matrix_rejects_suite_failure_metadata_and_empty_case_names() {
+    let dir = tempfile::tempdir().unwrap();
+    let leg = dir.path().join("linux-x64");
+    std::fs::create_dir(&leg).unwrap();
+    for xml in [
+        valid_junit_xml(false).replacen("failures=\"0\"", "failures=\"1\"", 1),
+        valid_junit_xml(false).replacen("name=\"test_kdf\"", "name=\"\"", 1),
+    ] {
+        std::fs::write(leg.join("junit.xml"), xml).unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_check-test-matrix"))
+            .arg(dir.path())
+            .args(["--expect-legs", "1", "linux-x64"])
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1));
+    }
+}
+
+#[test]
+fn generate_schema_preserves_preexisting_temporary_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let output_path = dir.path().join("manifest.json");
+    let unrelated = dir.path().join("manifest.json.tmp");
+    std::fs::write(&unrelated, b"unrelated caller-owned data").unwrap();
+    std::fs::write(&output_path, b"previous manifest").unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_generate-schema"))
+        .arg("--schema")
+        .arg(repo_root().join("schema/end-to-end.tl"))
+        .arg("--out")
+        .arg(&output_path)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(
+        std::fs::read(&unrelated).expect("caller-owned temporary file must remain"),
+        b"unrelated caller-owned data"
+    );
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(output_path).unwrap()).unwrap();
+    assert!(manifest["count"].as_u64().unwrap() > 0);
+}
+
+#[test]
+fn generate_schema_rejects_malformed_or_duplicate_constructor_ids_without_replacing_output() {
+    let dir = tempfile::tempdir().unwrap();
+    let schema = dir.path().join("input.tl");
+    let output_path = dir.path().join("manifest.json");
+    for source in [
+        "valid#01 = X;\ninvalid#not_hex = X;\n",
+        "valid#01 = X;\nother#01 = X;\n",
+        "valid#01 = X;\ntruncated#02 = X\n",
+    ] {
+        std::fs::write(&schema, source).unwrap();
+        std::fs::write(&output_path, b"previous manifest").unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_generate-schema"))
+            .arg("--schema")
+            .arg(&schema)
+            .arg("--out")
+            .arg(&output_path)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        assert_eq!(std::fs::read(&output_path).unwrap(), b"previous manifest");
+    }
+}

@@ -73,6 +73,19 @@ logs/
 *.bak
 tmp/
 temp/
+/rust-tests.txt
+
+# Retired Python tooling and generated caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+.coverage
+.coverage.*
+htmlcov/
+/uv.lock
 
 # Hook Maker: local/private files (auto-managed)
 /.env

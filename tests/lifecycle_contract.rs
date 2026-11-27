@@ -99,7 +99,7 @@ async fn offline_peers_exchange_encrypted_messages_handle_transport_failure_and_
     let received = bob.receive_frame(55, &frame1).await.expect("bob receive 1");
     assert_eq!(received.text.as_deref(), Some("hello from alice"));
 
-    // 2) Transport failure surfaces SendPending without advancing Alice's out_seq_no.
+    // 2) Uncertain delivery reserves its sequence and retains the frame for exact retry.
     alice_tx.fail_send.store(true, Ordering::SeqCst);
     let err = alice.send_text(55, 9002, "will fail", 0).await.unwrap_err();
     assert!(matches!(
@@ -110,7 +110,7 @@ async fn offline_peers_exchange_encrypted_messages_handle_transport_failure_and_
             ..
         }
     ));
-    assert_eq!(alice.out_seq_no(55).await.unwrap(), 1);
+    assert_eq!(alice.out_seq_no(55).await.unwrap(), 2);
 
     // 3) Close chat discards encryption and transitions state to Closed.
     alice

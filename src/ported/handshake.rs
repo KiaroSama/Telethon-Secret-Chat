@@ -5,13 +5,51 @@
 //! signature, run `rust-anything refresh` to regenerate the bindings. `rust-anything diff` checks
 //! behavior against what the source recorded.
 
-use crypto_bigint::{BoxedUint, Odd};
+use crypto_bigint::{
+    BoxedUint, Odd,
+    modular::{BoxedMontyForm, BoxedMontyParams},
+};
 use num_bigint::{BigInt, Sign};
 use serde_json::json;
 use sha1::{Digest, Sha1};
 use subtle::ConstantTimeEq;
+use zeroize::Zeroizing;
 
 const SECRET_BITS: usize = 2048;
+
+/// Native 2048-bit DH path: keep the exponent and shared result out of arbitrary-precision integers.
+pub(crate) fn fixed_power(base: &[u8], secret: &[u8], modulus: &[u8]) -> Result<[u8; 256], String> {
+    if modulus.len() != 256 || modulus[0] & 128 == 0 || base.len() > 256 {
+        return Err("ValueError: DH parameters must fit the 2048-bit group".into());
+    }
+    if secret.is_empty()
+        || secret.len() > 256
+        || secret.iter().fold(0u8, |bits, &byte| bits | byte) == 0
+    {
+        return Err("ValueError: invalid DH secret".into());
+    }
+    let mut padded_base = [0u8; 256];
+    padded_base[256 - base.len()..].copy_from_slice(base);
+    if padded_base.as_slice() >= modulus {
+        return Err("ValueError: DH base is outside the group".into());
+    }
+    let decode = |bytes: &[u8]| {
+        BoxedUint::from_be_slice(bytes, SECRET_BITS as u32)
+            .map_err(|_| "ValueError: invalid 2048-bit DH parameter".to_owned())
+    };
+    let exponent = Zeroizing::new(decode(secret)?);
+    let odd = Option::<Odd<BoxedUint>>::from(Odd::new(decode(modulus)?))
+        .ok_or("ValueError: 2048-bit modulus must be odd")?;
+    let params = BoxedMontyParams::new(odd);
+    let base = BoxedMontyForm::new(decode(&padded_base)?, &params);
+    // pow uses the fixed bits_precision (2048), not the exponent's significant bit count.
+    let powered = Zeroizing::new(base.pow(&exponent));
+    let result = Zeroizing::new(powered.retrieve());
+    let bytes = Zeroizing::new(result.to_be_bytes());
+    let mut output = [0u8; 256];
+    output.copy_from_slice(&bytes);
+    Ok(output)
+}
 
 fn integer(raw: &[u8]) -> BigInt {
     BigInt::from_signed_bytes_be(raw)

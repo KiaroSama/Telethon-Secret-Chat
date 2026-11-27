@@ -2,75 +2,103 @@
 
 # Kiaro Secret Chat (Rust)
 
-**Telegram MTProto 2.0 end-to-end encrypted secret chats for a caller-owned grammers client in pure Rust.**
+**Rust protocol, runtime, and encrypted storage components for Telegram MTProto 2.0 secret chats.**
 
-[![GitHub Actions CI across 64-bit Linux and Windows](https://img.shields.io/github/actions/workflow/status/KiaroSama/Telethon-Secret-Chat/rust.yml?branch=main&style=flat-square&color=16a34a&label=CI)](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/rust.yml)
-[![GNU General Public License v3.0 or later](https://img.shields.io/github/license/KiaroSama/Telethon-Secret-Chat?style=flat-square&color=2563eb)](LICENSE)
-[![Latest GitHub release](https://img.shields.io/github/v/release/KiaroSama/Telethon-Secret-Chat?style=flat-square&color=ea580c)](https://github.com/KiaroSama/Telethon-Secret-Chat/releases)
-[![68 native Rust tests and 92/92 rust-anything verified units](https://img.shields.io/badge/tests-68%20native%20%7C%2092%2F92%20units-0d9488?style=flat-square)](#verification-and-migration-evidence)
-[![Rust 1.100.0 measured locally, edition 2024, MSRV 1.95](https://img.shields.io/badge/Rust-1.100.0-8b5cf6?style=flat-square)](rust-toolchain.toml)
-[![Runs on 64-bit Linux and Windows](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-0891b2?style=flat-square)](.github/workflows/rust.yml)
-[![Install from Git or signed release archives](https://img.shields.io/badge/install-Git%20%7C%20release-4f46e5?style=flat-square)](#install-and-usage)
-[![Protocol reference, architecture, and ADRs](https://img.shields.io/badge/docs-protocol%20%7C%20ADRs-0284c7?style=flat-square)](docs/protocol-reference.md)
-[![Live GitHub repository size](https://img.shields.io/github/repo-size/KiaroSama/Telethon-Secret-Chat?style=flat-square&color=ca8a04)](https://github.com/KiaroSama/Telethon-Secret-Chat)
-[![Built with grammers 0.12.0 at 11e13a98 Layer 234](https://img.shields.io/badge/built%20with-grammers%200.12.0-15803d?style=flat-square)](vendor/grammers/README.md)
-[![Secret chats use MTProto 2.0 layers 73 through 144](https://img.shields.io/badge/protocol-MTProto%202.0%20L73--144-b45309?style=flat-square)](docs/protocol-reference.md)
-[![Native builds target x64 and arm64 only](https://img.shields.io/badge/arch-x64%20%7C%20arm64-334155?style=flat-square)](.github/workflows/rust.yml)
-[![Crate forbids unsafe Rust code](https://img.shields.io/badge/safety-unsafe%20forbidden-7c3aed?style=flat-square)](Cargo.toml)
-[![CodeQL static analysis and Gitleaks secret scanning](https://img.shields.io/badge/security-CodeQL%20%7C%20Gitleaks-c2410c?style=flat-square)](.github/workflows/codeql.yml)
-[![Support donations](https://img.shields.io/badge/Support-donations-d04a9a?style=flat-square)](#donate)
+[![Rust CI](https://img.shields.io/github/actions/workflow/status/KiaroSama/Telethon-Secret-Chat/rust.yml?branch=main&style=flat-square&label=CI)](https://github.com/KiaroSama/Telethon-Secret-Chat/actions/workflows/rust.yml)
+[![Latest repository tag](https://img.shields.io/github/v/tag/KiaroSama/Telethon-Secret-Chat?sort=semver&style=flat-square&label=tag)](https://github.com/KiaroSama/Telethon-Secret-Chat/tags)
+[![GPL-3.0-or-later](https://img.shields.io/github/license/KiaroSama/Telethon-Secret-Chat?style=flat-square)](LICENSE)
+[![Rust toolchain](https://img.shields.io/badge/Rust-toolchain-8b5cf6?style=flat-square)](rust-toolchain.toml)
+[![Configured native targets](https://img.shields.io/badge/targets-Linux%20%7C%20Windows%20%C2%B7%20x64%20%7C%20arm64-0891b2?style=flat-square)](.github/workflows/rust.yml)
+[![Protocol and architecture](https://img.shields.io/badge/docs-protocol%20%7C%20architecture-0284c7?style=flat-square)](docs/architecture.md)
 
 </div>
 
-`kiaro-secret-chat` adds Telegram MTProto 2.0 secret chats to a caller-owned [grammers](https://codeberg.org/Lonami/grammers) client in pure Rust. The crate version is `0.3.1` (`kiaro_secret_chat` in Rust), with zero Python runtime and zero PyO3 dependencies.
+`kiaro-secret-chat` exposes Rust APIs under `kiaro_secret_chat`. It includes authenticated secret-chat framing, live sequence and rekey state, an in-memory manager, and separate encrypted payload stores. The caller supplies the transport adapter and owns authorization, network connection, and application persistence.
 
-## Features
+**The Rust crate does not provide complete behavioral parity with the retired Python package.** It has no complete persisted manager, initial request/accept network adapter, protected transient manager, native media transfer lifecycle, or saved-chat archive API. The historical migration inventory is evidence about adapter work, not a substitute for those implementations. [Current architecture and capability boundaries](docs/architecture.md) describe the supported surface.
 
-The library implements the MTProto 2.0 secret-chat protocol (layers 73 through 144): 2048-bit RFC 3526 Group 14 Diffie-Hellman handshakes using OS entropy (`getrandom`), SHA-256 `msg_key` and KDF (`x=0` and `x=8`), AES-256-IGE framing, SHA-1 key fingerprints, fail-closed sequence ordering, key rotation, and zeroized key slots. Errors carry safe diagnostic fields without exposing keys, nonces, or plaintext.
+## What is available
 
-Storage and ingress are caller-controlled. Durable ingress (`ingress::EncryptedIngressStore` and `DurableIngressController`) and custody (`custody::CustodyStore`) persist encrypted AES-256-GCM state through atomic file replacement, require an explicit absolute path (no working-directory fallback), and preserve caller-owned authorization identity.
+| Area | Current Rust scope |
+| --- | --- |
+| Cryptography and framing | OS entropy; validated 2048-bit DH arithmetic; SHA-256 message keys and KDF; AES-256-IGE; key fingerprints; strict authenticated frame and TL validation. |
+| Live protocol state | Role/parity checks, bounded gap buffering, ordered batch delivery, replay rejection, resend state, separate peer capability and wrapper layers, and runtime rekey with active/pending/previous key handling. |
+| Manager | Caller-registered established chats, serialized retained sends, identical-byte retries after uncertain transmission, receive batches, protocol service handling, events, close, and shutdown in the current process. |
+| Custody | Bounded payload containers and AES-256-GCM snapshots with explicit paths, authorization checks, atomic replacement, and failure-preserving retention. They do not serialize a complete live chat. |
+| Ingress | Encrypted opaque-record capture, deduplication, sorted pending snapshots, and explicit durable acknowledgement. No verified transport baseline or contiguous protocol-applied cursor is installed automatically. |
+| Export helpers | HTML/JSON escaping and formatting, URL validation, MIME lookup, ICC conversion, JPEG metadata/thumbnail helpers, and retained Desktop viewer assets. These are components rather than a complete saved-chat exporter. |
+| Media and archives | Media vocabulary constants exist. The Rust manager does not implement the Python upload/download/forward, auto-save, saved-history, or archive export APIs. |
 
-The export subsystem preserves Telegram Desktop HTML and JSON formatting, byte-exact Qt 5.15.19 ICC sRGB color transforms, JPEG thumbnail scaling, QUrl encoding, MIME glob resolution, and all 46 static viewer assets under `assets/tdexport/` without any JavaScript build toolchain.
+See [the manager](src/manager.rs), [protocol core](src/protocol.rs), [rekey implementation](src/ported/rekey.rs), [custody](src/custody.rs), [ingress](src/ingress.rs), and [export helpers](src/export.rs) for the actual compiled APIs. The crate implements MTProto 2.0; it does not fall back to MTProto 1.0. Outgoing secret-message layer encoding is capped at layer 144. The outer Telegram API layer is a separate transport concern.
 
-## Install and usage
+## Integration boundary
 
-Add `kiaro-secret-chat` to your `Cargo.toml` from this repository:
+Supply an implementation of `manager::SecretTransport` around your existing authorized client. The manager neither creates a login nor supplies an automatic `grammers_client::Client` adapter. Implement `send_encrypted_service` with `messages.sendEncryptedService`; its default implementation refuses. Ordinary encrypted messages and encrypted service messages must use their appropriate Telegram RPCs.
+
+`register_established_chat` installs a key and identifiers that the caller has already established. DH validation, public-value/shared-key helpers, and rekey support do not perform the initial `getDhConfig`, `requestEncryption`, or `acceptEncryption` exchange for the caller. Call `configure_chat_dh` with the chat's original validated DH parameters before the automatic rekey threshold; the manager also exposes `start_rekey` and `send_service_action`.
+
+Feed received ciphertext through the batch receive API so a newly filled gap can release every accepted message. Drain and process manager events according to your application policy. The event queue is caller-drained; registered IDs, including closed-chat tombstones, remain until the manager is dropped. Bound the number of registrations and the lifetime of each manager instance. Outbox and gap bounds are not a process-wide RSS or task budget.
+
+An inbound message can be accepted and its events queued before transmission of an automatic service reply fails. In that case `receive_frames` can return `SendPending`; inspect `drain_events` for the accepted inbound outcome and use `retry_pending` for the retained reply. Do not interpret every receive error as proof that inbound state was unchanged.
+
+A successful send RPC, peer sequence acknowledgement, ingress-store acknowledgement, application settlement, and user read receipt are different facts. There is no automatic read-receipt or external relay settlement policy.
+
+### Persistence and operational modes
+
+- [Bounded custody](docs/bounded-mode.md) explains count/byte refusal, preserved payloads, local pause flags, and the absence of a bounded protocol manager.
+- [Transient scope](docs/transient-mode.md) explains the volatile mode label and why it is not the retired protected transient manager.
+- [Ingress storage](docs/strong-ingress.md) explains recovery of captured records, explicit acknowledgement, and the missing transport/protocol checkpoint integration.
+
+Restarting a `CustodyStore` or `DurableIngressController` reconstructs its own records. It does not restore the manager's keys, sequence counters, rekey exchange, outbox, gaps, or events. Do not attach a restarted manager to an old secret chat using counters reset to zero.
+
+## Build and use
+
+The package metadata and minimum Rust version are in [Cargo.toml](Cargo.toml); the development toolchain is pinned in [rust-toolchain.toml](rust-toolchain.toml).
 
 ```toml
 [dependencies]
 kiaro-secret-chat = { git = "https://github.com/KiaroSama/Telethon-Secret-Chat.git", branch = "main" }
 ```
 
-Build the library and both maintenance binaries locally (Rust 1.95+ MSRV, tested with Rust 1.100.0):
+For reproducible deployments, replace the moving branch with a reviewed commit revision and retain the resolved lockfile. The crate is a library, not a standalone secret-chat client.
+
+From a checkout, run these commands in PowerShell 7 or your platform's shell:
 
 ```powershell
 cargo test --locked --all-targets
-```
-
-```powershell
+cargo clippy --locked --all-targets -- -D warnings
+cargo fmt --all -- --check
 cargo build --locked --release --bins
 ```
 
-The repository ships two standalone maintenance executables:
+The library has no Python runtime or PyO3 dependency. Its JPEG path depends on `mozjpeg`/`mozjpeg-sys` and a native C codec build, so the complete dependency tree is **not pure Rust**. A supported native build environment is required; the CI workflows show the configured Linux and Windows targets.
 
-- `check-test-matrix`: validates test-matrix declarations against `LIVE_SKIPS` and reports missing or undeclared entries.
-- `generate-schema`: parses `schema/end-to-end.tl` and emits the deterministic schema manifest (`--schema`, `--out`, `--check`).
+The two maintenance binaries are:
 
-Signed release archives for 64-bit Linux (`x86_64`, `aarch64`) and 64-bit Windows (`x86_64`, `aarch64`) include both binaries, `README.md`, `LICENSE`, `NOTICE`, `build-info.json`, and `SHA256SUMS`, signed inside the protected `numera-signing` GitHub Actions environment. Verify signatures against the public key in [docs/signing/publisher.json](docs/signing/publisher.json).
+- `check-test-matrix`: checks the declared test-matrix evidence and allowed skips.
+- `generate-schema`: parses the tracked end-to-end TL schema into a deterministic constructor manifest; supports generation and `--check`.
+
+Release workflows describe packaging and signing of these utilities. An archive containing them is not a packaged manager daemon or a replacement for linking the library. Check the actual [release assets](https://github.com/KiaroSama/Telethon-Secret-Chat/releases), their workflow results, signatures, and [publisher material](docs/signing/publisher.json) for the revision you use.
 
 ## Verification and migration evidence
 
-This Rust codebase was rewritten from frozen Python baseline commit `5b68ef95bacbcc6d520f960899fca58ad447e7ea` through `rust-anything 5.0.1`. Every one of the 92 non-test baseline source files (334 classes, 1,568 definitions, 48 public exports, and 933 offline test declarations) was reconciled in [migration/019-rust-anything-receipt.json](migration/019-rust-anything-receipt.json):
+Run the current tests and inspect CI for the exact commit being reviewed. Test totals are discovered from source and execution; no badge in this README asserts a fixed count or complete protocol interoperability.
 
-- 38 crates passed raw `rust-anything gate` 15/15 (exit 0).
-- 54 crates passed 100% differential replay, fuzzing, benchmarking, and shadow generation through deterministic adapters.
-- All runtime modules were lifted to pure Rust under `src/` with zero PyO3 dependencies and `#![forbid(unsafe_code)]`.
-- The vendored transport under [vendor/grammers/](vendor/grammers/README.md) pins upstream `Lonami/grammers` commit `11e13a989a754f9cf01a798480a2e20ce9e5b1fd` (Telegram API Layer 234, including TCP `nodelay`) while preserving local credentialed SOCKS5 and durable-ingress patches across 88 verified SHA-256 hashes.
-- 68 native Rust unit and integration tests verify cryptographic vectors, the retired official-client capture, all 16 byte-exact Qt 5.15.19 ICC goldens, all 46 static export assets, all 58 ICC fixtures, durable ingress, custody controls, and both CLI tools.
+The [migration receipt](migration/019-rust-anything-receipt.json) records the original migration's reported results against frozen Python baseline `5b68ef95bacbcc6d520f960899fca58ad447e7ea`. Its file/symbol totals and adapter gates are retained as historical evidence. Some entries explicitly describe asynchronous shells or archive integration still pending. They do not establish that every Python manager, event, storage backend, or media API is implemented in the current crate.
+
+[public_api.rs](src/public_api.rs) is an audited metadata inventory of historical names. Its strings do not create Rust aliases, exports, or working compatibility implementations. Entries distinguish actual native items, partial capabilities, and unavailable features. [The public contract tests](tests/public_contract.rs) check that distinction and compile concrete native types.
+
+Current tests include cryptographic vectors, a retired official-client fixture, protocol/manager simulations, storage fault cases, and export goldens. Offline fixtures and simulated transports do not prove a live official-client or consumer deployment. The vendored grammers revision and local transport patches are documented in [vendor/grammers/README.md](vendor/grammers/README.md); these patches alone do not establish the missing manager/ingress integration.
 
 ## Security and limits
 
-The library forbids `unsafe` Rust code in the crate root, redacts secrets from error messages, and flushes encrypted store files before atomic replacement. On Unix systems, store files enforce restricted permissions; on Windows, configure owner-only ACLs on the chosen storage directory. Big-integer Diffie-Hellman arithmetic is not constant time, and zeroization cannot erase copies retained by the OS or allocator. Keep [LICENSE](LICENSE), [NOTICE](NOTICE), and [vendor/grammers/README.md](vendor/grammers/README.md) with redistributed source or binaries.
+This crate forbids `unsafe` Rust in its own source. That restriction does not apply transitively to dependencies or the native codec. Public payload-container diagnostics summarize sizes and structural state; applications must still keep keys, payloads, authorization material, and arbitrary transport errors out of their own logs.
+
+Encrypted stores use an explicit absolute path, owner-only Unix file permissions, exclusively created staging files, file flushing, atomic replacement, and Unix parent-directory flushing. A persistent sidecar lock coordinates cooperating writers; ingress also refuses stale snapshot replacement. Configure an owner-only storage directory, including Windows ACLs, and keep encryption keys separately. An uncertain post-replacement failure requires reopening and reconciliation. Encryption does not prevent rollback to an older authentic snapshot without a separate trusted anchor.
+
+The manager's retained sends and live protocol state are volatile. Cancellation cannot retract an RPC already issued to a transport, and shutdown is not proof that every caller-owned network future stopped. Big-integer DH is not constant time; zeroization cannot erase all allocator, operating-system, or caller-held copies. No physical-erasure or universal power-loss guarantee is made.
+
+Keep [LICENSE](LICENSE), [NOTICE](NOTICE), and the applicable vendored notices with redistributed code. The [protocol reference](docs/protocol-reference.md) and [ADRs](docs/adr/) preserve protocol reasoning; historical Python design notes do not override the current Rust capability boundaries.
 
 ## Author
 

@@ -7,15 +7,35 @@ package by commit and reads this file before moving its pin. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Preserve encrypted custody across failed updates with exclusive staging files, atomic replacement without deleting the previous destination, file/Unix-directory flushing, cooperative file locks, and stale ingress snapshot refusal.
+- Preserve retained custody at capacity, reject volatile records at the disk boundary, validate restored identity/accounting/limits, and authenticate files before cleanup.
+- Make ingress acknowledgement failures observable: `drain_in_order` now returns `Result`; add non-consuming polling and explicit durable acknowledgement so consumers can settle work before releasing it.
+- Retain original outbound frames and sequence reservations through transport failure or cancellation, serialize sends, preserve authenticated gap batches, and enforce wire/schema/padding boundaries.
+- Implement live runtime rekey and service transport handling, with key-transition and outbox capacity checks. This does not add initial network establishment or persisted manager restoration.
+- Redact payload-bearing diagnostics and correct the public media vocabulary and key-visualization palette.
+
+### Documentation and API scope
+
+- Replace claims of complete Python-to-Rust parity with an explicit current capability inventory. `PUBLIC_EXPORTS` is descriptive migration metadata, now including availability status and notes; it does not define aliases for missing Rust managers, backends, media types, or events.
+- Document current custody/ingress limits, fallible drain migration, service transport requirements, volatile manager state, consumer settlement, and unsupported native media/archive and protected-mode workflows.
+- Correct the protocol reference: received MTProto 2.0 padding must be 12 through 1024 bytes; TDLib's larger total encrypted-size buckets do not permit larger padding.
+- Preserve the historical migration receipt and Python feature notes as evidence, with explicit qualification that adapter counts and recorded gates are not proof of complete native runtime parity.
+
 ## [0.3.1] - 2026-11-27
+
+The migration announcement and Python feature notes below are historical. The current Rust scope and audit corrections are stated above and in [README.md](README.md). In particular, inventory totals do not establish that all baseline APIs or workflows are callable in Rust.
 
 ### Changed
 
-- Rewrote all 92 baseline source files from frozen Python commit `5b68ef95bacbcc6d520f960899fca58ad447e7ea` into pure Rust through `rust-anything 5.0.1` (`migration/019-rust-anything-receipt.json`), removing all PyO3 and Python runtime dependencies while enforcing `#![forbid(unsafe_code)]`.
+- Recorded migration adapter work for the 92-file frozen Python baseline `5b68ef95bacbcc6d520f960899fca58ad447e7ea` through `rust-anything 5.0.1` in `migration/019-rust-anything-receipt.json`. The Rust package removed PyO3/Python runtime dependencies and forbids unsafe code in its own crate. The inventory is not a complete feature-parity proof, and mozjpeg remains a native C dependency.
 - Synced vendored `Lonami/grammers` crates under `vendor/grammers/` to upstream commit `11e13a989a754f9cf01a798480a2e20ce9e5b1fd` (Telegram API Layer 234, including TCP `nodelay`) while preserving local credentialed SOCKS5 and durable-ingress patches across 88 verified SHA-256 hashes.
-- Shipped standalone pure-Rust `check-test-matrix` and `generate-schema` maintenance binaries across 64-bit Linux (`x86_64`, `aarch64`) and 64-bit Windows (`x86_64`, `aarch64`) with protected-environment signing and build provenance attestation.
+- Added Rust `check-test-matrix` and `generate-schema` maintenance binaries with configured 64-bit Linux/Windows build, signing, and provenance workflows. Actual published assets and successful checks must be verified on their release revision.
 
-### Added
+### Historical Python feature notes
+
+These notes describe capabilities of the retired Python baseline. They are preserved for historical context and are not current Rust API documentation; several named managers and media/archive APIs below are unavailable in the Rust crate.
 
 - Opt-in strong-ingress contracts: `EncryptedIngressStorage`, `DurableIngress`,
   `IngressLimits`, `IngressBatch` and `StrongSecretChatManager`, plus a checksum-pinned

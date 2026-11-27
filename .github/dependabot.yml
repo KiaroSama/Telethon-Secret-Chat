@@ -3,6 +3,7 @@ version: 2
 updates:
   - package-ecosystem: cargo
     directories:
+      # Includes the three vendored transport workspace members and their tests.
       - "/"
       - "/tools/secret-scan"
     schedule:

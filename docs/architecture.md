@@ -1,194 +1,96 @@
-# Architecture and contracts
+# Current Rust architecture and contracts
 
-How the package is put together, and the contracts a caller, a storage backend or an event
-handler has to keep. The protocol itself is in [protocol-reference.md](protocol-reference.md)
-(cited here as §N); the settled design decisions are the ADRs in [adr/](adr/). Citations
-name a file and a symbol rather than a line, because lines move.
+This page describes the compiled Rust implementation. The retired Python package had broader managers, storage backends, media operations, and archive APIs. Historical ADRs and the [migration receipt](../migration/019-rust-anything-receipt.json) retain that context; they do not supply missing Rust behavior.
 
-The opt-in strong-ingress layer adds a checksum-pinned patched Telethon
-prerequisite, encrypted transactional ingress custody and protocol-applied cursors.
-It is not enabled by the ordinary manager or by installing the optional `strong`
-dependency. Public preparation verifies exact prerequisite provenance and protected
-checkpoint binding. Lifecycle/fault and installed-wheel CI passed on
-`f52dd57fa06445875164d45475f29b881a70bdee`; independent source review completed and PR26 merged. Existing bounded-mode post-Raw guarantees are
-not silently upgraded. See [strong-ingress contract](strong-ingress.md).
+## Module boundaries
 
-## 1. Module map
+| Module | Responsibility and boundary |
+| --- | --- |
+| [protocol.rs](../src/protocol.rs) | Live chat keys, layers, sequence state, authenticated frames, gap queues, and batch acceptance. No manager restart serialization. |
+| [ported/rekey.rs](../src/ported/rekey.rs) | Runtime DH configuration and RequestKey/AcceptKey/CommitKey/Noop exchange, collision/abort handling, key selection, and retirement. Also contains historical adapter helpers. |
+| [manager.rs](../src/manager.rs) | In-memory chat registry, retained outbox, per-chat operation coordination, transport calls, and queued events. |
+| [custody.rs](../src/custody.rs) | Payload-count/byte limits and encrypted snapshots of custody records. Not a protocol storage backend. |
+| [ingress.rs](../src/ingress.rs) | Opaque ingress record capture, duplicate identities, sorted polling, durable acknowledgement, and reconstruction of that container. |
+| [storage_file.rs](../src/storage_file.rs) | Shared private file locking, bounded reads, exclusive temporary creation, flushing, and atomic replacement. |
+| [export.rs](../src/export.rs) | Reusable formatting, URL/MIME, ICC, and JPEG-related helpers. No full saved-chat archive reader/writer. |
+| [lifecycle.rs](../src/lifecycle.rs) | Wrappers around selected action, history, lock-check, and temporary-file adapter behavior. These are not complete runtime lifecycle subsystems. |
+| [public_api.rs](../src/public_api.rs) | Historical-name metadata with explicit availability status. Not type aliases or Rust re-exports. |
 
-Dependencies point inward: the protocol modules at the top know nothing of the manager, the
-manager composes them, and only the manager's parts (`manager.py`, `establishment.py`,
-`outbox.py`) and `files.py` call Telethon's client.
+The Rust package has no Python runtime. The JPEG dependency uses native mozjpeg C code, and dependencies may contain unsafe code. The crate-level unsafe prohibition is scoped to this crate.
 
-| Module | Responsibility | Protocol |
-|---|---|---|
-| `dh.py` | validate Diffie-Hellman parameters and peer values before any exponentiation | §1.2 |
-| `handshake.py` | the secret, the public value, the shared key, the fingerprint check; no network | §1.3-§1.6 |
-| `crypto.py` | MTProto 2.0 frame: padding, `msg_key`, the vendored KDF, `encrypt_frame` / `decrypt_frame` with §2.7's checks | §2 |
-| `framing.py` | `decryptedMessageLayer` wrap/unwrap, the layer arithmetic, the `seq_no` transform | §3.1-§3.4, §7 |
-| `entities.py` | maps Telethon's message entities to the secret-chat schema, by the peer's layer | §7 |
-| `sequence.py` | receive-side ordering: replay drop, gap queue, resend answers, acknowledgement | §3.4-§3.7 |
-| `actions.py` | the thirteen service actions: outbound constructors and inbound handling | §5 |
-| `rekey.py` | the four-message key exchange and the two-key window | §4 |
-| `files.py` | one-time file keys, file encryption, the eight media kinds, `send` / `receive` / `forward` | §6 |
-| `media.py` | media metadata checks, send sources (path, bytes, stream), `MediaReference` | §6 |
-| `visualization.py` | `key_visualization`: the key picture as a colour grid and hex (standard library only) | §1.6 |
-| `autosave.py` | auto-save: every message and file of every chat into an application folder (spec 009) | - |
-| `saved_export.py` | offline saved-export input validation and writer selection; no client calls | — |
-| `tdexport/` | unchanged shared Desktop v7.2.10 port, saved-record adapter, assets and image conversion | — |
-| `ogg_tags.py` | voice note or music: reads the Ogg comment block, never the audio | — |
-| `chat.py` | the `SecretChat` entity, its state table and record validation | — |
-| `storage/` | `StorageBackend` and the two shipped backends | — |
-| `events.py` | the event dataclasses | — |
-| `errors.py` | the `SecretChatError` family | — |
-| `host.py` | `ManagerHost`: the state and steps the mixins share, declared for the type checker | — |
-| `locking.py` | `ChatLocking` mixin: the per-chat lock, the outbound-order lock, `_atomic` | — |
-| `dispatch.py` | `EventDispatch` mixin: handler registration and isolated callback dispatch | — |
-| `outbox.py` | `RetainedOutbox` mixin: send, transmit, retry and rewrite retained outgoing records | §3.7, §3.8 |
-| `establishment.py` | `Establishment` mixin: create, accept, the encryption updates, discard | §1.3-§1.6 |
-| `receive.py` | `Receiving` mixin: update dispatch, decryption, sequence checks, the delivery mailbox | §2.7, §3 |
-| `manager.py` | `SecretChatManager(ChatLocking, EventDispatch, RetainedOutbox, Establishment, Receiving)`: the public API and lifecycle | — |
-| `schema/secret_tl.py` | generated from `schema/end-to-end.tl` by `tools/generate_schema.py`; never edited | — |
+## Transport and establishment
 
-## 2. Locks and transactions
+The caller owns the authenticated client and implements `SecretTransport`. The crate re-exports grammers crates for integration, but does not automatically implement the adapter, manage login, install update handlers, or recover transport state.
 
-- **Per-chat lock.** `ChatLocking._chat_lock(chat_id)` is an `asyncio.Lock` per chat,
-  re-entrant for the task that holds it (the owner is recorded in `_lock_owners`). Every
-  public operation that changes a chat, and both update handlers, run under it through the
-  `serialized` decorator. Chats do not block each other.
-- **Atomic step.** `ChatLocking._atomic(chat)` opens one storage transaction, saves the
-  whole chat record at the end of it, and on any exception restores the in-memory entity
-  from a deep copy taken on entry. Memory and storage therefore move together or not at all.
-- **No await inside a transaction.** Storage transactions are synchronous; the network call
-  always happens after the commit (`outbox._send` commits the frame, the counter and the
-  retained record, then calls `_transmit`). A crash between the two leaves a `pending`
-  record that `retry_pending` sends with its original bytes and `random_id`.
-- **Outbound order.** Public sends also take a per-chat outbound-order lock
-  (`ChatLocking._outbound_lock`, the `ordered` decorator), always before the chat lock and
-  never on the receive path. A file upload holds only that lock, so the chat keeps
-  receiving while it uploads, and a text sent meanwhile still lands after the file.
-- **Update dispatch.** Telethon runs update handlers as concurrent tasks;
-  `receive._on_update` reaches the chat lock with no await before it, which keeps updates
-  FIFO per chat.
+The manager starts an existing chat through `register_established_chat`, using caller-supplied identifiers, role, and shared key. Arithmetic and validation helpers support DH, but the initial network request/accept handshake is not a public manager workflow. Applications must not treat key installation as proof that the corresponding server-side handshake or authorization binding was verified.
 
-## 3. The storage contract
+Protocol service messages require `SecretTransport::send_encrypted_service` and Telegram's `messages.sendEncryptedService` RPC. The trait's default implementation refuses service delivery; a caller adapter must implement it. Ordinary message and discard RPCs remain separate operations.
 
-`StorageBackend` (`storage/__init__.py`) is the only thing a custom backend implements. Every
-method is atomic on its own; `transaction()` makes a group of them atomic together.
+## Live protocol behavior
 
-| Method | Promise |
-|---|---|
-| `transaction()` | synchronous context manager; all changes inside commit together or roll back, both the durable state and the backend's in-memory view. Nested scopes must work. Reads inside it see its own uncommitted writes. |
-| `_commit(chat_id, record)` | make one complete record visible within the current transaction. Private-named but abstract: it is the method to implement; `save()` calls it with a deep copy. |
-| `load(chat_id)` | the full record as a detached copy, or `None` |
-| `delete(chat_id)` | remove the record AND both queues, atomically |
-| `list()` | every chat id held |
-| `queue_out(chat_id, item)` | upsert one retained outgoing record, keyed by `seq_no` |
-| `drop_out(chat_id, up_to_seq)` | forget acknowledged outgoing records, inclusive |
-| `retained_out(chat_id)` | detached retained records in `seq_no` order |
-| `queue_in(chat_id, item)` | keep the first copy of a gap message; a duplicate `seq_no` must not grow storage |
-| `take_in(chat_id)` | drain the gap queue in order |
-| `requeue_in(chat_id, items)` | put still-waiting gap records back; the default queues them one by one |
-| `load_setting(name)` / `save_setting(name, value)` | a manager-wide setting (the auto-save folder); the default keeps it for the process only, the shipped backends persist it |
-| `peek_in(chat_id)` | inspect the gap queue without consuming it. The default is take-and-requeue inside a transaction, and it runs on EVERY received message (`sequence.preflight`), so a native backend should override it. |
+The protocol core authenticates the encrypted frame before applying sequence/layer effects. It enforces wrapper and TL boundaries, sender parity, acknowledgement bounds, replay checks, and separate peer capability versus wrapper-layer monotonicity. Authentication failures do not justify trusting decoded fields.
 
-Every read returns a detached copy; a caller mutating it must not change stored state.
+Out-of-order authenticated frames are retained within finite gap bounds. Filling a hole may make several messages ready. Use `receive_encrypted_frames` at the protocol layer or `receive_frames` at the manager layer to observe the whole batch. A compatibility single-message receive method cannot communicate an arbitrary batch through one return value.
 
-**Record shape.** `SecretChat.to_record()` emits every name in `SecretChat._FIELDS` plus
-`state`. Values are `None`, `bool`, `int`, `float`, `str`, `list`, `dict` and **`bytes`**
-(the keys, the key hash), and some integers are **2048-bit** (`dh_prime`, `exchange_secret`,
-`handshake["secret"]`): a SQL `INTEGER` cannot hold them. `FileStorage` writes JSON and tags
-bytes as `{"__bytes__": "<hex>"}` (`FileStorage._encode` / `_decode`).
+The runtime retains resend state and distinguishes protocol actions that must be handled immediately from ordinary gap-delayed delivery. Unsatisfiable retransmission and authenticated fatal protocol violations fail closed. Receiving ciphertext is not equivalent to acknowledging application delivery.
 
-Retained outgoing records (`outbox._send`) hold `seq_no`, `body` (hex wrapper),
-`frame` (hex ciphertext), `random_id`, `pending`, `method` (`message`, `service`, `file`),
-`file` (hex `InputEncryptedFile`) and, after a rejected protocol message, `failures`. `outbox._transmit` uses `seq_no` plus **`body` equality**
-as the record's identity, to tell whether a nested receive already replaced or removed it.
-Gap records (`sequence.pack`) hold `seq_no`, `body` and `file`.
+Runtime rekey support includes configured DH validation, signed exchange-ID collision resolution, RequestKey/AcceptKey/CommitKey/Noop actions, and active/pending/previous key handling. A correctly authenticated pending-key message can confirm a switch when a Commit message is delayed. Sequence counters survive a key change. Previous keys retire only under the implemented confirmation and gap conditions. The protocol exposes a rekey trigger based on message use and age; the manager coordinates service frames with its retained outbox. Initial network establishment and durable reconstruction of an in-progress exchange remain separate, unsupported workflows.
 
-**The shipped backends.** `MemoryStorage` keeps one state dict and snapshots it on
-entry to the outermost transaction. `FileStorage` extends it with a whole-state replace: every outermost
-commit serializes the whole store to a temporary file in the same directory, fsyncs it and
-`os.replace`s it over the store (plus a directory fsync on POSIX). It is one-process storage,
-not a lock between processes, and it is not encrypted at rest. Opening it deletes
-inactive, PID-owned `.secret-chat-store-<pid>-*.tmp` files. Cleanup preserves active,
-unqueryable and legacy owners; a filename prefix alone is not evidence of a crash.
-The same ownership registry protects decrypted-file writes in `files.save`.
+Call `configure_chat_dh` with the original validated parameters before the automatic threshold. `start_rekey` initiates an exchange explicitly; `send_service_action` accepts supported conversation actions while the state machine owns rekey and recovery actions. Missing required DH parameters fail closed rather than allowing indefinite use of a key. Automatic age evaluation happens during operations, not in a background timer.
 
-## 4. The event contract
+The protocol rules and supporting sources are in [protocol-reference.md](protocol-reference.md). That reference is broader than the implemented product surface; it is not a feature checklist.
 
-Eight events (`events.py`), each naming its chat and carrying a shape, never a key, a
-plaintext or a wire object: `ChatRequested`, `ChatReady`, `ChatClosedEvent`,
-`MessageReceived`, `MessageAcknowledged`, `ServiceActionReceived`, `DecryptFailed` and
-`SendFailed` (Telegram rejected a sent message for good; it was withdrawn as a §3.8
-self-delete).
+## Locks, sends, and cancellation
 
-- **Registration** (`dispatch.EventDispatch.on`): by class name; `"ChatClosed"` is an alias
-  for `ChatClosedEvent`. An event with no handler is dropped.
-- **Handlers before `start()`.** `start()` re-emits `ChatRequested` for pending requests and
-  drains every chat's delivery mailbox immediately.
-- **Delivery mailbox.** A received message is accepted into `chat.pending_deliveries` in the
-  same transaction that advances the counters (`receive._on_encrypted_message`), and
-  `_drain_deliveries` emits it and only then pops it in a new transaction. A crash in between
-  delivers it again after restart: **at-least-once** for synchronous handlers. A stored item
-  that no longer parses is dropped with a `DecryptFailed`, so it cannot hold the rest back.
-- **Asynchronous handlers** are scheduled as owned tasks (`EventDispatch._emit`); the item is
-  popped once the task is scheduled, so a crash can lose it. `stop()` cancels and drains
-  those tasks.
-- **Isolation.** A handler's exception is logged by the handler's name only and never
-  interrupts the transition that emitted the event.
-- **Order.** Per chat, `MessageReceived` follows conversation order (`seq_no`), and
-  `MessageAcknowledged` for a received message is emitted before its delivery.
+Each chat has a state mutex and a separate outbound-order mutex. Outbound serialization prevents concurrent sends from reserving the same sequence or overtaking earlier pending traffic. State changes do not hold the chat state mutex over network I/O, so receive processing and unrelated chats can progress.
 
-## 5. States
+Before a send awaits transport, its original ciphertext, random ID, and sequence reservation are retained in RAM. An uncertain transport result or cancellation does not roll back the possibly delivered sequence. Retrying uses the original bytes and identity. Successful RPCs remain retained until authenticated peer acknowledgement releases them.
 
-`chat._TRANSITIONS`:
+These are memory transitions, not disk transactions. The manager does not call `CustodyStore` or `DurableIngressController` to make its complete state durable. Losing the process loses its keys, live exchange state, outbox, gaps, and events unless the caller supplies a separately designed and verified integration.
 
-| From | To |
-|---|---|
-| `requested` (this side asked) | `ready`, `closed` |
-| `pending` (the peer asked) | `ready`, `closed` |
-| `ready` | `rekeying`, `closed` |
-| `rekeying` | `ready`, `closed` |
-| `closed` | — (terminal) |
+Manager close and shutdown are terminal for that manager instance. They do not undo an RPC that has already crossed the transport boundary. Caller-owned futures and external side effects require caller coordination; the manager does not claim a general hard cancellation deadline.
 
-Sending works in `ready` and `rekeying` (`SecretChat.require_sendable`). Every state write
-goes through the table (`SecretChat.transition_to`); only `close` and loading a record set
-`state` directly.
+## Events and application settlement
 
-**Terminal means terminal.** A closed chat is never reopened, and a restart is no loophole:
-the record loads closed. The failures that close a chat are integrity failures, and going on
-would mean trusting the counters that just failed.
+Events are queued in memory and removed by `drain_events`. Acceptance and event insertion avoid an intervening cancellation point, but event draining is not transactional with an application's database or remote send.
 
-**Key and fingerprint are one unit.** `SecretChat.adopt_key` is the only writer of both, and
-a record stores them together, so no record pairs a key with another key's fingerprint.
+`SecretEvent` includes chat-ready/closed, ordinary message, service-action, and peer-acknowledgement events. An inbound transition and its events can commit in RAM before an automatic service reply encounters a transport failure. `receive_frames` then returns `SendPending` while the reply remains retained. `drain_events` is the authoritative notification queue for that accepted inbound result; retry the original reply with `retry_pending` rather than assuming the input was never applied.
 
-**Closing.** `SecretChat.close` keeps the first reason and clears every key, the exchange
-secret, the handshake and the mailbox; `manager._close_local` also deletes both queues and
-re-saves the scrubbed record. The closed record stays as a **tombstone**, so a duplicate
-request for the same id cannot revive the chat, until `forget(chat_id)` removes it.
+The registered-chat map and event queue do not have a global capacity budget. The caller must bound registrations and regularly drain/process events. Registered IDs, including closed-chat tombstones, remain until the manager is dropped; there is no public per-entry forgetting API. Bound manager-instance ownership accordingly. Per-chat outbox and protocol gap limits do not bound the total process, third-party transport queues, consumer callbacks, or operating-system memory.
 
-## 6. Extension points
+Peer sequence acknowledgement, server send acceptance, the application's durable result, a durable-ingress acknowledgement, and a user read receipt have distinct meanings. The caller must establish its own idempotency and settlement mapping for external relays. No read receipt or cloud-send policy follows from draining an event.
 
-- **A storage backend.** Subclass `StorageBackend`, implement the abstract methods with the
-  database's own transaction (never compensating writes), override `peek_in`, and store
-  `bytes` and big integers losslessly.
-- **History.** `read_history` is an in-memory convenience bounded by `history_limit`.
-  Ordinary `FileStorage` managers default to the existing auto-save archive beside the state
-  file when no saved preference exists; explicit OFF/folders override initialization. Their
-  protocol mailbox/outbox/gaps resume after restart, unlike explicit transient handling. An
-  application needing its own durable history may instead keep it from `MessageReceived`;
-  [design/cutover-history.md](design/cutover-history.md) describes the media reference to
-  store with it.
-- **Media kinds.** `MEDIA_KINDS` and `CAPTIONLESS_KINDS` (`files.py`) are the vocabulary
-  `send_file(kind=...)` accepts; a mismatch between kind and file type is refused, never
-  converted.
-- **Text parsing.** `send_message` uses the client's parse mode through the private
-  Telethon method `TelegramClient._parse_message_text`, guarded by
-  `tests/unit/test_telethon_canary.py`; passing `entities=` bypasses it.
-- **Transient handling.** The opt-in manager reads the caller's public
-  `client.session.auth_key.key_id` and `client.session.dc_id` for authorization binding;
-  `tests/unit/test_transient_lifecycle.py` pins that surface without connecting. No
-  session serialization or private update-box mutation is used. Its strict protected
-  projection and non-resumable suspension boundary are in [transient mode](transient-mode.md)
-  and [ADR 0007](adr/0007-transient-payload-refusal.md); ordinary durable backend semantics
-  and the default manager remain unchanged.
+## Encrypted stores
+
+Both stores require an absolute filename whose parent directory exists. They serialize an authenticated AES-256-GCM envelope, retain the caller-supplied key in a zeroizing wrapper, and reject invalid or inconsistent restored records. Debug output omits payloads and caller-supplied identifying text.
+
+The file update sequence is:
+
+1. Acquire the persistent sibling `.lock` file's operating-system lock.
+2. Validate the current store or, for ingress, verify its expected snapshot revision.
+3. Create a unique sibling staging file with exclusive creation and restrictive Unix permissions.
+4. Write and flush the complete encrypted envelope.
+5. Rename over the destination without first unlinking it.
+6. Flush the parent directory on Unix, then adopt the new in-memory state.
+
+A failure before replacement preserves the prior snapshot. A failure after replacement but before confirmed directory durability leaves an uncertain outcome; the store refuses further operations until reopening and reconciliation. Standard file flushing does not imply a guarantee against every filesystem, storage-controller, or power-loss failure.
+
+Locks coordinate cooperating library operations. They are not an authorization system for a directory writable by an adversary. Keep the parent directory private and configure Windows ACLs. The lock sidecar is intentionally not removed while other handles may use it. Temporary cleanup removes only files the current operation created; crash leftovers require deliberate offline maintenance.
+
+Custody cleanup authenticates the store before deleting it, and preserves unrelated or unauthenticated files. Neither cleanup nor zeroization promises physical erasure.
+
+See [bounded custody](bounded-mode.md) and [ingress storage](strong-ingress.md) for their exact data models, ceilings, acknowledgement semantics, and API migration notes.
+
+## What restoration does not mean
+
+A reconstructed custody record contains payloads, limits, authorization text, and a pause flag. It does not contain a complete `SecretChat`.
+
+A reconstructed ingress controller contains captured opaque records and deduplication identities. It does not verify a Telegram baseline, install qts acknowledgement barriers, apply secret-protocol state transactionally, or maintain a contiguous applied cursor. Sorting currently pending records cannot establish that no earlier update is missing.
+
+Consequently, neither API is a replacement for the retired `StorageBackend`, `FileStorage`, `ProtectedFileStorage`, `BoundedSecretChatManager`, `TransientSecretChatManager`, or `StrongSecretChatManager`. Those names in a historical inventory are not importable Rust compatibility types.
+
+## Verification and historical evidence
+
+Use `cargo test --locked --all-targets`, strict Clippy, formatting checks, and the CI result for the exact commit. Tests exercise native code, synthetic transport failures/cancellation, storage fault boundaries, protocol vectors, and export goldens. Fixture coverage is not a live Telegram or consumer deployment result.
+
+The migration receipt is preserved verbatim as a historical record of reported adapter gates and symbol reconciliation. Its totals do not establish complete native feature coverage, and a test that checks nonempty path strings cannot prove those paths resolve or preserve behavior. The current public inventory identifies those gaps explicitly, while compile-checked tests exercise concrete Rust items.

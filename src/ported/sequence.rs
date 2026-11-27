@@ -34,6 +34,17 @@ impl Frame {
             .as_str()
             .ok_or("TypeError: body must be hexadecimal text")?;
         let parsed = schema::decode_object(body.to_owned(), "DecryptedMessageLayer".into(), 0)?;
+        let encoded_length = body
+            .bytes()
+            .filter(|byte| !byte.is_ascii_whitespace())
+            .count();
+        if parsed["position"]
+            .as_u64()
+            .and_then(|size| size.checked_mul(2))
+            != Some(encoded_length as u64)
+        {
+            return Err("ValueError: trailing bytes after the wrapper".into());
+        }
         let fields = &parsed["object"]["fields"];
         Ok(Self {
             input: integer(fields, "in_seq_no")?,
