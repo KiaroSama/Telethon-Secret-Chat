@@ -22,7 +22,7 @@
 
 </div>
 
-`kiaro-secret-chat` adds Telegram MTProto 2.0 secret chats to a caller-owned [grammers](https://codeberg.org/Lonami/grammers) client in pure Rust. The crate version is `0.3.0` (`kiaro_secret_chat` in Rust), with zero Python runtime and zero PyO3 dependencies.
+`kiaro-secret-chat` adds Telegram MTProto 2.0 secret chats to a caller-owned [grammers](https://codeberg.org/Lonami/grammers) client in pure Rust. The crate version is `0.3.1` (`kiaro_secret_chat` in Rust), with zero Python runtime and zero PyO3 dependencies.
 
 ## Features
 

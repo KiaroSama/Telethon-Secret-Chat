@@ -7,6 +7,14 @@ package by commit and reads this file before moving its pin. The format follows
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-27
+
+### Changed
+
+- Rewrote all 92 baseline source files from frozen Python commit `5b68ef95bacbcc6d520f960899fca58ad447e7ea` into pure Rust through `rust-anything 5.0.1` (`migration/019-rust-anything-receipt.json`), removing all PyO3 and Python runtime dependencies while enforcing `#![forbid(unsafe_code)]`.
+- Synced vendored `Lonami/grammers` crates under `vendor/grammers/` to upstream commit `11e13a989a754f9cf01a798480a2e20ce9e5b1fd` (Telegram API Layer 234, including TCP `nodelay`) while preserving local credentialed SOCKS5 and durable-ingress patches across 88 verified SHA-256 hashes.
+- Shipped standalone pure-Rust `check-test-matrix` and `generate-schema` maintenance binaries across 64-bit Linux (`x86_64`, `aarch64`) and 64-bit Windows (`x86_64`, `aarch64`) with protected-environment signing and build provenance attestation.
+
 ### Added
 
 - Opt-in strong-ingress contracts: `EncryptedIngressStorage`, `DurableIngress`,

@@ -341,7 +341,7 @@ jobs:
               throw 'Signature verification failed'
             }
             $hash = (Get-FileHash $dest -Algorithm SHA256).Hash.ToLowerInvariant()
-            "$hash *$archive" | Set-Content -Encoding ascii "$dest.sha256"
+            [IO.File]::WriteAllText("$dest.sha256", "$hash *$archive`n", [Text.ASCIIEncoding]::new())
           } finally {
             Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
           }
@@ -411,7 +411,8 @@ jobs:
           done
           (
             cd release
-            sha256sum -- * > SHA256SUMS
+            sha256sum -- * > "$work/SHA256SUMS"
+            mv "$work/SHA256SUMS" SHA256SUMS
             openssl dgst -sha256 -sign "$work/key.pem" -out SHA256SUMS.sig SHA256SUMS
             openssl dgst -sha256 -verify publisher-key.pem -signature SHA256SUMS.sig SHA256SUMS
             sha256sum --strict -c SHA256SUMS
