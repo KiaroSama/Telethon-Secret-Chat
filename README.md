@@ -22,18 +22,18 @@
 
 </div>
 
-`Grammers Secret Chat` (`kiaro-secret-chat`) is a pure-Rust implementation of Telegram's MTProto 2.0 end-to-end encrypted secret chats designed for applications that already own an authenticated [`grammers`](https://codeberg.org/Lonami/grammers) client. It never performs account login, never opens a second Telegram connection, forbids `unsafe` Rust across first-party source, and carries zero Python or PyO3 dependencies.
+`Grammers Secret Chat` (`kiaro-secret-chat`) implements Telegram's MTProto 2.0 end-to-end encrypted secret chats for applications that already own an authenticated [`grammers`](https://codeberg.org/Lonami/grammers) client. It reuses that client without performing account login or starting another client, forbids `unsafe` Rust across first-party source, and carries zero Python or PyO3 dependencies. Native image processing uses the `mozjpeg` C dependency.
 
 ## Features and module layout
 
 | Area | Modules | Capabilities |
 | --- | --- | --- |
 | Network transport & establishment | [src/transport/](src/transport/mod.rs), [src/establishment.rs](src/establishment.rs) | Caller-owned `GrammersTransport` over Layer 234 (`getDhConfig`, `requestEncryption`, `acceptEncryption`, `discardEncryption`, `sendEncrypted`, `sendEncryptedService`, `sendEncryptedFile`, `setEncryptedTyping`, `readEncryptedHistory`, encrypted file upload/download, `adapt_update`), full Diffie-Hellman validation, and 12x12 key visualization PNG rendering. |
-| Protocol core & PFS rekey | [src/protocol/](src/protocol/mod.rs), [src/ported/rekey.rs](src/ported/rekey.rs) | MTProto 2.0 encryption, `msg_key` KDF, sequence counters, gap queues, automatic and explicit PFS rekeying, previous-key sequence cutover, duplicate wrapper dedup before inner TL decode, and lossless runtime snapshots. |
-| Persistent & mode managers | [src/manager/](src/manager/mod.rs), [src/storage_backend/](src/storage_backend/mod.rs), [src/runtime_modes/](src/runtime_modes/mod.rs) | `PersistentSecretChatManager` (full restart continuation across `MemoryStorage`, `FileStorage`, and `ProtectedFileStorage`), `BoundedSecretChatManager`, RAM-only `TransientSecretChatManager` (permanent restart suspension), and `StrongSecretChatManager` with contiguous durable ingress cursor. |
+| Protocol core & PFS rekey | [src/protocol/](src/protocol/mod.rs), [src/ported/rekey.rs](src/ported/rekey.rs) | MTProto 2.0 encryption, `msg_key` KDF, sequence counters, gap queues, automatic and explicit PFS rekeying, previous-key sequence cutover, duplicate wrapper dedup before inner TL decode, and validated runtime snapshots. |
+| Persistent & mode managers | [src/manager/](src/manager/mod.rs), [src/storage_backend/](src/storage_backend/mod.rs), [src/runtime_modes/](src/runtime_modes/mod.rs) | `PersistentSecretChatManager` checkpoints established chats with file-backed restart continuation; `MemoryStorage` is process-local. Also includes `BoundedSecretChatManager`, RAM-only `TransientSecretChatManager` with permanent restart suspension, and `StrongSecretChatManager` with durable accepted batches and explicit consumer acknowledgement. |
 | Custody & durable ingress | [src/custody.rs](src/custody.rs), [src/ingress/](src/ingress/mod.rs), [src/storage_file.rs](src/storage_file.rs) | AES-256-GCM encrypted atomic file replacement, owner-bound custody stores, cooperative empty-lockfile integrity, strict duplicate-key serde rejection, stale-revision refusal, and explicit non-consuming polling + acknowledgement. |
-| Encrypted media | [src/media.rs](src/media.rs) | All 8 secret-chat media kinds (`photo`, `video`, `document`, `audio`, `voice_note`, `video_note`, `sticker`, `gif`), streaming AES-256-IGE + MD5 key fingerprint, Ogg Opus voice detection, zero-reupload forwarding, and atomic no-clobber downloads. |
-| Auto-save & archive export | [src/autosave.rs](src/autosave.rs), [src/export.rs](src/export.rs), [src/export_archive.rs](src/export_archive.rs) | Opt-in encrypted atomic `AutoSaveStore` independent of chat deletion, plus Telegram Desktop-compatible HTML and JSON archive export (`messages.html`, `result.json`, `assets/tdexport/` static files, media copies, ICC-to-sRGB JPEG thumbnails, strict HTML/URL sanitization). |
+| Encrypted media | [src/media.rs](src/media.rs) | Metadata for 8 media kinds (`photo`, `video`, `document`, `audio`, `voice_note`, `video_note`, `sticker`, `gif`), streaming AES-256-IGE, file key/IV fingerprint checks, Ogg Opus header detection, forwarding descriptors, and atomic no-clobber file saving. Applications compose these helpers with the transport RPCs; managers do not orchestrate media transfers. |
+| Auto-save & archive export | [src/autosave.rs](src/autosave.rs), [src/export.rs](src/export.rs), [src/export_archive.rs](src/export_archive.rs) | Explicit caller-driven `AutoSaveStore::record_message`, independently encrypted saved history, and Desktop-style HTML/JSON export of saved plain text and media records to a new or empty destination. Completed archives publish together; rich entities, service reconstruction, and archive append are outside this API. |
 | Maintenance utilities | [src/bin/check-test-matrix.rs](src/bin/check-test-matrix.rs), [src/bin/generate-schema.rs](src/bin/generate-schema.rs) | Deterministic CI matrix verification and secret-chat TL schema manifest generation. |
 
 ## Build and use
@@ -47,9 +47,11 @@ Add the crate to a Rust application by Git revision:
 kiaro-secret-chat = { git = "https://github.com/KiaroSama/Grammers-Secret-Chat.git", tag = "v0.4.0" }
 ```
 
+The immutable `v0.4.0` tag predates the unreleased audit corrections. To use reviewed corrections before their next release, pin the reviewed commit with `rev` instead of `tag`. Read the [integration and upgrade boundaries](docs/integration-boundaries.md), including the authorization binding `v2` change, before opening an existing store.
+
 ### Prebuilt signed binaries (no local build needed)
 
-Every GitHub Release publishes ready-to-download signed archives for all four 64-bit targets (`windows-x64`, `windows-arm64`, `linux-x64`, `linux-arm64`) along with `.sig` files, `SHA256SUMS`, `SHA256SUMS.sig`, and publisher verification material. Download the matching archive from [GitHub Releases](https://github.com/KiaroSama/Grammers-Secret-Chat/releases), verify its SHA-256 and RSA-SHA256 signature against [docs/signing/publisher.json](docs/signing/publisher.json), and place the utilities inside `bin/`.
+The protected release workflow packages the two maintenance utilities for four 64-bit targets (`windows-x64`, `windows-arm64`, `linux-x64`, `linux-arm64`). Inspect the selected [GitHub Release](https://github.com/KiaroSama/Grammers-Secret-Chat/releases) for its actual archives, `.sig` files, `SHA256SUMS`, `SHA256SUMS.sig`, and publisher verification material. Verify SHA-256 and RSA-SHA256 signatures against [docs/signing/publisher.json](docs/signing/publisher.json) before installing the utilities inside `bin/`. These utilities are separate from linking the Rust library into an application.
 
 ### Development checks
 
@@ -71,7 +73,7 @@ Maintenance binaries write structured UTC logs under `<launcher-root>/logs/<tool
 
 ## Verification and testing
 
-CI runs across 64-bit Linux (x64, arm64, MSRV 1.95, `portable-aes`), 64-bit Windows (x64, arm64), vendored `grammers` tests, standalone secret-scanner tests, source distribution validation, CodeQL Rust analysis, and non-skipped Gitleaks scanning on every push. Release tags additionally run protected `numera-signing` packaging across all four targets.
+The primary Rust workflow runs on every push, pull request, and merge group: 64-bit Linux (x64, arm64, MSRV 1.95, `portable-aes`), Windows (x64, arm64), vendored `grammers` tests, standalone scanner tests, and source distribution validation. Gitleaks checks pushes and pull requests. CodeQL Rust analysis checks `main` pushes, pull requests targeting `main`, and its scheduled/manual runs. Check the exact head commit's results before merging. Release tags additionally run protected `numera-signing` packaging across all four targets; ordinary test runs do not establish live Telegram interoperability or release signing.
 
 ## Author
 

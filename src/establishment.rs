@@ -101,6 +101,12 @@ impl EstablishedChat {
             seq * 2 + i64::from(self.chat.is_outbound()),
         )?);
         let frame = encrypt_frame(key.as_slice(), &body, self.chat.out_x())?;
+        if frame.len() > MAX_ENCRYPTED_FRAME_LEN {
+            return Err(rejected(
+                id,
+                "encrypted message exceeds the frame resource limit",
+            ));
+        }
         self.chat.set_out_seq_no(seq + 1);
         Ok(frame)
     }
@@ -115,6 +121,11 @@ impl<T: EstablishmentTransport> SecretChatEstablisher<T> {
         Self { transport }
     }
 
+    /// Request a chat and return ownership of its in-memory private exponent.
+    ///
+    /// Retain this future until it completes. Dropping it after RPC dispatch can
+    /// leave a remote request without its local exponent. A timeout that must
+    /// remain resumable should retain and resume the same pinned future.
     pub async fn request_chat(
         &self,
         peer_user_id: i64,
@@ -129,6 +140,7 @@ impl<T: EstablishmentTransport> SecretChatEstablisher<T> {
         let g_a = public_value(config.g, &a, &config.p, None)?;
         let mut random_id = [0; 4];
         fill_random(&mut random_id)?;
+        self.require_caller_identity(&caller_auth_id, None)?;
         let waiting = self
             .transport
             .request_encryption(
@@ -138,6 +150,7 @@ impl<T: EstablishmentTransport> SecretChatEstablisher<T> {
                 g_a.clone(),
             )
             .await?;
+        self.require_caller_identity(&caller_auth_id, None)?;
         match waiting {
             EncryptedChatWire::Waiting {
                 chat_id,
@@ -169,6 +182,10 @@ impl<T: EstablishmentTransport> SecretChatEstablisher<T> {
         }
     }
 
+    /// Consume a pending exchange using its matching active-chat update.
+    ///
+    /// Refusal also consumes and zeroizes the pending exponent. The caller owns
+    /// update routing and any required remote discard after a failed exchange.
     pub fn complete_outgoing_handshake(
         &self,
         mut pending: PendingOutgoingHandshake,
@@ -217,6 +234,11 @@ impl<T: EstablishmentTransport> SecretChatEstablisher<T> {
         })
     }
 
+    /// Accept a request while retaining the derived key in this future.
+    ///
+    /// Retain this future until it completes. Dropping it after RPC dispatch can
+    /// leave a remotely accepted chat without its local key. Initial exchanges
+    /// are not durable; the caller owns the future and the resulting chat state.
     pub async fn accept_chat(
         &self,
         requested: &EncryptedChatWire,
@@ -250,10 +272,12 @@ impl<T: EstablishmentTransport> SecretChatEstablisher<T> {
         let key = shared_key(g_a, &b, &config.p, id)?;
         drop(b);
         let fingerprint = key_fingerprint(key.as_slice())?;
+        self.require_caller_identity(&caller_auth_id, id)?;
         let active = self
             .transport
             .accept_encryption(*chat_id, *access_hash, g_b, fingerprint)
             .await?;
+        self.require_caller_identity(&caller_auth_id, id)?;
         let EncryptedChatWire::Active {
             chat_id: active_id,
             access_hash: active_hash,
@@ -319,6 +343,20 @@ impl<T: EstablishmentTransport> SecretChatEstablisher<T> {
             return Err(rejected(None, "transport has no authorization binding"));
         }
         Ok(identity.to_owned())
+    }
+
+    fn require_caller_identity(
+        &self,
+        expected: &str,
+        chat_id: Option<i64>,
+    ) -> Result<(), SecretChatError> {
+        if self.transport.auth_identity() != expected {
+            return Err(rejected(
+                chat_id,
+                "caller authorization binding changed during establishment",
+            ));
+        }
+        Ok(())
     }
 
     async fn dh_config(&self, chat_id: Option<i64>) -> Result<DhConfigData, SecretChatError> {

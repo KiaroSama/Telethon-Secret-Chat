@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -162,7 +163,7 @@ pub struct TransientSecretChatManager<T: SecretTransport, S: SecretChatStore> {
     inner: SecretChatManager<T>,
     transport: Arc<T>,
     markers: S,
-    active_ttls: Mutex<BTreeMap<i32, i32>>,
+    active_chats: Mutex<BTreeSet<i32>>,
 }
 
 impl<T: SecretTransport, S: SecretChatStore> TransientSecretChatManager<T, S> {
@@ -177,14 +178,14 @@ impl<T: SecretTransport, S: SecretChatStore> TransientSecretChatManager<T, S> {
             inner: SecretChatManager::with_limits(transport.clone(), limits)?,
             transport,
             markers,
-            active_ttls: Mutex::new(BTreeMap::new()),
+            active_chats: Mutex::new(BTreeSet::new()),
         })
     }
 
     pub async fn register_chat(&self, record: PersistedChatRecord) -> Result<()> {
-        let mut active = self.active_ttls.lock().await;
+        let mut active = self.active_chats.lock().await;
         let id = record.chat_id;
-        if active.contains_key(&id) {
+        if active.contains(&id) {
             return Err(SecretChatError::Protocol(
                 "transient chat is already registered",
             ));
@@ -201,13 +202,13 @@ impl<T: SecretTransport, S: SecretChatStore> TransientSecretChatManager<T, S> {
         // Persist the marker before making the RAM-only chat usable.
         self.markers.mark_transient_suspended(id)?;
         self.inner.restore_chat(chat, Vec::new()).await?;
-        active.insert(id, record.ttl);
+        active.insert(id);
         Ok(())
     }
 
     async fn active_ttl(&self, id: i32) -> Result<i32> {
-        if let Some(&ttl) = self.active_ttls.lock().await.get(&id) {
-            return Ok(ttl);
+        if self.active_chats.lock().await.contains(&id) {
+            return self.inner.chat_ttl(i64::from(id)).await;
         }
         if self.markers.is_transient_suspended(id)? {
             return Err(SecretChatError::Protocol(SUSPENDED));
@@ -228,7 +229,7 @@ impl<T: SecretTransport, S: SecretChatStore> TransientSecretChatManager<T, S> {
     }
 
     pub async fn close_and_forget(&self, id: i32, delete_history: bool) -> Result<()> {
-        let active = self.active_ttls.lock().await.remove(&id).is_some();
+        let active = self.active_chats.lock().await.remove(&id);
         if !active && !self.markers.is_transient_suspended(id)? {
             return Err(unknown(id));
         }
@@ -329,10 +330,13 @@ impl<T: SecretTransport, S: SecretChatStore> StrongSecretChatManager<T, S> {
     }
 
     pub async fn acknowledge_delivery(&self, id: i32, seq_no: i64) -> Result<bool> {
-        self.ingress
-            .lock()
-            .await
-            .acknowledge_contiguous(&Self::stream_id(id), seq_no)
+        let mut ingress = self.ingress.lock().await;
+        let stream = Self::stream_id(id);
+        let acknowledged = ingress.acknowledge_contiguous(&stream, seq_no)?;
+        // Settle the durable cursor first; retries can finish receipt cleanup.
+        let cursor = ingress.applied_cursor(&stream)?;
+        self.persistent.settle_retained_deliveries(id, cursor)?;
+        Ok(acknowledged)
     }
 
     /// Apply a durably captured frame for a single chat. Polling and replay never settle it.
@@ -341,7 +345,9 @@ impl<T: SecretTransport, S: SecretChatStore> StrongSecretChatManager<T, S> {
         let stream = Self::stream_id(id);
         let record = {
             let mut ingress = self.ingress.lock().await;
-            let next = ingress.applied_cursor(&stream)?.checked_add(1);
+            let cursor = ingress.applied_cursor(&stream)?;
+            self.persistent.settle_retained_deliveries(id, cursor)?;
+            let next = cursor.checked_add(1);
             if next != Some(order) {
                 return Err(SecretChatError::Protocol(
                     "delivery is not next in contiguous order",
@@ -358,7 +364,9 @@ impl<T: SecretTransport, S: SecretChatStore> StrongSecretChatManager<T, S> {
                     "next verified delivery is missing",
                 ))?
         };
-        self.persistent.handle_incoming(id, &record.payload).await
+        self.persistent
+            .handle_incoming_retained(id, order, &record.payload)
+            .await
     }
 
     /// Close and tombstone a chat, discarding any stale pending ingress for its stream
@@ -399,7 +407,11 @@ impl<T: SecretTransport, S: SecretChatStore> StrongSecretChatManager<T, S> {
                     outcome.deferred_not_ready.push((id, next));
                 }
                 Some(crate::protocol::ChatState::Ready) => {
-                    let next = self.ingress.lock().await.applied_cursor(&stream)? + 1;
+                    let cursor = self.ingress.lock().await.applied_cursor(&stream)?;
+                    self.persistent.settle_retained_deliveries(id, cursor)?;
+                    let Some(next) = cursor.checked_add(1) else {
+                        continue;
+                    };
                     let candidate = self
                         .ingress
                         .lock()
@@ -411,7 +423,11 @@ impl<T: SecretTransport, S: SecretChatStore> StrongSecretChatManager<T, S> {
                             rec.order == next && rec.provenance == IngressOrigin::VerifiedTransport
                         });
                     if let Some(rec) = candidate {
-                        match self.persistent.handle_incoming(id, &rec.payload).await {
+                        match self
+                            .persistent
+                            .handle_incoming_retained(id, rec.order, &rec.payload)
+                            .await
+                        {
                             Ok(messages) => outcome.applied.push((id, rec.order, messages)),
                             Err(
                                 SecretChatError::ChatClosed { .. }

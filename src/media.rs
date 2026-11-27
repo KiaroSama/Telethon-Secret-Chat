@@ -17,6 +17,8 @@ use crate::{errors::SecretChatError, public_api::CAPTIONLESS_KINDS, storage_file
 
 const BLOCK: usize = 16;
 const CHUNK: usize = 64 * 1024;
+// Match the ciphertext limit enforced by the current Telegram transport.
+const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -370,6 +372,12 @@ pub fn build_forward_media_descriptor(
     new_caption: Option<String>,
 ) -> Result<MediaAttachmentDescriptor, SecretChatError> {
     original.key.verify()?;
+    if original.file_id == 0 || original.dc_id <= 0 {
+        return Err(parameter("invalid encrypted file location"));
+    }
+    if original.size_bytes == 0 || padded_size(original.size_bytes)? > MAX_FILE_BYTES {
+        return Err(parameter("invalid encrypted media size"));
+    }
     let caption = new_caption.filter(|text| !text.is_empty());
     if caption.is_some() && !original.kind.allows_caption() {
         return Err(parameter("this secret media kind does not allow captions"));
@@ -395,16 +403,56 @@ pub fn detect_voice_note(bytes: &[u8], mime_type: &str) -> bool {
     {
         return false;
     }
-    let Some(lacing) = bytes.get(26).map(|&count| 27 + usize::from(count)) else {
+    if !complete_opus_header(bytes) {
+        return false;
+    }
+    crate::ported::ogg_tags::looks_like_voice(bytes[..bytes.len().min(CHUNK)].to_vec())
+        .ok()
+        .and_then(|value| value.as_bool())
+        == Some(true)
+}
+
+fn complete_opus_header(bytes: &[u8]) -> bool {
+    let Some(&segments) = bytes.get(26) else {
         return false;
     };
-    bytes
-        .get(lacing..)
-        .is_some_and(|payload| payload.starts_with(b"OpusHead"))
-        && crate::ported::ogg_tags::looks_like_voice(bytes[..bytes.len().min(CHUNK)].to_vec())
-            .ok()
-            .and_then(|value| value.as_bool())
-            == Some(true)
+    let start = 27 + usize::from(segments);
+    let Some(lacing) = bytes.get(27..start) else {
+        return false;
+    };
+    // RFC 7845 requires the complete identification packet alone on its first
+    // page. Follow its lacing boundary, not bytes from the following packet.
+    let Some((&last, previous)) = lacing.split_last() else {
+        return false;
+    };
+    if last == 255 || previous.iter().any(|&size| size != 255) {
+        return false;
+    }
+    let length: usize = lacing.iter().map(|&size| usize::from(size)).sum();
+    let Some(header) = bytes.get(start..start + length) else {
+        return false;
+    };
+    if header.len() < 19 || !header.starts_with(b"OpusHead") || header[8] > 15 || header[9] == 0 {
+        return false;
+    }
+    let channels = usize::from(header[9]);
+    if header[18] == 0 {
+        return channels <= 2;
+    }
+    if header[18] == 1 && channels > 8 {
+        return false;
+    }
+    let Some(mapping) = header.get(19..21 + channels) else {
+        return false;
+    };
+    let streams = u16::from(mapping[0]);
+    let coupled = u16::from(mapping[1]);
+    streams != 0
+        && coupled <= streams
+        && streams + coupled <= 255
+        && mapping[2..]
+            .iter()
+            .all(|&index| index == 255 || u16::from(index) < streams + coupled)
 }
 
 pub fn save_media_atomic(

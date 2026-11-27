@@ -150,7 +150,7 @@ pub const PUBLIC_EXPORTS: &[PublicExportEntry] = &[
         "SecretChat",
         "kiaro_secret_chat::protocol::SecretChat",
         NativeItem,
-        "Live MTProto 2.0 protocol state with gap handling, PFS rekeying, TTL tracking, and lossless runtime checkpoints.",
+        "Live MTProto 2.0 protocol state with gap handling, PFS rekeying, TTL tracking, and validated runtime checkpoints.",
     ),
     entry(
         "ChatSnapshot",
@@ -186,7 +186,7 @@ pub const PUBLIC_EXPORTS: &[PublicExportEntry] = &[
         "MEDIA_KINDS",
         "kiaro_secret_chat::public_api::MEDIA_KINDS",
         NativeItem,
-        "All 8 secret-chat media kinds, paired with kiaro_secret_chat::media encrypted streaming, forwarding, and atomic save.",
+        "All 8 secret-chat media kinds, paired with kiaro_secret_chat::media encrypted streaming, forwarding descriptors, and atomic save helpers.",
     ),
     entry(
         "CAPTIONLESS_KINDS",

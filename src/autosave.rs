@@ -52,9 +52,159 @@ pub struct SavedSecretMessage {
 }
 
 #[derive(Clone, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct State {
+    #[serde(deserialize_with = "deserialize_enabled")]
     enabled: BTreeSet<i32>,
+    #[serde(deserialize_with = "deserialize_messages")]
     messages: BTreeMap<i32, BTreeMap<i64, SavedSecretMessage>>,
+}
+
+// Restrict the stored format without changing the public record types' serde
+// behavior. An older reader must refuse fields it cannot preserve on rewrite.
+#[derive(Deserialize)]
+#[serde(remote = "SavedSecretMessage", deny_unknown_fields)]
+struct StoredMessageFields {
+    id: i64,
+    chat_id: i32,
+    sender_id: i64,
+    sender_name: String,
+    outgoing: bool,
+    date_unix: i64,
+    text: String,
+    reply_to_msg_id: Option<i64>,
+    ttl_seconds: Option<i32>,
+    #[serde(default, deserialize_with = "deserialize_media")]
+    media: Option<SavedMediaRecord>,
+}
+
+#[derive(Deserialize)]
+#[serde(remote = "SavedMediaRecord", deny_unknown_fields)]
+struct StoredMediaFields {
+    kind: SecretMediaKind,
+    mime_type: String,
+    file_name: String,
+    size_bytes: u64,
+    local_rel_path: Option<String>,
+    width: Option<u32>,
+    height: Option<u32>,
+    duration_secs: Option<u32>,
+}
+
+#[derive(Deserialize)]
+#[serde(transparent)]
+struct StoredMedia(#[serde(with = "StoredMediaFields")] SavedMediaRecord);
+
+#[derive(Deserialize)]
+#[serde(transparent)]
+struct StoredMessage(#[serde(with = "StoredMessageFields")] SavedSecretMessage);
+
+#[derive(Deserialize)]
+#[serde(transparent)]
+struct StoredChat(
+    #[serde(deserialize_with = "deserialize_unique_map")] BTreeMap<i64, StoredMessage>,
+);
+
+fn deserialize_media<'de, D>(deserializer: D) -> Result<Option<SavedMediaRecord>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<StoredMedia>::deserialize(deserializer).map(|media| media.map(|record| record.0))
+}
+
+fn deserialize_enabled<'de, D>(deserializer: D) -> Result<BTreeSet<i32>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct Enabled;
+
+    impl<'de> serde::de::Visitor<'de> for Enabled {
+        type Value = BTreeSet<i32>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("unique enabled auto-save chat identities")
+        }
+
+        fn visit_seq<A>(self, mut input: A) -> Result<Self::Value, A::Error>
+        where
+            A: serde::de::SeqAccess<'de>,
+        {
+            let mut enabled = BTreeSet::new();
+            while let Some(id) = input.next_element()? {
+                if !enabled.insert(id) {
+                    return Err(serde::de::Error::custom(
+                        "duplicate enabled auto-save identity",
+                    ));
+                }
+            }
+            Ok(enabled)
+        }
+    }
+
+    deserializer.deserialize_seq(Enabled)
+}
+
+fn deserialize_messages<'de, D>(
+    deserializer: D,
+) -> Result<BTreeMap<i32, BTreeMap<i64, SavedSecretMessage>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let chats: BTreeMap<i32, StoredChat> = deserialize_unique_map(deserializer)?;
+    Ok(chats
+        .into_iter()
+        .map(|(chat_id, messages)| {
+            let messages = messages
+                .0
+                .into_iter()
+                .map(|(id, message)| (id, message.0))
+                .collect();
+            (chat_id, messages)
+        })
+        .collect())
+}
+
+fn deserialize_unique_map<'de, D, K, V>(deserializer: D) -> Result<BTreeMap<K, V>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    K: Deserialize<'de> + Ord,
+    V: Deserialize<'de>,
+{
+    struct UniqueMap<K, V>(std::marker::PhantomData<(K, V)>);
+
+    impl<'de, K, V> serde::de::Visitor<'de> for UniqueMap<K, V>
+    where
+        K: Deserialize<'de> + Ord,
+        V: Deserialize<'de>,
+    {
+        type Value = BTreeMap<K, V>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("unique auto-save history identities")
+        }
+
+        fn visit_map<A>(self, mut input: A) -> Result<Self::Value, A::Error>
+        where
+            A: serde::de::MapAccess<'de>,
+        {
+            let mut entries = BTreeMap::new();
+            while let Some(id) = input.next_key()? {
+                match entries.entry(id) {
+                    std::collections::btree_map::Entry::Vacant(entry) => {
+                        entry.insert(input.next_value()?);
+                    }
+                    std::collections::btree_map::Entry::Occupied(_) => {
+                        return Err(serde::de::Error::custom(
+                            "duplicate auto-save history identity",
+                        ));
+                    }
+                }
+            }
+            Ok(entries)
+        }
+    }
+
+    deserializer.deserialize_map(UniqueMap(std::marker::PhantomData))
 }
 
 /// Holds an exclusive lock for the lifetime of the store. The caller must use

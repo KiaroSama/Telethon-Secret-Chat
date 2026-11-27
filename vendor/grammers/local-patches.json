@@ -5,7 +5,7 @@
   "description": "Project source distribution hashes; local corrections are not unchanged upstream captures.",
   "baseline_manifest_sha256": "c6ab6944075afc6424295fcf5315f2d5dcd4aade897b46d459db3145f12da74e",
   "native_files_sha256": {
-    "README.md": "63e59c98c1bd2e28249f045f3b4f10111725bea158cf26146988048778ec4f6f",
+    "README.md": "a1cbe7242504fba8e12064a51f555746e6396116b816d8bc96d98a0c0355dc90",
     "grammers-client/Cargo.toml": "1ac7adaaba8af034a6d3bfb06bbb64b1d624d198d73093983f2998a3f19ea334",
     "grammers-client/LICENSE-APACHE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
     "grammers-client/LICENSE-MIT": "3dfe4aab7aa5676496afeee00d802d84c2bc44dfb7f3ba2338a7a8b65dfc9d9a",
@@ -18,7 +18,7 @@
     "grammers-client/src/client/iter_buffer.rs": "20d25c50ca2d6001cccd4323b417b1b9e55ef01d8d79dc00aab7b93fe8459d32",
     "grammers-client/src/client/messages.rs": "0980ca3091bfbacf25cee7cf603728ab323a5ef84e9b079bdd319dfe49862045",
     "grammers-client/src/client/mod.rs": "dbbaca56c8c620c4a8f14892f937a7b6fb0b011c24d6211e2b23fbd95857da72",
-    "grammers-client/src/client/net.rs": "7c117b9473b1214e32ce1796feb094c4b4fa06b4cc2968ac84ad842b99f656ad",
+    "grammers-client/src/client/net.rs": "7c773594e30282cc121038f0b9330b719637cc8cbd56fc1d7953e5163a72495f",
     "grammers-client/src/client/retry_policy.rs": "ff15a28ef0535aba3a37cf7269bf05f89f98128e1784a262cd9b55c5e3f8f0ff",
     "grammers-client/src/client/updates.rs": "73ba93806049fe17c05a036c63b13c329fd1c84497d0fdaebf377d2b2ca57367",
     "grammers-client/src/lib.rs": "f37bdff46011b60bd1ff6cb8bb258c05e4c1e33704dd5530e2c9cf2468f3957d",

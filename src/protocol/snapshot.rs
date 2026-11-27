@@ -1,15 +1,15 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
 
 use serde::de::{self, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::errors::SecretChatError;
 use crate::ported::rekey::{ExchangeRole, RuntimeRekey};
 
-use super::{ChatState, KeyLifecycleState, KeySlot, SecretChat};
+use super::{ChatRole, ChatState, KeyLifecycleState, KeySlot, SecretChat, key_fingerprint};
 
 fn deserialize_unique_i64_map<'de, D>(deserializer: D) -> Result<BTreeMap<i64, i64>, D::Error>
 where
@@ -108,6 +108,103 @@ fn vec_to_slot(chat_id: i64, raw: &Option<Vec<u8>>) -> Result<Option<KeySlot>, S
     }
 }
 
+impl PersistedProtocolState {
+    /// Apply the live receive invariants before a checkpoint can become live state.
+    pub(crate) fn validate(&self, chat_id: i64, role: ChatRole) -> Result<(), SecretChatError> {
+        // Wire counters are signed i32; local counts can advance past the final index once.
+        const MAX_WIRE_INDEX: i64 = i32::MAX as i64 / 2;
+        let invalid = || SecretChatError::StoreCorrupt {
+            chat_id: Some(chat_id),
+            reason: "inconsistent persisted protocol receive state".into(),
+        };
+        if self.in_seq_no < 0
+            || self.in_seq_no > MAX_WIRE_INDEX + 1
+            || self.out_seq_no < 0
+            || self.out_seq_no > MAX_WIRE_INDEX + 1
+            || self.peer_in_seq_no < 0
+            || self.peer_in_seq_no > MAX_WIRE_INDEX
+            || self.peer_in_seq_no > self.out_seq_no
+            || self.ttl < 0
+            || self.wrapper_layer < 46
+            || self.negotiated_layer < self.wrapper_layer
+            || self.pending_frames.len() != self.pending_frame_keys.len()
+        {
+            return Err(invalid());
+        }
+        let outbound = matches!(role, ChatRole::Initiator);
+        let state = json!({
+            "id": chat_id,
+            "is_outbound": outbound,
+            "in_seq_no": self.in_seq_no,
+            "out_seq_no": self.out_seq_no,
+            "peer_in_seq_no": self.peer_in_seq_no,
+            "layer": self.negotiated_layer,
+            "wrapper_layer": self.wrapper_layer,
+        });
+        let pending =
+            crate::ported::sequence::validate_pending_checkpoint(&state, &self.pending_frames)
+                .map_err(|_| invalid())?;
+        if !pending.iter().eq(self.pending_frame_keys.keys()) {
+            return Err(invalid());
+        }
+        let held_keys = [&self.active_key, &self.previous_key, &self.pending_key]
+            .into_iter()
+            .filter_map(|key| key.as_ref())
+            .map(|key| key_fingerprint(key).map_err(|_| invalid()))
+            .collect::<Result<BTreeSet<_>, _>>()?;
+        let preceding_key = self
+            .previous_key
+            .as_ref()
+            .or_else(|| self.pending_key.as_ref().and(self.active_key.as_ref()));
+        let preceding = preceding_key
+            .map(|key| key_fingerprint(key).map_err(|_| invalid()))
+            .transpose()?;
+        if self
+            .pending_frame_keys
+            .iter()
+            .any(|(&sequence, fingerprint)| {
+                !held_keys.contains(fingerprint)
+                    || (preceding.as_ref() == Some(fingerprint)
+                        && self
+                            .incoming_key_cutover
+                            .is_some_and(|cutover| sequence >= cutover))
+            })
+        {
+            return Err(invalid());
+        }
+        if pending.is_empty() {
+            if self.gap_requested
+                || self.gap_end.is_some()
+                || self.resend_due.is_some()
+                || self.resend_request.is_some()
+            {
+                return Err(invalid());
+            }
+        } else {
+            let end = self
+                .gap_end
+                .filter(|end| pending.contains(end))
+                .ok_or_else(invalid)?;
+            let (start_wire, end_wire) = self.resend_due.ok_or_else(invalid)?;
+            let parity = i64::from(!outbound);
+            if !self.gap_requested
+                || start_wire < 0
+                || end_wire < start_wire
+                || start_wire % 2 != parity
+                || end_wire % 2 != parity
+                || start_wire / 2 > self.in_seq_no
+                || i128::from(end_wire) != (i128::from(end) - 1) * 2 + i128::from(parity)
+                || self
+                    .resend_request
+                    .is_some_and(|span| Some(span) != self.resend_due)
+            {
+                return Err(invalid());
+            }
+        }
+        Ok(())
+    }
+}
+
 impl SecretChat {
     pub(crate) fn export_runtime(&self) -> PersistedProtocolState {
         PersistedProtocolState {
@@ -149,6 +246,7 @@ impl SecretChat {
         &mut self,
         rt: &PersistedProtocolState,
     ) -> Result<(), SecretChatError> {
+        rt.validate(self.chat_id, self.role)?;
         if rt.in_seq_no < 0 || rt.out_seq_no < 0 || rt.peer_in_seq_no < 0 || rt.ttl < 0 {
             return Err(SecretChatError::StoreCorrupt {
                 chat_id: Some(self.chat_id),

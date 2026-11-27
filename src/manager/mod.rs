@@ -72,7 +72,8 @@ pub enum SecretEvent {
     },
 }
 
-/// Finite retained-outbox budgets. Exhaustion refuses new sends without evicting data.
+/// Finite retained-outbox budgets. Persistent modes also apply these bounds to
+/// accepted batches awaiting delivery. Exhaustion refuses work without evicting data.
 #[derive(Debug, Clone, Copy)]
 pub struct ManagerLimits {
     pub max_retained_messages: usize,
@@ -102,6 +103,23 @@ pub(crate) struct PersistedOutboxItem {
     pub revision: u64,
 }
 
+pub(crate) struct ReceivedBatch<'a> {
+    pub frame_digest: [u8; 32],
+    pub ingress_order: Option<i64>,
+    pub messages: &'a [AcceptedMessage],
+}
+
+/// Synchronous persistence runs under the chat state lock, before publication.
+pub(crate) trait ChatCheckpoint: Send + Sync {
+    fn commit(
+        &self,
+        chat: &SecretChat,
+        outbox: Vec<PersistedOutboxItem>,
+        received: Option<ReceivedBatch<'_>>,
+    ) -> Result<(), SecretChatError>;
+}
+
+#[derive(Clone)]
 struct OutboundMessage {
     random_id: i64,
     identity: [u8; 32],
@@ -113,6 +131,7 @@ struct OutboundMessage {
     revision: u64,
 }
 
+#[derive(Clone)]
 struct ManagedChat {
     chat: SecretChat,
     outbox: BTreeMap<i64, OutboundMessage>,
@@ -213,6 +232,18 @@ impl<T: SecretTransport> SecretChatManager<T> {
         text: &str,
         ttl: i64,
     ) -> Result<Vec<u8>, SecretChatError> {
+        self.send_text_checkpointed(chat_id, random_id, text, ttl, None)
+            .await
+    }
+
+    pub(crate) async fn send_text_checkpointed(
+        &self,
+        chat_id: i64,
+        random_id: i64,
+        text: &str,
+        ttl: i64,
+        checkpoint: Option<&dyn ChatCheckpoint>,
+    ) -> Result<Vec<u8>, SecretChatError> {
         self.ensure_running()?;
         if !(0..=i64::from(i32::MAX)).contains(&ttl)
             || text.len() > self.limits.max_retained_bytes
@@ -249,9 +280,11 @@ impl<T: SecretTransport> SecretChatManager<T> {
         };
 
         // Retried requests retain the same ciphertext, padding, random_id, and sequence.
-        self.transmit_pending(chat_id, &entry, None).await?;
+        self.transmit_pending(chat_id, &entry, None, checkpoint)
+            .await?;
         if let Some(frame) = existing {
-            self.transmit_pending(chat_id, &entry, Some(order)).await?;
+            self.transmit_pending(chat_id, &entry, Some(order), checkpoint)
+                .await?;
             return Ok(frame);
         }
 
@@ -266,7 +299,7 @@ impl<T: SecretTransport> SecretChatManager<T> {
                     Ok(Some(service)) => services.push(service),
                     Ok(None) => (),
                     Err(error) => {
-                        self.commit_fatal_state(chat_id, &mut state, &candidate);
+                        self.commit_fatal_state(chat_id, &mut state, &candidate, checkpoint)?;
                         return Err(error);
                     }
                 }
@@ -304,7 +337,13 @@ impl<T: SecretTransport> SecretChatManager<T> {
                 });
             }
             candidate.set_out_seq_no(sequence + 1);
-            self.stage_due_rekey(chat_id, &mut state, &mut candidate, &mut services)?;
+            self.stage_due_rekey(
+                chat_id,
+                &mut state,
+                &mut candidate,
+                &mut services,
+                checkpoint,
+            )?;
             self.check_capacity(
                 chat_id,
                 &state,
@@ -316,8 +355,9 @@ impl<T: SecretTransport> SecretChatManager<T> {
                     .sum::<usize>()
                     + frame.len(),
             )?;
-            self.retain_services(&mut state, services);
-            state.outbox.insert(
+            let mut next = state.clone();
+            self.retain_services(&mut next, services);
+            next.outbox.insert(
                 sequence,
                 OutboundMessage {
                     random_id,
@@ -331,19 +371,30 @@ impl<T: SecretTransport> SecretChatManager<T> {
                 },
             );
             // Reserve before awaiting the transport: cancellation cannot roll back possible delivery.
-            state.chat = candidate;
+            next.chat = candidate;
+            self.commit_candidate(&mut state, next, checkpoint, None)?;
             frame
         };
-        self.transmit_pending(chat_id, &entry, Some(order)).await?;
+        self.transmit_pending(chat_id, &entry, Some(order), checkpoint)
+            .await?;
         Ok(frame)
     }
 
     /// Retry unsettled transmissions; successful RPCs remain retained until peer acknowledgement.
     pub async fn retry_pending(&self, chat_id: i64) -> Result<usize, SecretChatError> {
+        self.retry_pending_checkpointed(chat_id, None).await
+    }
+
+    pub(crate) async fn retry_pending_checkpointed(
+        &self,
+        chat_id: i64,
+        checkpoint: Option<&dyn ChatCheckpoint>,
+    ) -> Result<usize, SecretChatError> {
         self.ensure_running()?;
         let entry = self.entry(chat_id).await?;
         let order = entry.outbound.lock().await;
-        self.transmit_pending(chat_id, &entry, Some(order)).await
+        self.transmit_pending(chat_id, &entry, Some(order), checkpoint)
+            .await
     }
 
     /// Supply the validated original DH parameters before the automatic rekey threshold.
@@ -353,19 +404,41 @@ impl<T: SecretTransport> SecretChatManager<T> {
         g: i64,
         p: &[u8],
     ) -> Result<(), SecretChatError> {
+        self.configure_chat_dh_checkpointed(chat_id, g, p, None)
+            .await
+    }
+
+    pub(crate) async fn configure_chat_dh_checkpointed(
+        &self,
+        chat_id: i64,
+        g: i64,
+        p: &[u8],
+        checkpoint: Option<&dyn ChatCheckpoint>,
+    ) -> Result<(), SecretChatError> {
         self.ensure_running()?;
         let entry = self.entry(chat_id).await?;
         let mut state = entry.state.lock().await;
         self.ensure_running()?;
-        state.chat.configure_dh(g, p)
+        let mut next = state.clone();
+        next.chat.configure_dh(g, p)?;
+        self.commit_candidate(&mut state, next, checkpoint, None)
     }
 
     /// Begin a key exchange, retaining its exact service frame before any network await.
     pub async fn start_rekey(&self, chat_id: i64) -> Result<bool, SecretChatError> {
+        self.start_rekey_checkpointed(chat_id, None).await
+    }
+
+    pub(crate) async fn start_rekey_checkpointed(
+        &self,
+        chat_id: i64,
+        checkpoint: Option<&dyn ChatCheckpoint>,
+    ) -> Result<bool, SecretChatError> {
         self.ensure_running()?;
         let entry = self.entry(chat_id).await?;
         let order = entry.outbound.lock().await;
-        self.transmit_pending(chat_id, &entry, None).await?;
+        self.transmit_pending(chat_id, &entry, None, checkpoint)
+            .await?;
         let started = {
             let mut state = entry.state.lock().await;
             self.ensure_running()?;
@@ -373,20 +446,23 @@ impl<T: SecretTransport> SecretChatManager<T> {
             let prepared = match candidate.start_rekey() {
                 Ok(prepared) => prepared,
                 Err(error) => {
-                    self.commit_fatal_state(chat_id, &mut state, &candidate);
+                    self.commit_fatal_state(chat_id, &mut state, &candidate, checkpoint)?;
                     return Err(error);
                 }
             };
             if let Some(prepared) = prepared {
                 self.check_capacity(chat_id, &state, &BTreeSet::new(), 1, prepared.frame.len())?;
-                self.retain_services(&mut state, vec![prepared]);
-                state.chat = candidate;
+                let mut next = state.clone();
+                self.retain_services(&mut next, vec![prepared]);
+                next.chat = candidate;
+                self.commit_candidate(&mut state, next, checkpoint, None)?;
                 true
             } else {
                 false
             }
         };
-        self.transmit_pending(chat_id, &entry, Some(order)).await?;
+        self.transmit_pending(chat_id, &entry, Some(order), checkpoint)
+            .await?;
         Ok(started)
     }
 
@@ -396,6 +472,16 @@ impl<T: SecretTransport> SecretChatManager<T> {
         &self,
         chat_id: i64,
         action: &Value,
+    ) -> Result<Vec<u8>, SecretChatError> {
+        self.send_service_action_checkpointed(chat_id, action, None)
+            .await
+    }
+
+    pub(crate) async fn send_service_action_checkpointed(
+        &self,
+        chat_id: i64,
+        action: &Value,
+        checkpoint: Option<&dyn ChatCheckpoint>,
     ) -> Result<Vec<u8>, SecretChatError> {
         let id = action["id"].as_u64().and_then(|id| u32::try_from(id).ok());
         if !matches!(
@@ -423,7 +509,8 @@ impl<T: SecretTransport> SecretChatManager<T> {
         self.ensure_running()?;
         let entry = self.entry(chat_id).await?;
         let order = entry.outbound.lock().await;
-        self.transmit_pending(chat_id, &entry, None).await?;
+        self.transmit_pending(chat_id, &entry, None, checkpoint)
+            .await?;
         let frame = {
             let mut state = entry.state.lock().await;
             self.ensure_running()?;
@@ -434,7 +521,7 @@ impl<T: SecretTransport> SecretChatManager<T> {
                     Ok(Some(service)) => services.push(service),
                     Ok(None) => (),
                     Err(error) => {
-                        self.commit_fatal_state(chat_id, &mut state, &candidate);
+                        self.commit_fatal_state(chat_id, &mut state, &candidate, checkpoint)?;
                         return Err(error);
                     }
                 }
@@ -447,7 +534,13 @@ impl<T: SecretTransport> SecretChatManager<T> {
             let prepared = candidate.prepare_service_action(action)?;
             let frame = prepared.frame.clone();
             services.push(prepared);
-            self.stage_due_rekey(chat_id, &mut state, &mut candidate, &mut services)?;
+            self.stage_due_rekey(
+                chat_id,
+                &mut state,
+                &mut candidate,
+                &mut services,
+                checkpoint,
+            )?;
             self.check_capacity(
                 chat_id,
                 &state,
@@ -458,11 +551,14 @@ impl<T: SecretTransport> SecretChatManager<T> {
             if let Some(ttl) = outgoing_ttl {
                 candidate.set_persisted_ttl(ttl);
             }
-            self.retain_services(&mut state, services);
-            state.chat = candidate;
+            let mut next = state.clone();
+            self.retain_services(&mut next, services);
+            next.chat = candidate;
+            self.commit_candidate(&mut state, next, checkpoint, None)?;
             frame
         };
-        self.transmit_pending(chat_id, &entry, Some(order)).await?;
+        self.transmit_pending(chat_id, &entry, Some(order), checkpoint)
+            .await?;
         Ok(frame)
     }
 
@@ -546,7 +642,11 @@ impl<T: SecretTransport> SecretChatManager<T> {
     ) -> Result<(SecretChat, Vec<PersistedOutboxItem>), SecretChatError> {
         let entry = self.entry(chat_id).await?;
         let state = entry.state.lock().await;
-        let outbox = state
+        Ok((state.chat.clone(), Self::snapshot_outbox(&state)))
+    }
+
+    fn snapshot_outbox(state: &ManagedChat) -> Vec<PersistedOutboxItem> {
+        state
             .outbox
             .iter()
             .map(|(seq, msg)| PersistedOutboxItem {
@@ -560,8 +660,21 @@ impl<T: SecretTransport> SecretChatManager<T> {
                 acknowledged: msg.acknowledged,
                 revision: msg.revision,
             })
-            .collect();
-        Ok((state.chat.clone(), outbox))
+            .collect()
+    }
+
+    fn commit_candidate(
+        &self,
+        state: &mut ManagedChat,
+        next: ManagedChat,
+        checkpoint: Option<&dyn ChatCheckpoint>,
+        received: Option<ReceivedBatch<'_>>,
+    ) -> Result<(), SecretChatError> {
+        if let Some(checkpoint) = checkpoint {
+            checkpoint.commit(&next.chat, Self::snapshot_outbox(&next), received)?;
+        }
+        *state = next;
+        Ok(())
     }
 
     pub(crate) async fn remove_chat(&self, chat_id: i64) -> bool {

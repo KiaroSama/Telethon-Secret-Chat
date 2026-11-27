@@ -7,9 +7,10 @@ use super::*;
 
 /// Owner-bound durable capture with deduplication and sorted pending snapshots.
 ///
-/// This container does not attach to a transport, establish a verified baseline,
-/// hold a protocol-applied cursor, or block delivery across missing stream orders.
-/// The caller coordinates those boundaries and settles consumer effects explicitly.
+/// The contiguous cursor records explicit consumer settlement, not Telegram qts.
+/// This container does not attach to a transport or verify a remote baseline.
+/// Generic polling is non-consuming; Strong mode enforces contiguous application,
+/// and callers settle their effects before acknowledging a delivery.
 pub struct DurableIngressController {
     owner_auth_id: String,
     store: EncryptedIngressStore,

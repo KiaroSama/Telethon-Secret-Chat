@@ -72,6 +72,47 @@ struct ExportedMessage<'a> {
     attachment: Attachment,
 }
 
+struct ArchiveStage {
+    path: PathBuf,
+    published: bool,
+}
+
+impl ArchiveStage {
+    fn publish(mut self, destination: &Path) -> Result<(), SecretChatError> {
+        // A trailing separator or '.' denotes the same directory, but rename
+        // can reject that spelling when the destination does not yet exist.
+        let destination: PathBuf = destination.components().collect();
+        let destination = destination.as_path();
+        let exists = verify_empty_output(destination)?;
+        // Windows cannot rename a directory over an existing empty directory.
+        // Remove only that verified-empty destination immediately before publish.
+        #[cfg(windows)]
+        if exists {
+            fs::remove_dir(destination)
+                .map_err(|_| parameter("could not prepare empty archive destination"))?;
+        }
+        #[cfg(not(windows))]
+        let _ = exists;
+        if fs::rename(&self.path, destination).is_err() {
+            #[cfg(windows)]
+            if exists {
+                let _ = fs::create_dir(destination);
+            }
+            return Err(parameter("could not publish completed archive"));
+        }
+        self.published = true;
+        Ok(())
+    }
+}
+
+impl Drop for ArchiveStage {
+    fn drop(&mut self) {
+        if !self.published {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+}
+
 #[derive(Default)]
 enum Attachment {
     #[default]
@@ -83,8 +124,10 @@ enum Attachment {
     },
 }
 
-/// Writes plaintext to a new or empty output directory. Keep this directory
-/// private and supply only trusted stylesheet, script, and image assets.
+/// Writes plaintext to a new or empty output directory. Build failures discard
+/// a private staging directory before any completed archive is published. Keep
+/// the destination's parent private and supply only trusted assets. Publication
+/// is not a crash-durability guarantee; newly created parent directories can remain.
 pub fn export_saved_chat(
     messages: &[SavedSecretMessage],
     options: &ExportOptions,
@@ -133,7 +176,9 @@ pub fn export_saved_chat(
             attachment: Attachment::None,
         });
     }
-    prepare_output(&options.output_dir)?;
+    let stage = prepare_output(&options.output_dir)?;
+    let mut staged_options = options.clone();
+    staged_options.output_dir = stage.path.clone();
     let mut report = ExportReport {
         output_dir: options.output_dir.clone(),
         html_pages: Vec::new(),
@@ -143,11 +188,11 @@ pub fn export_saved_chat(
         exported_messages: entries.len(),
     };
     if html {
-        write_assets(options)?;
+        write_assets(&staged_options)?;
     }
     for entry in &mut entries {
         if let Some(media) = &entry.message.media {
-            entry.attachment = copy_media(media, options, entry.message.id, html)?;
+            entry.attachment = copy_media(media, &staged_options, entry.message.id, html)?;
             match entry.attachment {
                 Attachment::Copied { .. } => report.copied_media += 1,
                 Attachment::Skipped(_) => report.skipped_media += 1,
@@ -156,10 +201,17 @@ pub fn export_saved_chat(
         }
     }
     if html {
-        report.html_pages = write_pages(options, &entries)?;
+        report.html_pages = write_pages(&staged_options, &entries)?
+            .into_iter()
+            .map(|path| {
+                path.strip_prefix(&stage.path)
+                    .map(|relative| options.output_dir.join(relative))
+                    .map_err(|_| parameter("invalid archive page destination"))
+            })
+            .collect::<Result<_, _>>()?;
     }
     if options.format != ExportFormat::Html {
-        let path = options.output_dir.join("result.json");
+        let path = stage.path.join("result.json");
         let value = json!({
             "name": options.chat_title,
             "type": "personal_chat",
@@ -169,8 +221,9 @@ pub fn export_saved_chat(
         let text = serde_json::to_string_pretty(&value)
             .map_err(|_| parameter("could not serialize archive JSON"))?;
         fs::write(&path, text).map_err(|_| parameter("could not write archive JSON"))?;
-        report.json_path = Some(path);
+        report.json_path = Some(options.output_dir.join("result.json"));
     }
+    stage.publish(&options.output_dir)?;
     Ok(report)
 }
 
@@ -190,13 +243,35 @@ fn verify_output_path(path: &Path) -> Result<(), SecretChatError> {
     Ok(())
 }
 
-fn prepare_output(path: &Path) -> Result<(), SecretChatError> {
+fn verify_empty_output(path: &Path) -> Result<bool, SecretChatError> {
     if path
         .ancestors()
         .any(|part| fs::symlink_metadata(part).is_ok_and(|info| info.is_symlink()))
     {
         return Err(parameter("archive output path must not follow symlinks"));
     }
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if !metadata.is_dir() => {
+            return Err(parameter("archive output path is not a directory"));
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(_) => return Err(parameter("could not inspect archive output directory")),
+    }
+    let mut entries =
+        fs::read_dir(path).map_err(|_| parameter("could not inspect archive output directory"))?;
+    if entries.next().is_some() {
+        return Err(parameter("archive output directory is not empty"));
+    }
+    Ok(true)
+}
+
+fn prepare_output(path: &Path) -> Result<ArchiveStage, SecretChatError> {
+    verify_empty_output(path)?;
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
     let mut dirs = fs::DirBuilder::new();
     dirs.recursive(true);
     #[cfg(unix)]
@@ -204,14 +279,27 @@ fn prepare_output(path: &Path) -> Result<(), SecretChatError> {
         use std::os::unix::fs::DirBuilderExt;
         dirs.mode(0o700);
     }
-    dirs.create(path)
-        .map_err(|_| parameter("could not create archive output directory"))?;
-    let mut entries =
-        fs::read_dir(path).map_err(|_| parameter("could not inspect archive output directory"))?;
-    if entries.next().is_some() {
-        return Err(parameter("archive output directory is not empty"));
+    dirs.create(parent)
+        .map_err(|_| parameter("could not create archive parent directory"))?;
+    dirs.recursive(false);
+    for _ in 0..10 {
+        let mut random = [0; 16];
+        getrandom::fill(&mut random).map_err(|_| SecretChatError::EntropyUnavailable {
+            reason: "could not generate archive staging name".into(),
+        })?;
+        let path = parent.join(format!(".archive-{}.tmp", hex::encode(random)));
+        match dirs.create(&path) {
+            Ok(()) => {
+                return Ok(ArchiveStage {
+                    path,
+                    published: false,
+                });
+            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(_) => return Err(parameter("could not create archive staging directory")),
+        }
     }
-    Ok(())
+    Err(parameter("could not allocate archive staging directory"))
 }
 
 fn verify_media_relative(path: &str) -> Result<(), SecretChatError> {
@@ -239,7 +327,7 @@ fn write_assets(options: &ExportOptions) -> Result<(), SecretChatError> {
             if !fs::symlink_metadata(&source).is_ok_and(|info| info.is_file()) {
                 return Err(parameter("missing or invalid archive CSS or script asset"));
             }
-            fs::copy(source, dest).map(|_| ())
+            copy_asset(&source, &dest)
         } else {
             fs::write(dest, fallback)
         };
@@ -257,12 +345,20 @@ fn write_assets(options: &ExportOptions) -> Result<(), SecretChatError> {
         for item in items {
             let item = item.map_err(|_| parameter("could not read archive image asset"))?;
             if item.file_type().is_ok_and(|kind| kind.is_file()) {
-                fs::copy(item.path(), dest.join(item.file_name()))
+                copy_asset(&item.path(), &dest.join(item.file_name()))
                     .map_err(|_| parameter("could not copy archive image asset"))?;
             }
         }
     }
     Ok(())
+}
+
+fn copy_asset(source: &Path, destination: &Path) -> io::Result<()> {
+    // Copy bytes without inheriting read-only source permissions, so a failed
+    // export can remove every staged file on Windows as well as Unix.
+    let mut input = File::open(source)?;
+    let mut output = File::create_new(destination)?;
+    io::copy(&mut input, &mut output).map(|_| ())
 }
 
 fn media_folder(kind: SecretMediaKind, filter: &ExportMediaFilter) -> (&'static str, bool) {

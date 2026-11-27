@@ -10,8 +10,8 @@ use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::errors::SecretChatError;
 use crate::protocol::{
-    ChatRole, ChatState, KeyLifecycleState, MAX_ENCRYPTED_FRAME_LEN, PersistedProtocolState,
-    key_fingerprint, outgoing_layer,
+    AcceptedMessage, ChatRole, ChatState, KeyLifecycleState, MAX_ENCRYPTED_FRAME_LEN,
+    PersistedProtocolState, key_fingerprint, outgoing_layer,
 };
 
 type Result<T, E = SecretChatError> = std::result::Result<T, E>;
@@ -55,6 +55,57 @@ pub(crate) struct OutboxState {
 
 #[derive(Clone, Serialize, Deserialize, ZeroizeOnDrop)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct SavedAcceptedMessage {
+    pub layer: i64,
+    pub in_seq_no: i64,
+    pub out_seq_no: i64,
+    pub message_type: String,
+    pub text: Option<String>,
+    pub raw_inner_bytes: Vec<u8>,
+    pub random_id: i64,
+    #[zeroize(skip)]
+    pub action: Option<serde_json::Value>,
+}
+
+impl SavedAcceptedMessage {
+    pub(crate) fn capture(message: &AcceptedMessage) -> Self {
+        Self {
+            layer: message.layer,
+            in_seq_no: message.in_seq_no,
+            out_seq_no: message.out_seq_no,
+            message_type: message.message_type.clone(),
+            text: message.text.clone(),
+            raw_inner_bytes: message.raw_inner_bytes.clone(),
+            random_id: message.random_id,
+            action: message.action.clone(),
+        }
+    }
+
+    pub(crate) fn message(&self) -> AcceptedMessage {
+        AcceptedMessage {
+            layer: self.layer,
+            in_seq_no: self.in_seq_no,
+            out_seq_no: self.out_seq_no,
+            message_type: self.message_type.clone(),
+            text: self.text.clone(),
+            raw_inner_bytes: self.raw_inner_bytes.clone(),
+            random_id: self.random_id,
+            action: self.action.clone(),
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, ZeroizeOnDrop)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct PendingDelivery {
+    pub frame_digest: [u8; 32],
+    pub ingress_order: Option<i64>,
+    #[zeroize(skip)]
+    pub messages: Vec<SavedAcceptedMessage>,
+}
+
+#[derive(Clone, Serialize, Deserialize, ZeroizeOnDrop)]
+#[serde(deny_unknown_fields)]
 pub struct PersistedChatRecord {
     pub chat_id: i32,
     pub access_hash: i64,
@@ -89,6 +140,9 @@ pub struct PersistedChatRecord {
     #[zeroize(skip)]
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) outbox: Vec<OutboxState>,
+    #[zeroize(skip)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) pending_deliveries: Vec<PendingDelivery>,
     #[serde(default)]
     pub(crate) checkpoint: [u8; 16],
 }
@@ -138,6 +192,7 @@ impl PersistedChatRecord {
             updated_at_unix: now,
             protocol: None,
             outbox: Vec::new(),
+            pending_deliveries: Vec::new(),
             checkpoint: [0; 16],
         };
         record.validate()?;
@@ -151,6 +206,7 @@ impl PersistedChatRecord {
         self.protocol = None;
         self.pending_outbox.clear();
         self.outbox.clear();
+        self.pending_deliveries.clear();
         self.key_fingerprint = 0;
         self.rekey_state = KeyLifecycleState::Zeroized;
         self.state = ChatState::Closed;
@@ -181,6 +237,7 @@ impl PersistedChatRecord {
                 && self.protocol.is_none()
                 && self.pending_outbox.is_empty()
                 && self.outbox.is_empty()
+                && self.pending_deliveries.is_empty()
             {
                 Ok(())
             } else {
@@ -231,12 +288,14 @@ impl PersistedChatRecord {
             {
                 return Err(invalid());
             }
+            rt.validate(i64::from(self.chat_id), self.role)?;
         } else if self.in_seq_no != 0
             || self.out_seq_no != 0
             || self.sent_since_rekey != 0
             || self.received_since_rekey != 0
             || self.previous_auth_key.is_some()
             || !self.pending_outbox.is_empty()
+            || !self.pending_deliveries.is_empty()
         {
             return Err(invalid());
         }
@@ -251,6 +310,36 @@ impl PersistedChatRecord {
                 return Err(invalid());
             }
             last = entry.out_seq_no;
+        }
+        let mut deliveries = BTreeSet::new();
+        let mut orders = BTreeSet::new();
+        for delivery in &self.pending_deliveries {
+            if !deliveries.insert(delivery.frame_digest)
+                || delivery
+                    .ingress_order
+                    .is_some_and(|order| order <= 0 || !orders.insert(order))
+                || (delivery.messages.is_empty() && delivery.ingress_order.is_none())
+            {
+                return Err(invalid());
+            }
+            let mut prior = None;
+            for message in &delivery.messages {
+                let input_parity = i64::from(self.role == ChatRole::Initiator);
+                if message.layer < 46
+                    || message.in_seq_no < 0
+                    || message.in_seq_no % 2 != input_parity
+                    || message.in_seq_no / 2 > i64::from(self.out_seq_no)
+                    || message.out_seq_no < 0
+                    || message.out_seq_no % 2 != 1 - input_parity
+                    || message.out_seq_no / 2 >= i64::from(self.in_seq_no)
+                    || prior.is_some_and(|last| message.out_seq_no != last + 2)
+                    || message.raw_inner_bytes.is_empty()
+                    || message.raw_inner_bytes.len() > MAX_ENCRYPTED_FRAME_LEN
+                {
+                    return Err(invalid());
+                }
+                prior = Some(message.out_seq_no);
+            }
         }
         Ok(())
     }
@@ -373,7 +462,7 @@ impl SecretChatStore for MemoryStorage {
         Ok(())
     }
     fn mark_transient_suspended(&self, id: i32) -> Result<()> {
-        let _ = self.with(|state| suspend_record(state, id))?;
+        let _ = self.with(|state| suspend_record(state, id))??;
         Ok(())
     }
 }

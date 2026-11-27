@@ -120,6 +120,22 @@ impl Client {
         }))
     }
 
+    /// Return the home DC and an opaque tag of its permanent authorization key.
+    ///
+    /// This local snapshot does not prove that a user is signed in. Callers that
+    /// bind durable state to a login must also verify the authorized user, and
+    /// compare snapshots around asynchronous verification. The tag does not
+    /// expose the authorization key or the session-list management hash.
+    pub fn authorization_key_tag(&self) -> Result<Option<(i32, [u8; 32])>, InvocationError> {
+        let dc_id = self.0.session.home_dc_id()?;
+        Ok(self.0.session.dc_option(dc_id)?.and_then(|option| {
+            option
+                .auth_key
+                .as_ref()
+                .map(|key| (dc_id, auth_key_tag(key)))
+        }))
+    }
+
     /// Invoke a raw API call. This directly sends the request to Telegram's servers.
     ///
     /// Using function definitions corresponding to a different layer is likely to cause the

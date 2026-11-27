@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::future::Future;
 use std::sync::{Arc, Mutex};
 
 use grammers_client::{Client, media::Downloadable};
@@ -7,12 +8,14 @@ use grammers_tl_types::{
     functions::{messages as msg, upload},
     types as t,
 };
-use sha2::{Digest, Sha256};
 
 use crate::errors::SecretChatError;
 use crate::manager::SecretTransport;
 
 use super::*;
+
+mod binding;
+use binding::{authorization_identity, authorization_key_snapshot, query_authorization};
 
 #[derive(Clone)]
 pub struct GrammersTransport {
@@ -32,7 +35,7 @@ struct CachedDh {
 #[derive(Clone, PartialEq, Eq)]
 struct Authorization {
     user_id: i64,
-    device_hash: i64,
+    key_tag: [u8; 32],
     dc_id: i32,
 }
 
@@ -43,16 +46,11 @@ impl GrammersTransport {
             return Err(rejected(None, "invalid transport generation"));
         }
         let authorization = query_authorization(&client).await?;
-        let mut hash = Sha256::new();
-        hash.update(b"kiaro-grammers-binding-v1\0");
-        hash.update(authorization.user_id.to_le_bytes());
-        hash.update(authorization.device_hash.to_le_bytes());
-        hash.update(authorization.dc_id.to_le_bytes());
-        hash.update(generation.as_bytes());
+        let identity = authorization_identity(&authorization, generation);
         Ok(Self {
             client,
             authorization,
-            identity: hex::encode(hash.finalize()),
+            identity,
             chats: Arc::default(),
             dh: Arc::default(),
         })
@@ -64,6 +62,7 @@ impl GrammersTransport {
 
     /// Confirm that the supplied client still belongs to the original account, device and DC.
     pub async fn verified_binding(&self) -> Result<&str, SecretChatError> {
+        self.require_current_key()?;
         if query_authorization(&self.client).await? != self.authorization {
             return Err(rejected(None, "caller authorization binding changed"));
         }
@@ -144,10 +143,28 @@ impl GrammersTransport {
     }
 
     async fn invoke<R: tl::RemoteCall>(&self, request: &R) -> Result<R::Return, SecretChatError> {
-        self.client
-            .invoke(request)
+        self.with_current_key(self.client.invoke(request), "Telegram RPC failed")
             .await
-            .map_err(|_| rejected(None, "Telegram RPC failed"))
+    }
+
+    async fn with_current_key<R>(
+        &self,
+        operation: impl Future<Output = Result<R, grammers_mtsender::InvocationError>>,
+        failure: &'static str,
+    ) -> Result<R, SecretChatError> {
+        self.require_current_key()?;
+        let result = operation.await;
+        self.require_current_key()?;
+        result.map_err(|_| rejected(None, failure))
+    }
+
+    fn require_current_key(&self) -> Result<(), SecretChatError> {
+        if authorization_key_snapshot(&self.client)?
+            != (self.authorization.dc_id, self.authorization.key_tag)
+        {
+            return Err(rejected(None, "caller authorization binding changed"));
+        }
+        Ok(())
     }
 }
 
@@ -454,10 +471,9 @@ impl EstablishmentTransport for GrammersTransport {
             // The existing client handles upload.getFile and the account's DC routing.
             let mut download = self.client.iter_download(&file);
             let mut bytes = Vec::new();
-            while let Some(part) = download
-                .next()
-                .await
-                .map_err(|_| rejected(None, "encrypted file download failed"))?
+            while let Some(part) = self
+                .with_current_key(download.next(), "encrypted file download failed")
+                .await?
             {
                 if part.len() > total - bytes.len() {
                     return Err(rejected(
@@ -620,60 +636,6 @@ fn check_file_size(size: u64) -> Result<usize, SecretChatError> {
     usize::try_from(size).map_err(|_| rejected(None, "invalid encrypted file size"))
 }
 
-async fn query_authorization(client: &Client) -> Result<Authorization, SecretChatError> {
-    use tl::{
-        enums as e,
-        functions::{account, help, users},
-    };
-    let invalid = || {
-        rejected(
-            None,
-            "caller client has no verified Telegram user authorization",
-        )
-    };
-    let users = client
-        .invoke(&users::GetUsers {
-            id: vec![e::InputUser::UserSelf],
-        })
-        .await
-        .map_err(|_| invalid())?;
-    let [e::User::User(user)] = users.as_slice() else {
-        return Err(invalid());
-    };
-    if !user.is_self || user.bot || user.id <= 0 {
-        return Err(invalid());
-    }
-    let e::account::Authorizations::Authorizations(auths) = client
-        .invoke(&account::GetAuthorizations {})
-        .await
-        .map_err(|_| invalid())?;
-    let mut current = auths.authorizations.iter().filter_map(|entry| {
-        let e::Authorization::Authorization(entry) = entry;
-        entry.current.then_some(entry)
-    });
-    let device = current.next().ok_or_else(invalid)?;
-    if current.next().is_some()
-        || device.hash == 0
-        || device.password_pending
-        || device.unconfirmed
-        || device.encrypted_requests_disabled
-    {
-        return Err(invalid());
-    }
-    let e::Config::Config(config) = client
-        .invoke(&help::GetConfig {})
-        .await
-        .map_err(|_| invalid())?;
-    if !(1..=1000).contains(&config.this_dc) {
-        return Err(invalid());
-    }
-    Ok(Authorization {
-        user_id: user.id,
-        device_hash: device.hash,
-        dc_id: config.this_dc,
-    })
-}
-
 fn cache_error() -> SecretChatError {
     rejected(None, "transport cache unavailable")
 }
@@ -684,3 +646,6 @@ pub(crate) fn rejected(chat_id: Option<i64>, reason: &'static str) -> SecretChat
         reason: reason.into(),
     }
 }
+
+#[cfg(test)]
+mod tests;

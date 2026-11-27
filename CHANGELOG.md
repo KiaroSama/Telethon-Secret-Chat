@@ -7,6 +7,37 @@ package by commit and reads this file before moving its pin. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Bind `GrammersTransport` to the actual local authorization-key tag, verified user,
+  home DC, and generation; accept current-session management hash `0`, and guard
+  RPC, multipart, download, and handshake await boundaries against identity changes.
+- Refuse oversized `EstablishedChat::encrypt_text` output before consuming a sequence.
+- Checkpoint durable manager transitions before RAM publication; retain accepted
+  receive batches across save refusal, response failure/cancellation, and restart.
+  Strong mode retains results through explicit consumer ACK, with bounded receipts
+  and retryable cleanup. Mandatory closure remains terminal in RAM during save failure.
+- Propagate memory-store transient marker errors, use authoritative transient TTL,
+  and avoid inaccessible duplicate RAM events in durable managers.
+- Reject inconsistent restored counters, pending wrappers, replay/key provenance,
+  recovery windows, and gap metadata before saving or installing protocol state.
+- Refuse duplicate identities and unknown fields in authenticated autosave history
+  without changing public message/media Serde behavior or valid writer output.
+- Stage complete archives before publication, clean failed output, validate media
+  forwarding locations/sizes, and require complete Ogg Opus identification headers.
+
+### Compatibility and documentation
+
+- Authorization binding domain `v2` intentionally differs from the old adapter's
+  management-hash identity. Existing adapter-bound stores are not automatically
+  rebound. See [integration boundaries](docs/integration-boundaries.md).
+- Existing valid checkpoint records remain readable under an unchanged binding;
+  absent accepted-batch journals default to empty. Previously accepted malformed
+  snapshots now fail closed. Public RAM-manager signatures and event behavior remain.
+- Document caller-owned initial handshake futures, explicit autosave recording,
+  helper-level media composition, archive export scope, and consumer cursor semantics.
+  Correct module links and CI/release claims. The immutable `v0.4.0` tag is unchanged.
+
 ## [0.4.0] - 2026-11-27
 
 ### Added

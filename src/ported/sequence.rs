@@ -1,6 +1,6 @@
 //! Sequence validation and recovery against offline caller-owned state.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Value, json};
 
@@ -185,6 +185,46 @@ fn pending_records(frames: Vec<Value>) -> Outcome<BTreeMap<i64, Value>> {
 
 pub fn preflight(state: Value, frame: Value, pending: Vec<Value>) -> Outcome<bool> {
     check(&state, &Frame::fixture(&frame)?, &pending_records(pending)?)
+}
+
+/// Validate persisted gap records without silently normalizing duplicates.
+pub(crate) fn validate_pending_checkpoint(
+    state: &Value,
+    pending: &[Value],
+) -> Outcome<BTreeSet<i64>> {
+    if pending.len() > WINDOW as usize {
+        return Err("persisted pending frames exceed the recovery window".into());
+    }
+    let mut records = BTreeMap::new();
+    let mut total_bytes = 0usize;
+    for record in pending {
+        let encoded = record["body"]
+            .as_str()
+            .ok_or("persisted pending frame has no body")?;
+        let body_bytes = encoded.len() / 2;
+        total_bytes = total_bytes.saturating_add(body_bytes);
+        if body_bytes > crate::protocol::MAX_ENCRYPTED_FRAME_LEN
+            || total_bytes > crate::protocol::MAX_PENDING_FRAME_BYTES
+        {
+            return Err("persisted pending frames exceed the local byte limit".into());
+        }
+        let frame = Frame::from_record(record)?;
+        if frame.index() <= integer(state, "in_seq_no")?
+            || frame.layer > integer(state, "layer")?
+            || *record != frame.record()
+            || !check(state, &frame, &records)?
+        {
+            return Err("inconsistent persisted pending frame".into());
+        }
+        let body =
+            hex::decode(&frame.body).map_err(|_| "invalid persisted pending frame encoding")?;
+        let unwrapped = super::framing::unwrap(body, None)?;
+        if unwrapped.get("error_type").is_some() {
+            return Err("invalid persisted pending frame wrapper".into());
+        }
+        records.insert(frame.index(), frame.record());
+    }
+    Ok(records.into_keys().collect())
 }
 
 fn advance(state: &mut Value, frame: &Frame, ready: &mut Vec<Value>) -> Outcome<()> {

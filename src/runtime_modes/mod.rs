@@ -1,19 +1,22 @@
 //! Restartable, bounded, transient, and durable-ingress secret-chat managers.
 
 use std::collections::BTreeMap;
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, Mutex as RecordMutex, MutexGuard};
 
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::errors::SecretChatError;
 use crate::manager::{
-    BoxFuture, ManagerLimits, PersistedOutboxItem, SecretChatManager, SecretTransport,
+    BoxFuture, ChatCheckpoint, ManagerLimits, PersistedOutboxItem, ReceivedBatch,
+    SecretChatManager, SecretTransport,
 };
 use crate::protocol::{AcceptedMessage, ChatState, SecretChat};
 use crate::storage_backend::{
-    OutboxState, PersistedChatRecord, PersistedOutboxEntry, SecretChatStore, corrupt, unix_now,
+    OutboxState, PendingDelivery, PersistedChatRecord, PersistedOutboxEntry, SavedAcceptedMessage,
+    SecretChatStore, corrupt, unix_now,
 };
 
 type Result<T, E = SecretChatError> = std::result::Result<T, E>;
@@ -157,50 +160,106 @@ fn update_record(
 struct CheckpointTransport<T: SecretTransport, S: SecretChatStore> {
     transport: T,
     store: S,
-    manager: Mutex<Weak<SecretChatManager<Self>>>,
-    records: Mutex<BTreeMap<i32, PersistedChatRecord>>,
+    records: RecordMutex<BTreeMap<i32, PersistedChatRecord>>,
+    limits: ManagerLimits,
 }
 
 impl<T: SecretTransport, S: SecretChatStore> CheckpointTransport<T, S> {
-    async fn checkpoint(&self, chat_id: i64, attempt: Option<i64>) -> Result<()> {
-        let manager = self
-            .manager
+    fn records(&self) -> Result<MutexGuard<'_, BTreeMap<i32, PersistedChatRecord>>> {
+        self.records
             .lock()
-            .await
-            .upgrade()
-            .ok_or(SecretChatError::ManagerStopping)?;
+            .map_err(|_| corrupt("checkpoint state lock was poisoned"))
+    }
+
+    fn checkpoint_attempt(&self, chat_id: i64, random: i64) -> Result<()> {
         let id = counter(chat_id)?;
-        let mut records = self.records.lock().await;
+        let mut records = self.records()?;
         let old = records.get(&id).ok_or_else(|| unknown(id))?;
         if old.tombstoned {
-            if attempt.is_some() {
-                return Err(SecretChatError::ChatClosed {
-                    chat_id,
-                    reason: "chat was tombstoned".into(),
-                });
-            }
-            return Ok(());
+            return Err(SecretChatError::ChatClosed {
+                chat_id,
+                reason: "chat was tombstoned".into(),
+            });
         }
-        let (chat, outbox) = manager.snapshot_chat(chat_id).await?;
         let mut next = old.clone();
-        update_record(&mut next, &chat, outbox)?;
-        if let Some(random) = attempt {
-            if next.tombstoned {
-                return Err(SecretChatError::ChatClosed {
-                    chat_id,
-                    reason: "chat was closed".into(),
-                });
+        let entry = next
+            .pending_outbox
+            .iter_mut()
+            .find(|entry| entry.random_id == random)
+            .ok_or_else(|| corrupt("outbound frame was not retained for checkpointing"))?;
+        entry.attempts = entry.attempts.saturating_add(1);
+        self.store
+            .save_checkpoint(Some(old.checkpoint), &mut next)?;
+        records.insert(id, next);
+        Ok(())
+    }
+}
+
+impl<T: SecretTransport, S: SecretChatStore> ChatCheckpoint for CheckpointTransport<T, S> {
+    fn commit(
+        &self,
+        chat: &SecretChat,
+        outbox: Vec<PersistedOutboxItem>,
+        received: Option<ReceivedBatch<'_>>,
+    ) -> Result<()> {
+        let id = counter(chat.chat_id())?;
+        let mut records = self.records()?;
+        let old = records.get(&id).ok_or_else(|| unknown(id))?;
+        if old.tombstoned {
+            return Err(SecretChatError::ChatClosed {
+                chat_id: chat.chat_id(),
+                reason: "chat was tombstoned".into(),
+            });
+        }
+        let mut next = old.clone();
+        update_record(&mut next, chat, outbox)?;
+        if let Some(received) = received {
+            if next.pending_deliveries.iter().any(|delivery| {
+                delivery.frame_digest == received.frame_digest
+                    || (received.ingress_order.is_some()
+                        && delivery.ingress_order == received.ingress_order)
+            }) {
+                return Err(corrupt("an unsettled receive identity cannot be replaced"));
             }
-            let entry = next
-                .pending_outbox
-                .iter_mut()
-                .find(|entry| entry.random_id == random)
-                .ok_or_else(|| corrupt("outbound frame was not retained for checkpointing"))?;
-            entry.attempts = entry.attempts.saturating_add(1);
+            next.pending_deliveries.push(PendingDelivery {
+                frame_digest: received.frame_digest,
+                ingress_order: received.ingress_order,
+                messages: received
+                    .messages
+                    .iter()
+                    .map(SavedAcceptedMessage::capture)
+                    .collect(),
+            });
+            self.check_delivery_capacity(&next)?;
         }
         self.store
             .save_checkpoint(Some(old.checkpoint), &mut next)?;
         records.insert(id, next);
+        Ok(())
+    }
+}
+
+impl<T: SecretTransport, S: SecretChatStore> CheckpointTransport<T, S> {
+    fn check_delivery_capacity(&self, record: &PersistedChatRecord) -> Result<()> {
+        let count = record
+            .pending_deliveries
+            .iter()
+            .try_fold(0usize, |count, delivery| {
+                count.checked_add(delivery.messages.len().max(1))
+            });
+        let bytes = Zeroizing::new(
+            serde_json::to_vec(&record.pending_deliveries)
+                .map_err(|_| corrupt("failed to encode pending received messages"))?,
+        );
+        if count.is_none_or(|count| count > self.limits.max_retained_messages)
+            || (!record.pending_deliveries.is_empty()
+                && bytes.len() > self.limits.max_retained_bytes)
+        {
+            return Err(SecretChatError::ParameterRejected {
+                chat_id: Some(i64::from(record.chat_id)),
+                reason: "unsettled receive budget exhausted; settle pending deliveries".into(),
+            });
+        }
         Ok(())
     }
 }
@@ -217,7 +276,7 @@ impl<T: SecretTransport, S: SecretChatStore> SecretTransport for CheckpointTrans
         frame: Vec<u8>,
     ) -> BoxFuture<'a, Result<()>> {
         Box::pin(async move {
-            self.checkpoint(id, Some(random)).await?;
+            self.checkpoint_attempt(id, random)?;
             self.transport.send_encrypted(id, random, frame).await
         })
     }
@@ -229,7 +288,7 @@ impl<T: SecretTransport, S: SecretChatStore> SecretTransport for CheckpointTrans
         frame: Vec<u8>,
     ) -> BoxFuture<'a, Result<()>> {
         Box::pin(async move {
-            self.checkpoint(id, Some(random)).await?;
+            self.checkpoint_attempt(id, random)?;
             self.transport
                 .send_encrypted_service(id, random, frame)
                 .await
@@ -237,16 +296,14 @@ impl<T: SecretTransport, S: SecretChatStore> SecretTransport for CheckpointTrans
     }
 
     fn discard_encryption(&self, id: i64, delete_history: bool) -> BoxFuture<'_, Result<()>> {
-        Box::pin(async move {
-            self.checkpoint(id, None).await?;
-            self.transport.discard_encryption(id, delete_history).await
-        })
+        self.transport.discard_encryption(id, delete_history)
     }
 }
 
 pub struct PersistentSecretChatManager<T: SecretTransport, S: SecretChatStore> {
     inner: Arc<SecretChatManager<CheckpointTransport<T, S>>>,
     checkpoint: Arc<CheckpointTransport<T, S>>,
+    registration: Mutex<()>,
 }
 
 impl<T: SecretTransport, S: SecretChatStore> PersistentSecretChatManager<T, S> {
@@ -256,22 +313,21 @@ impl<T: SecretTransport, S: SecretChatStore> PersistentSecretChatManager<T, S> {
         let checkpoint = Arc::new(CheckpointTransport {
             transport,
             store,
-            manager: Mutex::new(Weak::new()),
-            records: Mutex::new(snapshot.chats),
+            records: RecordMutex::new(snapshot.chats),
+            limits,
         });
         let inner = Arc::new(SecretChatManager::with_limits(checkpoint.clone(), limits)?);
-        *checkpoint.manager.lock().await = Arc::downgrade(&inner);
-        for record in checkpoint
-            .records
-            .lock()
-            .await
-            .values()
-            .filter(|r| !r.tombstoned)
-        {
+        let records: Vec<_> = checkpoint.records()?.values().cloned().collect();
+        for record in records.iter().filter(|r| !r.tombstoned) {
+            checkpoint.check_delivery_capacity(record)?;
             let (chat, outbox) = restore(record, checkpoint.auth_identity())?;
             inner.restore_chat(chat, outbox).await?;
         }
-        Ok(Self { inner, checkpoint })
+        Ok(Self {
+            inner,
+            checkpoint,
+            registration: Mutex::new(()),
+        })
     }
 
     pub fn caller_auth_identity(&self) -> &str {
@@ -279,8 +335,8 @@ impl<T: SecretTransport, S: SecretChatStore> PersistentSecretChatManager<T, S> {
     }
 
     pub async fn register_and_persist(&self, mut record: PersistedChatRecord) -> Result<()> {
-        let mut records = self.checkpoint.records.lock().await;
-        if record.tombstoned || records.contains_key(&record.chat_id) {
+        let _registration = self.registration.lock().await;
+        if record.tombstoned || self.checkpoint.records()?.contains_key(&record.chat_id) {
             return Err(corrupt("chat identity is closed or already registered"));
         }
         let (chat, outbox) = restore(&record, self.caller_auth_identity())?;
@@ -289,14 +345,17 @@ impl<T: SecretTransport, S: SecretChatStore> PersistentSecretChatManager<T, S> {
         let result = async {
             let (chat, outbox) = self.inner.snapshot_chat(i64::from(id)).await?;
             update_record(&mut record, &chat, outbox)?;
-            self.checkpoint.store.save_checkpoint(None, &mut record)
+            self.checkpoint.check_delivery_capacity(&record)?;
+            let mut records = self.checkpoint.records()?;
+            self.checkpoint.store.save_checkpoint(None, &mut record)?;
+            records.insert(id, record.clone());
+            Ok(())
         }
         .await;
         if let Err(err) = result {
             self.inner.remove_chat(i64::from(id)).await;
             return Err(err);
         }
-        records.insert(id, record);
         Ok(())
     }
 
@@ -311,46 +370,150 @@ impl<T: SecretTransport, S: SecretChatStore> PersistentSecretChatManager<T, S> {
         Ok(record)
     }
 
-    async fn finish<R>(&self, id: i32, result: Result<R>) -> Result<R> {
-        self.checkpoint.checkpoint(i64::from(id), None).await?;
-        result
-    }
-
     pub async fn send_text(&self, id: i32, text: &str) -> Result<Vec<u8>> {
         self.send_text_with_id(id, random_id()?, text).await
     }
 
     pub async fn send_text_with_id(&self, id: i32, random_id: i64, text: &str) -> Result<Vec<u8>> {
         let ttl = self.require_live(id).await?.ttl;
-        let result = self
-            .inner
-            .send_text(i64::from(id), random_id, text, i64::from(ttl))
-            .await;
-        self.finish(id, result).await
+        self.inner
+            .send_text_checkpointed(
+                i64::from(id),
+                random_id,
+                text,
+                i64::from(ttl),
+                Some(self.checkpoint.as_ref()),
+            )
+            .await
     }
 
     pub async fn retry_pending(&self, id: i32) -> Result<usize> {
         self.require_live(id).await?;
-        let result = self.inner.retry_pending(i64::from(id)).await;
-        self.finish(id, result).await
+        self.inner
+            .retry_pending_checkpointed(i64::from(id), Some(self.checkpoint.as_ref()))
+            .await
     }
 
     pub async fn configure_chat_dh(&self, id: i32, g: i64, p: &[u8]) -> Result<()> {
         self.require_live(id).await?;
-        let result = self.inner.configure_chat_dh(i64::from(id), g, p).await;
-        self.finish(id, result).await
+        self.inner
+            .configure_chat_dh_checkpointed(i64::from(id), g, p, Some(self.checkpoint.as_ref()))
+            .await
     }
 
     pub async fn start_rekey(&self, id: i32) -> Result<bool> {
         self.require_live(id).await?;
-        let result = self.inner.start_rekey(i64::from(id)).await;
-        self.finish(id, result).await
+        self.inner
+            .start_rekey_checkpointed(i64::from(id), Some(self.checkpoint.as_ref()))
+            .await
     }
 
+    /// Retry the same input after an interrupted call to recover its accepted batch.
+    /// Response RPC failure does not hide accepted messages; responses stay retryable.
+    /// A successful return settles this receipt; strong mode waits for consumer ACK.
     pub async fn handle_incoming(&self, id: i32, frame: &[u8]) -> Result<Vec<AcceptedMessage>> {
         self.require_live(id).await?;
-        let result = self.inner.receive_frames(i64::from(id), frame).await;
-        self.finish(id, result).await
+        let digest = Sha256::digest(frame).into();
+        if let Some(messages) = self.received_delivery(id, digest, None, true)? {
+            return Ok(messages);
+        }
+        let result = self
+            .inner
+            .receive_frames_checkpointed(i64::from(id), frame, None, Some(self.checkpoint.as_ref()))
+            .await;
+        if let Some(messages) = self.received_delivery(id, digest, None, true)? {
+            return Ok(messages);
+        }
+        // Another concurrent receiver may already have returned this committed batch.
+        result.map(|_| Vec::new())
+    }
+
+    pub(crate) async fn handle_incoming_retained(
+        &self,
+        id: i32,
+        order: i64,
+        frame: &[u8],
+    ) -> Result<Vec<AcceptedMessage>> {
+        self.require_live(id).await?;
+        if order <= 0 {
+            return Err(corrupt("retained delivery order must be positive"));
+        }
+        let digest = Sha256::digest(frame).into();
+        if let Some(messages) = self.received_delivery(id, digest, Some(order), false)? {
+            return Ok(messages);
+        }
+        let result = self
+            .inner
+            .receive_frames_checkpointed(
+                i64::from(id),
+                frame,
+                Some(order),
+                Some(self.checkpoint.as_ref()),
+            )
+            .await;
+        match self.received_delivery(id, digest, Some(order), false)? {
+            Some(messages) => Ok(messages),
+            None => result,
+        }
+    }
+
+    fn received_delivery(
+        &self,
+        id: i32,
+        digest: [u8; 32],
+        order: Option<i64>,
+        settle: bool,
+    ) -> Result<Option<Vec<AcceptedMessage>>> {
+        let mut records = self.checkpoint.records()?;
+        let old = records.get(&id).ok_or_else(|| unknown(id))?;
+        let Some(delivery) = old
+            .pending_deliveries
+            .iter()
+            .find(|delivery| delivery.frame_digest == digest)
+        else {
+            return Ok(None);
+        };
+        if delivery.ingress_order != order {
+            return Err(corrupt(
+                "receive identity belongs to another delivery order",
+            ));
+        }
+        let messages = delivery
+            .messages
+            .iter()
+            .map(SavedAcceptedMessage::message)
+            .collect();
+        if settle {
+            let mut next = old.clone();
+            next.pending_deliveries
+                .retain(|delivery| delivery.frame_digest != digest);
+            self.checkpoint
+                .store
+                .save_checkpoint(Some(old.checkpoint), &mut next)?;
+            records.insert(id, next);
+        }
+        Ok(Some(messages))
+    }
+
+    /// Remove only receipts covered by an already committed contiguous ingress cursor.
+    pub(crate) fn settle_retained_deliveries(&self, id: i32, through: i64) -> Result<()> {
+        let mut records = self.checkpoint.records()?;
+        let old = records.get(&id).ok_or_else(|| unknown(id))?;
+        if !old
+            .pending_deliveries
+            .iter()
+            .any(|delivery| delivery.ingress_order.is_some_and(|order| order <= through))
+        {
+            return Ok(());
+        }
+        let mut next = old.clone();
+        next.pending_deliveries
+            .retain(|delivery| delivery.ingress_order.is_none_or(|order| order > through));
+        self.checkpoint
+            .store
+            .save_checkpoint(Some(old.checkpoint), &mut next)?;
+        records.insert(id, next);
+        Ok(())
     }
 
     pub async fn set_ttl(&self, id: i32, ttl: i32) -> Result<Vec<u8>> {
@@ -374,25 +537,31 @@ impl<T: SecretTransport, S: SecretChatStore> PersistentSecretChatManager<T, S> {
 
     async fn service(&self, id: i32, action: serde_json::Value) -> Result<Vec<u8>> {
         self.require_live(id).await?;
-        let result = self.inner.send_service_action(i64::from(id), &action).await;
-        self.finish(id, result).await
+        self.inner
+            .send_service_action_checkpointed(
+                i64::from(id),
+                &action,
+                Some(self.checkpoint.as_ref()),
+            )
+            .await
     }
 
     pub async fn close_and_tombstone(&self, id: i32, delete_history: bool) -> Result<()> {
         self.require_live(id).await?;
-        let result = self
-            .inner
-            .close_chat(i64::from(id), delete_history, "closed by caller")
-            .await;
-        self.finish(id, result).await
+        self.inner
+            .close_chat_checkpointed(
+                i64::from(id),
+                delete_history,
+                "closed by caller",
+                Some(self.checkpoint.as_ref()),
+            )
+            .await
     }
 
     pub async fn list_persisted_chats(&self) -> Result<Vec<i32>> {
         Ok(self
             .checkpoint
-            .records
-            .lock()
-            .await
+            .records()?
             .values()
             .filter(|r| !r.tombstoned)
             .map(|r| r.chat_id)
@@ -401,9 +570,7 @@ impl<T: SecretTransport, S: SecretChatStore> PersistentSecretChatManager<T, S> {
 
     pub async fn snapshot_chat(&self, id: i32) -> Result<PersistedChatRecord> {
         self.checkpoint
-            .records
-            .lock()
-            .await
+            .records()?
             .get(&id)
             .cloned()
             .ok_or_else(|| unknown(id))
@@ -411,9 +578,8 @@ impl<T: SecretTransport, S: SecretChatStore> PersistentSecretChatManager<T, S> {
 
     pub(crate) async fn chat_state(&self, id: i32) -> Option<ChatState> {
         self.checkpoint
-            .records
-            .lock()
-            .await
+            .records()
+            .ok()?
             .get(&id)
             .filter(|r| !r.tombstoned)
             .map(|r| r.state)
@@ -424,3 +590,6 @@ mod modes;
 pub use modes::{
     BoundedSecretChatManager, ReplayOutcome, StrongSecretChatManager, TransientSecretChatManager,
 };
+
+#[cfg(test)]
+mod tests;

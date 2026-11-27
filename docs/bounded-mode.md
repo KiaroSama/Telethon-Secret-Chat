@@ -1,6 +1,6 @@
 # Bounded custody mode
 
-`Grammers Secret Chat` implements bounded custody through [custody.rs](../src/custody.rs) (`CustodyRecord`, `CustodyStore`, `CustodyLimits`) and [runtime_modes.rs](../src/runtime_modes.rs) (`BoundedSecretChatManager`).
+`Grammers Secret Chat` implements bounded custody through [custody.rs](../src/custody.rs) (`CustodyRecord`, `CustodyStore`, `CustodyLimits`) and [runtime_modes/mod.rs](../src/runtime_modes/mod.rs) (`BoundedSecretChatManager`).
 
 ## Data model and limits
 

@@ -8,7 +8,8 @@ use tokio::sync::MutexGuard;
 use zeroize::Zeroizing;
 
 use super::{
-    ChatEntry, ManagedChat, OutboundMessage, SecretChatManager, SecretEvent, SecretTransport,
+    ChatCheckpoint, ChatEntry, ManagedChat, OutboundMessage, ReceivedBatch, SecretChatManager,
+    SecretEvent, SecretTransport,
 };
 use crate::errors::SecretChatError;
 use crate::protocol::{AcceptedMessage, ChatState, PreparedServiceMessage, SecretChat};
@@ -38,6 +39,17 @@ impl<T: SecretTransport> SecretChatManager<T> {
         chat_id: i64,
         frame: &[u8],
     ) -> Result<Vec<AcceptedMessage>, SecretChatError> {
+        self.receive_frames_checkpointed(chat_id, frame, None, None)
+            .await
+    }
+
+    pub(crate) async fn receive_frames_checkpointed(
+        &self,
+        chat_id: i64,
+        frame: &[u8],
+        ingress_order: Option<i64>,
+        checkpoint: Option<&dyn ChatCheckpoint>,
+    ) -> Result<Vec<AcceptedMessage>, SecretChatError> {
         self.ensure_running()?;
         let entry = self.entry(chat_id).await?;
         let mut state = entry.state.lock().await;
@@ -46,7 +58,7 @@ impl<T: SecretTransport> SecretChatManager<T> {
         let accepted = match candidate.receive_encrypted_frames(frame) {
             Ok(accepted) => accepted,
             Err(error) => {
-                self.commit_fatal_state(chat_id, &mut state, &candidate);
+                self.commit_fatal_state(chat_id, &mut state, &candidate, checkpoint)?;
                 return Err(error);
             }
         };
@@ -71,7 +83,7 @@ impl<T: SecretTransport> SecretChatManager<T> {
                     .first_key_value()
                     .map_or(-1, |(seq, _)| seq * 2 + parity);
                 candidate.close();
-                self.commit_fatal_state(chat_id, &mut state, &candidate);
+                self.commit_fatal_state(chat_id, &mut state, &candidate, checkpoint)?;
                 return Err(SecretChatError::ResendUnsatisfiable {
                     chat_id,
                     requested: (start, end),
@@ -86,7 +98,7 @@ impl<T: SecretTransport> SecretChatManager<T> {
                 match candidate.handle_rekey_action(action) {
                     Ok(replies) => services.extend(replies),
                     Err(error) => {
-                        self.commit_fatal_state(chat_id, &mut state, &candidate);
+                        self.commit_fatal_state(chat_id, &mut state, &candidate, checkpoint)?;
                         return Err(error);
                     }
                 }
@@ -101,7 +113,13 @@ impl<T: SecretTransport> SecretChatManager<T> {
                 &json!({"id":0x511110b0_u32,"fields":{"start_seq_no":start,"end_seq_no":end}}),
             )?);
         }
-        self.stage_due_rekey(chat_id, &mut state, &mut candidate, &mut services)?;
+        self.stage_due_rekey(
+            chat_id,
+            &mut state,
+            &mut candidate,
+            &mut services,
+            checkpoint,
+        )?;
         let acknowledged = candidate.peer_in_seq_no();
         let remove: BTreeSet<_> = state
             .outbox
@@ -118,9 +136,11 @@ impl<T: SecretTransport> SecretChatManager<T> {
             services.len(),
             services.iter().map(|s| s.frame.len()).sum(),
         )?;
-        for (seq, record) in &mut state.outbox {
+        let mut next = state.clone();
+        let mut events = Vec::new();
+        for (seq, record) in &mut next.outbox {
             if *seq < acknowledged && !record.acknowledged {
-                self.emit(SecretEvent::MessageAcknowledged {
+                events.push(SecretEvent::MessageAcknowledged {
                     chat_id,
                     random_id: record.random_id,
                 });
@@ -132,28 +152,41 @@ impl<T: SecretTransport> SecretChatManager<T> {
                 record.revision = record.revision.wrapping_add(1);
             }
         }
-        state.outbox.retain(|seq, _| !remove.contains(seq));
-        self.retain_services(&mut state, services);
-        state.chat = candidate;
-        // No cancellation point is permitted between accepting a message and queuing its event.
-        for message in &accepted {
-            self.emit(if message.action.is_some() {
-                SecretEvent::ServiceActionReceived {
-                    chat_id,
-                    message: message.clone(),
-                }
-            } else {
-                SecretEvent::MessageReceived {
-                    chat_id,
-                    message: message.clone(),
-                }
-            });
+        next.outbox.retain(|seq, _| !remove.contains(seq));
+        self.retain_services(&mut next, services);
+        next.chat = candidate;
+        let received = (!accepted.is_empty() || ingress_order.is_some()).then(|| ReceivedBatch {
+            frame_digest: Sha256::digest(frame).into(),
+            ingress_order,
+            messages: &accepted,
+        });
+        self.commit_candidate(&mut state, next, checkpoint, received)?;
+        if checkpoint.is_none() {
+            for event in events {
+                self.emit(event);
+            }
+            // RAM callers drain events. Durable callers use their bounded receipt journal.
+            // Neither publication path may have a cancellation point after committing state.
+            for message in &accepted {
+                self.emit(if message.action.is_some() {
+                    SecretEvent::ServiceActionReceived {
+                        chat_id,
+                        message: message.clone(),
+                    }
+                } else {
+                    SecretEvent::MessageReceived {
+                        chat_id,
+                        message: message.clone(),
+                    }
+                });
+            }
         }
         drop(state);
         // A transport may deliver an update inline during send. Never wait on its own send lock.
         // The lock holder will see newly queued responses on its next transmit iteration.
         if let Ok(order) = entry.outbound.try_lock() {
-            self.transmit_pending(chat_id, &entry, Some(order)).await?;
+            self.transmit_pending(chat_id, &entry, Some(order), checkpoint)
+                .await?;
         }
         Ok(accepted)
     }
@@ -164,6 +197,17 @@ impl<T: SecretTransport> SecretChatManager<T> {
         delete_history: bool,
         reason: &str,
     ) -> Result<(), SecretChatError> {
+        self.close_chat_checkpointed(chat_id, delete_history, reason, None)
+            .await
+    }
+
+    pub(crate) async fn close_chat_checkpointed(
+        &self,
+        chat_id: i64,
+        delete_history: bool,
+        reason: &str,
+        checkpoint: Option<&dyn ChatCheckpoint>,
+    ) -> Result<(), SecretChatError> {
         self.ensure_running()?;
         let entry = self.entry(chat_id).await?;
         let _order = entry.outbound.lock().await;
@@ -171,14 +215,22 @@ impl<T: SecretTransport> SecretChatManager<T> {
         {
             let mut state = entry.state.lock().await;
             self.ensure_running()?;
-            if state.chat.state() != ChatState::Closed {
-                state.chat.close();
-                state.outbox.clear();
+            let was_open = state.chat.state() != ChatState::Closed;
+            let mut next = state.clone();
+            next.chat.close();
+            next.outbox.clear();
+            let committed = self.commit_candidate(&mut state, next, checkpoint, None);
+            // Closure is irreversible even if its tombstone cannot be saved yet.
+            // A later close retries persistence before making the discard RPC.
+            state.chat.close();
+            state.outbox.clear();
+            if was_open && checkpoint.is_none() {
                 self.emit(SecretEvent::ChatClosed {
                     chat_id,
                     reason: reason.to_owned(),
                 });
             }
+            committed?;
         }
         self.transport
             .discard_encryption(chat_id, delete_history)
@@ -211,6 +263,10 @@ impl<T: SecretTransport> SecretChatManager<T> {
 
     pub async fn chat_state(&self, chat_id: i64) -> Result<ChatState, SecretChatError> {
         Ok(self.entry(chat_id).await?.state.lock().await.chat.state())
+    }
+
+    pub(crate) async fn chat_ttl(&self, chat_id: i64) -> Result<i32, SecretChatError> {
+        Ok(self.entry(chat_id).await?.state.lock().await.chat.ttl())
     }
 
     pub async fn out_seq_no(&self, chat_id: i64) -> Result<i64, SecretChatError> {
@@ -318,13 +374,14 @@ impl<T: SecretTransport> SecretChatManager<T> {
         state: &mut ManagedChat,
         candidate: &mut SecretChat,
         services: &mut Vec<PreparedServiceMessage>,
+        checkpoint: Option<&dyn ChatCheckpoint>,
     ) -> Result<(), SecretChatError> {
         if candidate.rekey_due() {
             match candidate.start_rekey() {
                 Ok(Some(service)) => services.push(service),
                 Ok(None) => (),
                 Err(error) => {
-                    self.commit_fatal_state(chat_id, state, candidate);
+                    self.commit_fatal_state(chat_id, state, candidate, checkpoint)?;
                     return Err(error);
                 }
             }
@@ -337,15 +394,26 @@ impl<T: SecretTransport> SecretChatManager<T> {
         chat_id: i64,
         state: &mut ManagedChat,
         candidate: &SecretChat,
-    ) {
-        if candidate.state() == ChatState::Closed && state.chat.state() != ChatState::Closed {
+        checkpoint: Option<&dyn ChatCheckpoint>,
+    ) -> Result<(), SecretChatError> {
+        if candidate.state() == ChatState::Closed {
+            let was_open = state.chat.state() != ChatState::Closed;
+            let mut next = state.clone();
+            next.chat.close();
+            next.outbox.clear();
+            let committed = self.commit_candidate(state, next, checkpoint, None);
+            // A failed storage operation must never undo a mandatory protocol abort.
             state.chat.close();
             state.outbox.clear();
-            self.emit(SecretEvent::ChatClosed {
-                chat_id,
-                reason: "authenticated protocol or key lifecycle violation".into(),
-            });
+            if was_open && checkpoint.is_none() {
+                self.emit(SecretEvent::ChatClosed {
+                    chat_id,
+                    reason: "authenticated protocol or key lifecycle violation".into(),
+                });
+            }
+            committed?;
         }
+        Ok(())
     }
 
     pub(super) async fn transmit_pending(
@@ -353,6 +421,7 @@ impl<T: SecretTransport> SecretChatManager<T> {
         chat_id: i64,
         entry: &ChatEntry,
         mut final_order: Option<MutexGuard<'_, ()>>,
+        checkpoint: Option<&dyn ChatCheckpoint>,
     ) -> Result<usize, SecretChatError> {
         let mut count = 0;
         loop {
@@ -402,14 +471,16 @@ impl<T: SecretTransport> SecretChatManager<T> {
                     cause: "TransportError".into(),
                 });
             }
-            if let Some(record) = state.outbox.get_mut(&sequence)
+            let mut next = state.clone();
+            if let Some(record) = next.outbox.get_mut(&sequence)
                 && record.revision == revision
             {
                 record.pending = false;
                 record.replay_requested = false;
                 if record.acknowledged {
-                    state.outbox.remove(&sequence);
+                    next.outbox.remove(&sequence);
                 }
+                self.commit_candidate(&mut state, next, checkpoint, None)?;
             }
             count += 1;
         }
