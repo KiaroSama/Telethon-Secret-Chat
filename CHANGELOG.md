@@ -7,6 +7,8 @@ package by commit and reads this file before moving its pin. The format follows
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-11-27
+
 ### Fixed
 
 - Preserve encrypted custody across failed updates with exclusive staging files, atomic replacement without deleting the previous destination, file/Unix-directory flushing, cooperative file locks, and stale ingress snapshot refusal.
