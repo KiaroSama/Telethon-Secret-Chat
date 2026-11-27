@@ -152,6 +152,10 @@ impl CustodyRecord {
         self.paused
     }
 
+    pub fn pause_reason(&self) -> Option<&str> {
+        self.pause_reason.as_deref()
+    }
+
     pub fn pause(&mut self, reason: impl Into<String>) {
         self.paused = true;
         self.pause_reason = Some(reason.into());

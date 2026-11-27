@@ -8,7 +8,7 @@
 §3.4 asks clients to send outgoing messages in an `invokeAfterMsgs` chain so the server queues
 them in order; a message overtaken by a later one opens a gap at the peer, and a gap that is
 never filled ends the chat. A chain ties each request to the MTProto `msg_id` of the one before
-it, which Telethon assigns inside its sender, and a chain does not survive a restart.
+it, which grammers assigns inside its sender, and a chain does not survive a restart.
 
 ## Decision
 
@@ -19,7 +19,7 @@ bytes and `random_id` (`outbox._send`, `outbox.retry_pending`), and again at `st
 
 ## Consequences
 
-- Order at the server follows commit order without depending on Telethon internals, across
+- Order at the server follows commit order without depending on grammers internals, across
   restarts too.
 - Throughput per chat is one RPC round trip per message.
 - A record that keeps failing stays pending and is retried before each later send; the

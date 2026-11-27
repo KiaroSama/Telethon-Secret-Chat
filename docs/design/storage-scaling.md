@@ -4,7 +4,7 @@ Design spike, 2026-09-29. Measured first; the build is a follow-up feature.
 
 ## What was measured
 
-A scratch benchmark outside the repository, on a copy of `telethon_secret_chat/storage/__init__.py`
+A scratch benchmark outside the repository, on a copy of `kiaro_secret_chat/storage/__init__.py`
 as committed at `b67d207` (sha256 `a493dc4d...`), i.e. **before** the change to one snapshot per
 outermost transaction), which landed right after. It was bounded by a
 110 s internal ceiling plus a 115 s outer timeout and deleted afterwards.

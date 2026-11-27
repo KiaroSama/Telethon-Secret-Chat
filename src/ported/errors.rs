@@ -73,7 +73,7 @@ pub fn describe_error(
             fields["state"] = json!(text);
             format!("the chat is {}; this operation needs an established chat", python_repr(&text))
         }
-        "StorageRequired" => "a storage backend is required: secret-chat keys must be persisted somewhere the application chose. There is no default, deliberately - see telethon_secret_chat.storage for the two shipped backends".into(),
+        "StorageRequired" => "a storage backend is required: secret-chat keys must be persisted somewhere the application chose. There is no default, deliberately - see storage_backend for the shipped backends".into(),
         "LayerUnsupported" => {
             fields["peer_layer"] = json!(first);
             format!("the peer announced layer {}; this package requires 73 or higher, below which the protocol is MTProto 1.0 and out of scope", display_int(first))

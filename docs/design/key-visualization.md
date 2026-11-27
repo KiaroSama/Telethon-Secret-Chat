@@ -35,7 +35,7 @@ because the table is the client's, not the protocol's.
 
 ## API for the follow-up feature
 
-A pure function in a new `telethon_secret_chat/visualization.py`, importing nothing from the
+A pure function in a new `kiaro_secret_chat/visualization.py`, importing nothing from the
 protocol modules, exported from the package:
 
 ```python

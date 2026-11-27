@@ -7,6 +7,24 @@ package by commit and reads this file before moving its pin. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-27
+
+### Added
+
+- Full initial secret-chat network establishment and caller-owned Layer 234 `grammers_client::Client` transport adapter (`transport::GrammersTransport`, `transport::EstablishmentTransport`, `establishment::SecretChatEstablisher`: `request_chat`, `complete_outgoing_handshake`, `accept_chat`, `discard_chat`, `delete_chat_both_sides`, plus dependency-free 12x12 key visualization PNG renderer `render_key_visualization_png`).
+- Full persistent, restartable secret-chat storage and runtime mode managers (`storage_backend::{SecretChatStore, MemoryStorage, FileStorage, ProtectedFileStorage, PersistedChatRecord}`, `runtime_modes::{PersistentSecretChatManager, BoundedSecretChatManager, TransientSecretChatManager, StrongSecretChatManager}`) preserving keys, sequence counters, TTL, PFS rekey state, previous-key cutover intervals, and retained outboxes across process restarts with atomic compare-and-swap checkpoints.
+- Contiguous durable ingress cursor (`applied_cursor`, `acknowledge_contiguous`, `list_pending_page`, `IngressOrigin::VerifiedTransport`) and isolated per-chat closed-chat startup replay handling.
+- Full encrypted media support for all 8 secret-chat media kinds (`media::{SecretMediaKind, encrypt_media_payload, decrypt_media_payload, encrypt_media_stream, decrypt_media_stream, build_forward_media_descriptor, detect_voice_note, save_media_atomic}`), opt-in encrypted atomic `autosave::AutoSaveStore`, and complete Telegram Desktop-compatible HTML + JSON saved-chat archive export (`export_archive::export_saved_chat`).
+
+### Fixed
+
+- Integrated PR #51 (`12125bb2`, R01-R10): previous-key sequence interval cutover, buffered neighbor acknowledgement and wrapper-layer monotonicity checks, duplicate authenticated wrapper drop before inner TL decode, owner-bound `CustodyStore`, empty-lockfile integrity check, strict serde duplicate/alias rejection, stale-revision check before empty `drain_in_order`, strict schema generator syntax validation, tracked live-secret filename checks in `validate-source.sh`, and Jiff `1.0.3` upgrade (`parse_zoned_datetime`) in vendored `grammers-client` (superseding PR #50).
+
+### Changed
+
+- Renamed repository and all project references to **Grammers Secret Chat** (`KiaroSama/Grammers-Secret-Chat`).
+- Ignored `.cargo/` completely in `.gitignore` (`/.cargo/` and `**/.cargo/`) and split oversized Rust modules below 700 lines.
+
 ## [0.3.2] - 2026-11-27
 
 ### Fixed
@@ -41,7 +59,7 @@ These notes describe capabilities of the retired Python baseline. They are prese
 
 - Opt-in strong-ingress contracts: `EncryptedIngressStorage`, `DurableIngress`,
   `IngressLimits`, `IngressBatch` and `StrongSecretChatManager`, plus a checksum-pinned
-  Telethon prerequisite builder. Public preparation validates a protected baseline
+  client prerequisite builder (replaced in Rust by vendored `grammers`). Public preparation validates a protected baseline
   before connection. The lifecycle/fault matrix and installed-wheel CI passed on
   `f52dd57fa06445875164d45475f29b881a70bdee`; independent source review completed and PR26 merged. The
   optional `strong` extra supplies cryptography 50.0.2. See [status](docs/strong-ingress.md).
@@ -129,9 +147,8 @@ Tagged `v0.1.0`.
 
 ### Changed
 
-- The distribution is renamed to `kiaro-telethon-secret-chat`: `telethon-secret-chat` on PyPI
-  is an unrelated package. The import name `telethon_secret_chat` is unchanged; a consumer
-  changes its dependency line once.
+- The historical Python distribution was renamed to avoid colliding with an unrelated
+  upstream package on PyPI while preserving consumer compatibility.
 - `__version__` is read from the installed metadata, so the version is written in one place.
 - `list()` and `status()` return a read-only `ChatSnapshot` with no key material instead of
   the live chat object.
@@ -142,7 +159,7 @@ Tagged `v0.1.0`.
   to the secret-chat schema; entity types the secret-chat layer cannot carry are dropped.
 - The in-memory history keeps the most recent `history_limit` messages per chat (default
   1000, a new keyword of `SecretChatManager`).
-- Telethon is capped below 2; the build backend is capped below setuptools 86.
+- Legacy Python client dependency was capped below major version 2 and setuptools below 86.
 - `create()` and `accept()` return a `ChatSnapshot`.
 - A message that authenticates but will not parse ends the chat, as TDLib does; a stored
   mailbox item that no longer parses is dropped with `DecryptFailed` instead of blocking

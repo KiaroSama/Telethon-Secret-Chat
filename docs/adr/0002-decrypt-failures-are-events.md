@@ -6,7 +6,7 @@
 ## Context
 
 §2.7 and §3.4-§3.6 say a bad message must be rejected, and some violations must abort the
-chat. Rejection happens inside Telethon's update dispatch: an exception raised there reaches
+chat. Rejection happens inside grammers's update dispatch: an exception raised there reaches
 the application as a traceback from a library it did not call. And §2.7 warns that reporting
 which check failed at which offset rebuilds a decryption oracle.
 

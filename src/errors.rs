@@ -66,6 +66,9 @@ pub enum SecretChatError {
 
     #[error("operating system entropy source unavailable: {reason}")]
     EntropyUnavailable { reason: String },
+
+    #[error("secret-chat protocol error: {0}")]
+    Protocol(&'static str),
 }
 
 fn format_chat_reason(label: &str, chat_id: Option<i64>, reason: &str) -> String {

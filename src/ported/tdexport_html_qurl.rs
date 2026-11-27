@@ -514,7 +514,7 @@ fn url_field<'a>(
 pub fn to_encoded(url: Value) -> Result<String, String> {
     let ty = py_type(&url);
     let map = url.as_object().filter(|_| ty == "dict").ok_or_else(|| format!(
-        "TypeError: telethon_secret_chat.tdexport.html_qurl.ParsedUrl() argument after ** must be a mapping, not {ty}"
+        "TypeError: grammers_secret_chat.tdexport.html_qurl.ParsedUrl() argument after ** must be a mapping, not {ty}"
     ))?;
     if let Some(k) = map.keys().find(|k| {
         ![

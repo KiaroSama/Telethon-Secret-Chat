@@ -12,7 +12,7 @@ stickerset=InputStickerSetEmpty())`; `files.send` builds the media with `thumb=b
 `thumb_w=0`, `thumb_h=0`. The package holds no codec by design, and the caller has no way to
 pass the values it may know (the consumer runs ffmpeg). Input is a path only.
 
-## Schema facts (`telethon_secret_chat/schema/end-to-end.tl`)
+## Schema facts (`kiaro_secret_chat/schema/end-to-end.tl`)
 
 The newest form of each constructor, which is the one the package sends:
 

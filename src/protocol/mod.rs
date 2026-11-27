@@ -1,8 +1,11 @@
 mod helpers;
 mod receive_guard;
+mod snapshot;
 
 pub use helpers::*;
+pub(crate) use snapshot::PersistedProtocolState;
 
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
@@ -20,13 +23,13 @@ pub const MAX_ENCRYPTED_FRAME_LEN: usize = 1024 * 1024;
 /// Local ceiling for the serialized plaintext bodies held behind sequence gaps.
 pub const MAX_PENDING_FRAME_BYTES: usize = 16 * 1024 * 1024;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ChatRole {
     Initiator,
     Acceptor,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ChatState {
     Requested,
     Offered,
@@ -34,7 +37,8 @@ pub enum ChatState {
     Closed,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum KeyLifecycleState {
     Unset,
     Active { fingerprint: i64 },
@@ -103,6 +107,7 @@ pub struct SecretChat {
     in_seq_no: i64,
     out_seq_no: i64,
     peer_in_seq_no: i64,
+    ttl: i32,
     pub(crate) key_lifecycle: KeyLifecycleState,
     pub(crate) active_key: Option<KeySlot>,
     pub(crate) rekey: crate::ported::rekey::RuntimeRekey,
@@ -140,6 +145,7 @@ impl SecretChat {
             in_seq_no: 0,
             out_seq_no: 0,
             peer_in_seq_no: 0,
+            ttl: 0,
             key_lifecycle: KeyLifecycleState::Unset,
             active_key: None,
             rekey: crate::ported::rekey::RuntimeRekey::default(),
@@ -160,6 +166,14 @@ impl SecretChat {
 
     pub fn access_hash(&self) -> i64 {
         self.access_hash
+    }
+
+    pub fn ttl(&self) -> i32 {
+        self.ttl
+    }
+
+    pub(crate) fn set_persisted_ttl(&mut self, ttl: i32) {
+        self.ttl = ttl;
     }
 
     pub fn peer_user_id(&self) -> i64 {
@@ -490,6 +504,18 @@ impl SecretChat {
         }
         if key_slot != 2 {
             self.rekey.messages = self.rekey.messages.saturating_add(1);
+        }
+        for message in &accepted {
+            if let Some(ttl_raw) = message
+                .action
+                .as_ref()
+                .filter(|act| act["id"] == 0xa173_3aec_u32)
+                .and_then(|act| act["fields"]["ttl_seconds"].as_i64())
+                .and_then(|v| i32::try_from(v).ok())
+                .filter(|v| *v >= 0)
+            {
+                self.ttl = ttl_raw;
+            }
         }
         self.retire_previous_key_if_settled();
         Ok(accepted)

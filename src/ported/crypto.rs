@@ -277,7 +277,7 @@ pub fn decrypt_frame(
 mod tests {
     use super::*;
 
-    // Telethon's MTProtoState._calc_key for the public inputs below.
+    // reference MTProto 2.0 KDF implementation for the public inputs below.
     const EXPECTED_KEY: [u8; 32] = [
         112, 78, 208, 156, 139, 65, 102, 138, 232, 249, 157, 36, 71, 56, 247, 29, 189, 220, 68, 70,
         155, 107, 189, 74, 168, 87, 61, 208, 66, 189, 5, 158,
@@ -338,7 +338,7 @@ mod tests {
     }
 
     #[test]
-    fn public_kdf_vector_agrees_with_telethon() -> Result<(), String> {
+    fn public_kdf_vector_agrees_with_mtproto_reference() -> Result<(), String> {
         let key = (0..=255u8).collect();
         let message_key = (0..16u8).collect();
         let keys = derive_keys(key, message_key, 0)?;

@@ -88,6 +88,20 @@ impl Default for ManagerLimits {
     }
 }
 
+#[derive(Clone, serde::Serialize, serde::Deserialize, zeroize::Zeroize, zeroize::ZeroizeOnDrop)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct PersistedOutboxItem {
+    pub out_seq_no: i64,
+    pub random_id: i64,
+    pub identity: [u8; 32],
+    pub frame: Vec<u8>,
+    pub pending: bool,
+    pub service: bool,
+    pub replay_requested: bool,
+    pub acknowledged: bool,
+    pub revision: u64,
+}
+
 struct OutboundMessage {
     random_id: i64,
     identity: [u8; 32],
@@ -425,6 +439,11 @@ impl<T: SecretTransport> SecretChatManager<T> {
                     }
                 }
             }
+            let outgoing_ttl = (action["id"] == 0xa173_3aec_u32)
+                .then(|| action["fields"]["ttl_seconds"].as_i64())
+                .flatten()
+                .and_then(|v| i32::try_from(v).ok())
+                .filter(|v| *v >= 0);
             let prepared = candidate.prepare_service_action(action)?;
             let frame = prepared.frame.clone();
             services.push(prepared);
@@ -436,11 +455,116 @@ impl<T: SecretTransport> SecretChatManager<T> {
                 services.len(),
                 services.iter().map(|s| s.frame.len()).sum(),
             )?;
+            if let Some(ttl) = outgoing_ttl {
+                candidate.set_persisted_ttl(ttl);
+            }
             self.retain_services(&mut state, services);
             state.chat = candidate;
             frame
         };
         self.transmit_pending(chat_id, &entry, Some(order)).await?;
         Ok(frame)
+    }
+
+    pub(crate) async fn restore_chat(
+        &self,
+        chat: SecretChat,
+        outbox_items: Vec<PersistedOutboxItem>,
+    ) -> Result<(), SecretChatError> {
+        let chat_id = chat.chat_id();
+        if outbox_items.len() > self.limits.max_retained_messages {
+            return Err(SecretChatError::StoreCorrupt {
+                chat_id: Some(chat_id),
+                reason: "persisted outbox exceeds retained message limit".into(),
+            });
+        }
+        let mut total_bytes = 0usize;
+        let mut seen_random_ids = BTreeSet::new();
+        let mut outbox = BTreeMap::new();
+        for item in outbox_items {
+            if item.out_seq_no < 0 || item.out_seq_no >= chat.out_seq_no() {
+                return Err(SecretChatError::StoreCorrupt {
+                    chat_id: Some(chat_id),
+                    reason: "persisted outbox sequence number is out of range".into(),
+                });
+            }
+            if item.frame.len() > MAX_ENCRYPTED_FRAME_LEN {
+                return Err(SecretChatError::StoreCorrupt {
+                    chat_id: Some(chat_id),
+                    reason: "persisted outbox frame exceeds maximum length".into(),
+                });
+            }
+            total_bytes = total_bytes
+                .checked_add(item.frame.len())
+                .filter(|&sum| sum <= self.limits.max_retained_bytes)
+                .ok_or_else(|| SecretChatError::StoreCorrupt {
+                    chat_id: Some(chat_id),
+                    reason: "persisted outbox exceeds retained byte limit".into(),
+                })?;
+            if !seen_random_ids.insert(item.random_id) {
+                return Err(SecretChatError::StoreCorrupt {
+                    chat_id: Some(chat_id),
+                    reason: "duplicate random_id in persisted outbox".into(),
+                });
+            }
+            if outbox
+                .insert(
+                    item.out_seq_no,
+                    OutboundMessage {
+                        random_id: item.random_id,
+                        identity: item.identity,
+                        frame: Zeroizing::new(item.frame.clone()),
+                        pending: item.pending,
+                        service: item.service,
+                        replay_requested: item.replay_requested,
+                        acknowledged: item.acknowledged,
+                        revision: item.revision,
+                    },
+                )
+                .is_some()
+            {
+                return Err(SecretChatError::StoreCorrupt {
+                    chat_id: Some(chat_id),
+                    reason: "duplicate sequence number in persisted outbox".into(),
+                });
+            }
+        }
+        let mut chats = self.chats.lock().await;
+        chats.insert(
+            chat_id,
+            Arc::new(ChatEntry {
+                state: Mutex::new(ManagedChat { chat, outbox }),
+                outbound: Mutex::new(()),
+            }),
+        );
+        Ok(())
+    }
+
+    pub(crate) async fn snapshot_chat(
+        &self,
+        chat_id: i64,
+    ) -> Result<(SecretChat, Vec<PersistedOutboxItem>), SecretChatError> {
+        let entry = self.entry(chat_id).await?;
+        let state = entry.state.lock().await;
+        let outbox = state
+            .outbox
+            .iter()
+            .map(|(seq, msg)| PersistedOutboxItem {
+                out_seq_no: *seq,
+                random_id: msg.random_id,
+                identity: msg.identity,
+                frame: msg.frame.to_vec(),
+                pending: msg.pending,
+                service: msg.service,
+                replay_requested: msg.replay_requested,
+                acknowledged: msg.acknowledged,
+                revision: msg.revision,
+            })
+            .collect();
+        Ok((state.chat.clone(), outbox))
+    }
+
+    pub(crate) async fn remove_chat(&self, chat_id: i64) -> bool {
+        self.chats.lock().await.remove(&chat_id).is_some()
     }
 }

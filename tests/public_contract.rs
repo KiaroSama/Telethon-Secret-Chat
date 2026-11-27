@@ -76,42 +76,70 @@ fn baseline_name_inventory_is_complete_without_claiming_native_parity() {
 }
 
 #[test]
-fn missing_manager_storage_and_media_capabilities_are_explicit() {
+fn restored_manager_storage_media_and_establishment_capabilities_are_native() {
     for name in [
+        "SecretChatManager",
         "BoundedSecretChatManager",
         "StrongSecretChatManager",
         "TransientSecretChatManager",
+        "EncryptedIngressStorage",
+        "DurableIngress",
         "ProtectedFileStorage",
         "StorageBackend",
         "MemoryStorage",
         "FileStorage",
         "MediaReference",
         "ChatSnapshot",
-        "RelayDelivery",
+        "KeyVisualization",
+        "ChatRequested",
+        "ChatReady",
+        "SecretChat",
     ] {
         let entry = PUBLIC_EXPORTS
             .iter()
             .find(|entry| entry.baseline_name == name)
             .unwrap();
-        assert_eq!(entry.status, RustSurfaceStatus::Unavailable, "{name}");
+        assert_eq!(entry.status, RustSurfaceStatus::NativeItem, "{name}");
         assert!(
-            entry.native_path.is_empty(),
-            "{name} must not be mapped to an unrelated type"
+            entry.native_path.starts_with("kiaro_secret_chat::"),
+            "{name} must map to a concrete native Rust path"
         );
     }
-    let manager = PUBLIC_EXPORTS
-        .iter()
-        .find(|entry| entry.baseline_name == "SecretChatManager")
-        .unwrap();
-    assert_eq!(manager.status, RustSurfaceStatus::PartialCapability);
 }
 
 #[test]
 fn concrete_native_items_are_checked_by_the_compiler() {
+    use kiaro_secret_chat::autosave::AutoSaveStore;
     use kiaro_secret_chat::custody::{CustodyBackend, CustodyLimits, CustodyMode, CustodyRecord};
     use kiaro_secret_chat::errors::SecretChatError;
+    use kiaro_secret_chat::establishment::{KeyPicture, render_key_visualization_png};
+    use kiaro_secret_chat::export_archive::{ExportFormat, ExportOptions, export_saved_chat};
     use kiaro_secret_chat::ingress::{CommitReplayStatus, IngressLimits, IngressOrigin};
+    use kiaro_secret_chat::media::{ForwardMediaReference, SecretMediaKind};
     use kiaro_secret_chat::protocol::{ChatRole, SecretChat, key_visualization};
+    use kiaro_secret_chat::storage_backend::{
+        FileStorage, MemoryStorage, PersistedChatRecord, ProtectedFileStorage, SecretChatStore,
+    };
+    use kiaro_secret_chat::transport::{EncryptedChatWire, GrammersTransport};
+
+    let _: Option<AutoSaveStore> = None;
+    let _: Option<KeyPicture> = None;
+    let _: Option<ExportFormat> = None;
+    let _: Option<ExportOptions> = None;
+    let _: Option<ForwardMediaReference> = None;
+    let _: Option<SecretMediaKind> = None;
+    let _: Option<FileStorage> = None;
+    let _: Option<MemoryStorage> = None;
+    let _: Option<PersistedChatRecord> = None;
+    let _: Option<ProtectedFileStorage> = None;
+    let _: Option<EncryptedChatWire> = None;
+    let _: Option<GrammersTransport> = None;
+    let _ = render_key_visualization_png;
+    let _ = export_saved_chat;
+    fn assert_store<S: SecretChatStore>() {}
+    assert_store::<MemoryStorage>();
+    assert_store::<FileStorage>();
+    assert_store::<ProtectedFileStorage>();
 
     let record = CustodyRecord::new(
         7,

@@ -102,7 +102,7 @@ fn validation(reason: Option<&str>, chat: Option<Vec<u8>>) -> Value {
         || message.clone(),
         |id| format!("[chat {}] {message}", integer(&id)),
     );
-    json!({"ok": false, "error_type": "telethon_secret_chat.errors.ParameterRejected", "reason": reason, "message": message})
+    json!({"ok": false, "error_type": "grammers_secret_chat.errors.ParameterRejected", "reason": reason, "message": message})
 }
 
 pub fn is_probable_prime(n: Vec<u8>, rounds: Option<i64>) -> Result<bool, String> {
@@ -175,7 +175,7 @@ mod tests {
         assert_eq!(generator_is_quadratic_residue(vec![2], vec![15]), Ok(true));
         let response = check_config(vec![2], vec![23], Some(vec![7]));
         assert!(
-            matches!(&response, Ok(v) if v["error_type"] == "telethon_secret_chat.errors.ParameterRejected" && v["message"].as_str().is_some_and(|s| s.starts_with("[chat 7]") && !s.contains("23")))
+            matches!(&response, Ok(v) if v["error_type"] == "grammers_secret_chat.errors.ParameterRejected" && v["message"].as_str().is_some_and(|s| s.starts_with("[chat 7]") && !s.contains("23")))
         );
         assert!(matches!(check_peer_value(vec![1], vec![23], None), Ok(v) if v["ok"] == false));
         assert_eq!(value_from_bytes(vec![0, 1, 0]), Ok(String::from("256")));

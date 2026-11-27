@@ -27,9 +27,8 @@
 *.pdb
 **/mutants.out*/
 rustc-ice-*.txt
-/.cargo/*
-!/.cargo/config.toml
-**/.cargo/credentials*
+/.cargo/
+**/.cargo/
 /vendor/*
 !/vendor/grammers/
 *.profraw

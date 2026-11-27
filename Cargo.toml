@@ -1,12 +1,12 @@
 [package]
 name = "kiaro-secret-chat"
-version = "0.3.2"
+version = "0.4.0"
 edition = "2024"
 rust-version = "1.95"
 license = "GPL-3.0-or-later"
 publish = false
 description = "Telegram MTProto 2.0 secret chats for a caller-owned grammers client"
-repository = "https://github.com/KiaroSama/Telethon-Secret-Chat"
+repository = "https://github.com/KiaroSama/Grammers-Secret-Chat"
 readme = "README.md"
 keywords = ["telegram", "grammers", "mtproto", "secret-chat", "encryption"]
 categories = ["cryptography", "network-programming"]
