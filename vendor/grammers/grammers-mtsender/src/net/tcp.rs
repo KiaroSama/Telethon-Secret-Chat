@@ -1,0 +1,230 @@
+// Copyright 2020 - developers of the `grammers` project.
+//
+// Licensed under the Apache License, Version 2.0 <LICENSE-APACHE or
+// https://www.apache.org/licenses/LICENSE-2.0> or the MIT license
+// <LICENSE-MIT or https://opensource.org/licenses/MIT>, at your
+// option. This file may not be copied, modified, or distributed
+// except according to those terms.
+
+use tokio::io::AsyncWriteExt;
+use tokio::net::TcpStream;
+pub use tokio::net::tcp::{ReadHalf, WriteHalf};
+use tracing::info;
+
+use super::ServerAddr;
+
+pub enum NetStream {
+    Tcp(TcpStream),
+    #[cfg(feature = "proxy")]
+    ProxySocks5(tokio_socks::tcp::Socks5Stream<TcpStream>),
+}
+
+impl NetStream {
+    pub(crate) fn split(&mut self) -> (ReadHalf<'_>, WriteHalf<'_>) {
+        match self {
+            Self::Tcp(stream) => stream.split(),
+            #[cfg(feature = "proxy")]
+            Self::ProxySocks5(stream) => stream.split(),
+        }
+    }
+
+    pub(crate) async fn connect(addr: &ServerAddr) -> Result<Self, std::io::Error> {
+        info!("connecting...");
+        match addr {
+            ServerAddr::Tcp { address } => {
+                let stream = TcpStream::connect(address).await?;
+                let _ = stream.set_nodelay(true);
+                Ok(NetStream::Tcp(stream))
+            }
+            #[cfg(feature = "proxy")]
+            ServerAddr::Proxied { address, proxy } => {
+                Self::connect_proxy_stream(address, proxy).await
+            }
+        }
+    }
+
+    #[cfg(feature = "proxy")]
+    async fn connect_proxy_stream(
+        addr: &std::net::SocketAddr,
+        proxy_url: &str,
+    ) -> Result<NetStream, std::io::Error> {
+        use std::{
+            io::{self, ErrorKind},
+            net::{IpAddr, SocketAddr},
+        };
+
+        use hickory_resolver::Resolver;
+        use url::Host;
+
+        let proxy = url::Url::parse(proxy_url)
+            .map_err(|err| io::Error::new(ErrorKind::InvalidData, err))?;
+        let scheme = proxy.scheme();
+        let host = proxy
+            .host()
+            .ok_or_else(|| io::Error::new(ErrorKind::NotFound, "proxy host is missing from url"))?;
+        let port = proxy
+            .port()
+            .ok_or_else(|| io::Error::new(ErrorKind::NotFound, "proxy port is missing from url"))?;
+        let username = proxy.username();
+        let password = proxy.password().unwrap_or("");
+        let socks_addr = match host {
+            Host::Domain(domain) => {
+                let resolver = Resolver::builder_tokio()
+                    .map_err(io::Error::other)?
+                    .build()
+                    .map_err(io::Error::other)?;
+                let response = resolver
+                    .lookup_ip(domain)
+                    .await
+                    .map_err(|err| io::Error::new(ErrorKind::Other, err))?;
+                let socks_ip_addr = response.iter().next().ok_or(io::Error::new(
+                    ErrorKind::NotFound,
+                    format!("proxy host did not return any ip address: {}", domain),
+                ))?;
+                SocketAddr::new(socks_ip_addr, port)
+            }
+            Host::Ipv4(v4) => SocketAddr::new(IpAddr::from(v4), port),
+            Host::Ipv6(v6) => SocketAddr::new(IpAddr::from(v6), port),
+        };
+
+        match scheme {
+            "socks5" => {
+                let stream = if username.is_empty() {
+                    tokio_socks::tcp::Socks5Stream::connect(socks_addr, addr).await
+                } else {
+                    // RFC1929 credentials are plaintext on this TCP leg. The
+                    // public proxy_url contract requires a trusted local or
+                    // independently tunneled proxy when credentials are used.
+                    tokio_socks::tcp::Socks5Stream::connect_with_password(
+                        socks_addr, addr, username, password,
+                    )
+                    .await
+                }
+                .map_err(|err| io::Error::new(ErrorKind::ConnectionAborted, err))?;
+                let _ = stream.set_nodelay(true);
+                Ok(NetStream::ProxySocks5(stream))
+            }
+            scheme => Err(io::Error::new(
+                ErrorKind::ConnectionAborted,
+                format!("proxy scheme not supported: {}", scheme),
+            )),
+        }
+    }
+
+    pub(crate) async fn disconnect(&mut self) -> std::io::Result<()> {
+        match self {
+            Self::Tcp(stream) => stream.shutdown().await,
+            #[cfg(feature = "proxy")]
+            Self::ProxySocks5(stream) => stream.shutdown().await,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::net::TcpListener;
+
+    impl NetStream {
+        fn nodelay(&self) -> std::io::Result<bool> {
+            match self {
+                Self::Tcp(stream) => stream.nodelay(),
+                #[cfg(feature = "proxy")]
+                Self::ProxySocks5(stream) => stream.nodelay(),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn direct_tcp_sets_nodelay() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let accept = tokio::spawn(async move { listener.accept().await.unwrap() });
+        let stream = NetStream::connect(&ServerAddr::Tcp { address: addr })
+            .await
+            .unwrap();
+        assert!(stream.nodelay().unwrap());
+        let _ = accept.await.unwrap();
+    }
+
+    #[cfg(feature = "proxy")]
+    async fn run_mock_socks5(
+        expected_auth: Option<(&'static str, &'static str)>,
+    ) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+        use tokio::io::AsyncReadExt;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let proxy_addr = listener.local_addr().unwrap();
+        let handle = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut hdr = [0u8; 2];
+            socket.read_exact(&mut hdr).await.unwrap();
+            assert_eq!(hdr[0], 0x05);
+            let mut methods = vec![0u8; hdr[1] as usize];
+            socket.read_exact(&mut methods).await.unwrap();
+
+            if let Some((want_user, want_pass)) = expected_auth {
+                assert!(methods.contains(&0x02));
+                socket.write_all(&[0x05, 0x02]).await.unwrap();
+                let mut auth_hdr = [0u8; 2];
+                socket.read_exact(&mut auth_hdr).await.unwrap();
+                assert_eq!(auth_hdr[0], 0x01);
+                let mut user = vec![0u8; auth_hdr[1] as usize];
+                socket.read_exact(&mut user).await.unwrap();
+                let mut plen = [0u8; 1];
+                socket.read_exact(&mut plen).await.unwrap();
+                let mut pass = vec![0u8; plen[0] as usize];
+                socket.read_exact(&mut pass).await.unwrap();
+                assert_eq!(user, want_user.as_bytes());
+                assert_eq!(pass, want_pass.as_bytes());
+                socket.write_all(&[0x01, 0x00]).await.unwrap();
+            } else {
+                assert!(methods.contains(&0x00));
+                socket.write_all(&[0x05, 0x00]).await.unwrap();
+            }
+
+            let mut req = [0u8; 4];
+            socket.read_exact(&mut req).await.unwrap();
+            assert_eq!(req[0], 0x05);
+            assert_eq!(req[1], 0x01);
+            assert_eq!(req[3], 0x01);
+            let mut target = [0u8; 6];
+            socket.read_exact(&mut target).await.unwrap();
+            socket
+                .write_all(&[0x05, 0x00, 0x00, 0x01, 127, 0, 0, 1, 0, 80])
+                .await
+                .unwrap();
+        });
+        (proxy_addr, handle)
+    }
+
+    #[cfg(feature = "proxy")]
+    #[tokio::test]
+    async fn unauthenticated_socks5_sets_nodelay() {
+        let (proxy_addr, server) = run_mock_socks5(None).await;
+        let target: std::net::SocketAddr = "127.0.0.1:443".parse().unwrap();
+        let stream = NetStream::connect(&ServerAddr::Proxied {
+            address: target,
+            proxy: format!("socks5://{proxy_addr}"),
+        })
+        .await
+        .unwrap();
+        assert!(stream.nodelay().unwrap());
+        server.await.unwrap();
+    }
+
+    #[cfg(feature = "proxy")]
+    #[tokio::test]
+    async fn authenticated_socks5_preserves_credentials_and_sets_nodelay() {
+        let (proxy_addr, server) = run_mock_socks5(Some(("alice", "s3cret"))).await;
+        let target: std::net::SocketAddr = "127.0.0.1:443".parse().unwrap();
+        let stream = NetStream::connect(&ServerAddr::Proxied {
+            address: target,
+            proxy: format!("socks5://alice:s3cret@{proxy_addr}"),
+        })
+        .await
+        .unwrap();
+        assert!(stream.nodelay().unwrap());
+        server.await.unwrap();
+    }
+}
