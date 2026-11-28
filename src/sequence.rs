@@ -5,6 +5,8 @@ use crate::{
     types::DecryptedMessageLayer,
 };
 pub const MAX_RESEND_COUNT: i32 = 1000;
+/// Counters count accepted frames, so the terminal count is one past the last raw index.
+pub const MAX_SEQUENCE_COUNT: i32 = i32::MAX / 2 + 1;
 pub struct Accepted {
     pub ready: Vec<(i32, Envelope)>,
     pub resend: Option<(i32, i32)>,
@@ -54,7 +56,35 @@ pub fn preflight_header(chat: &Chat, wrapper: &crate::framing::Header) -> Result
     {
         return Err(Error::Sequence);
     }
+    // Gaps are ordered by sequence, not arrival. Validate both neighbors before
+    // any immediate Resend action can schedule another transmission.
+    if let Some((_, preceding)) = chat.gaps.range(..raw).next_back() {
+        let preceding = crate::framing::inspect_header(&preceding.body)?;
+        if preceding.in_seq_no > wrapper.in_seq_no || preceding.layer > wrapper.layer {
+            return Err(Error::Sequence);
+        }
+    }
+    if let Some((_, following)) = chat.gaps.range(raw..).next() {
+        let following = crate::framing::inspect_header(&following.body)?;
+        if wrapper.in_seq_no > following.in_seq_no || wrapper.layer > following.layer {
+            return Err(Error::Sequence);
+        }
+    }
     Ok(true)
+}
+pub(crate) fn validate_pending(chat: &Chat) -> Result<()> {
+    let mut acknowledged = chat.peer_in_seq_no;
+    let mut layer = chat.wrapper_layer;
+    for envelope in chat.gaps.values() {
+        let header = crate::framing::inspect_header(&envelope.body)?;
+        let next = header.in_seq_no / 2;
+        if next < acknowledged || next > chat.out_seq_no || header.layer < layer {
+            return Err(Error::Sequence);
+        }
+        acknowledged = next;
+        layer = header.layer;
+    }
+    Ok(())
 }
 pub fn accept(chat: &mut Chat, envelope: Envelope) -> Result<Accepted> {
     let mut result = Accepted {
@@ -90,10 +120,11 @@ pub fn accept(chat: &mut Chat, envelope: Envelope) -> Result<Accepted> {
         chat.in_seq_no = chat
             .in_seq_no
             .checked_add(1)
-            .filter(|n| *n <= i32::MAX / 2)
+            .filter(|n| *n <= MAX_SEQUENCE_COUNT)
             .ok_or(Error::Sequence)?;
         result.ready.push((sequence, envelope));
         current = chat.gaps.remove(&chat.in_seq_no);
+        chat.gap_key_fingerprints.remove(&chat.in_seq_no);
     }
     if chat.gaps.is_empty() {
         chat.gap_end = None;

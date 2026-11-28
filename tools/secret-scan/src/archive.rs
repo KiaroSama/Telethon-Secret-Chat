@@ -82,8 +82,8 @@ pub fn extract(tar: &Path, binary: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::process::PrivateDir;
     use super::*;
-    use crate::process::PrivateDir;
 
     fn member(kind: u8) -> Vec<u8> {
         let mut bytes = vec![0; 1024];

@@ -5,6 +5,8 @@ mod custody;
 mod export;
 #[path = "adapter_media.rs"]
 mod media;
+#[path = "review_media_binding.rs"]
+mod media_binding;
 #[path = "adapter_server.rs"]
 pub mod server;
 use kiaro_secret_chat::{
@@ -23,6 +25,7 @@ use kiaro_secret_chat::{
 };
 use std::sync::{Arc, Mutex};
 pub async fn run() {
+    Box::pin(media_binding::run()).await;
     Box::pin(custody::run()).await;
     let mut session = SessionData {
         home_dc: 2,

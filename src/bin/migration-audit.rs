@@ -1,6 +1,10 @@
 //! Report migration coverage without converting unimplemented cases into passes.
 #![forbid(unsafe_code)]
 
+#[allow(dead_code)]
+#[path = "common/mod.rs"]
+mod common;
+use common::{Level, log};
 use serde::Deserialize;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -13,6 +17,10 @@ struct Ledger {
     expected_cases: usize,
     cases: Vec<String>,
     mappings: BTreeMap<String, String>,
+}
+#[derive(Deserialize)]
+struct CurrentInventory {
+    expected: BTreeSet<String>,
 }
 pub fn check_partitions(
     aggregate: &BTreeMap<String, String>,
@@ -50,7 +58,7 @@ fn main() -> ExitCode {
             return ExitCode::SUCCESS;
         }
         _ => {
-            eprintln!("ERROR: {USAGE}");
+            log(Level::Error, USAGE);
             return ExitCode::from(2);
         }
     };
@@ -63,7 +71,10 @@ fn main() -> ExitCode {
             }
         }
         Err(_) => {
-            eprintln!("ERROR: The migration ledger is invalid; no parity result was recorded.");
+            log(
+                Level::Error,
+                "The migration ledger is invalid; no parity result was recorded.",
+            );
             ExitCode::FAILURE
         }
     }
@@ -86,6 +97,8 @@ fn audit() -> Result<bool, Box<dyn std::error::Error>> {
     let cases = ledger.cases.iter().collect::<BTreeSet<_>>();
     let rust_cases: BTreeSet<String> =
         serde_json::from_str(include_str!("../../migration/rust-cases.json"))?;
+    let current: CurrentInventory =
+        serde_json::from_str(include_str!("../../migration/current-rust-cases.json"))?;
     if cases.len() != ledger.expected_cases
         || cases.len() != ledger.cases.len()
         || ledger.expected_cases != 1851
@@ -96,23 +109,40 @@ fn audit() -> Result<bool, Box<dyn std::error::Error>> {
             .values()
             .any(|name| name.is_empty() || !rust_cases.contains(name))
         || ledger.mappings.values().collect::<BTreeSet<_>>().len() != ledger.mappings.len()
+        || !rust_cases.is_subset(&current.expected)
     {
         return Err("Invalid case mapping".into());
     }
-    println!("Baseline: {}", ledger.baseline_commit);
-    println!("Legacy CI cases: {}", cases.len());
-    println!(
-        "Individually verified Rust equivalents: {}",
-        ledger.mappings.len()
+    log(
+        Level::Info,
+        format_args!("Baseline: {}", ledger.baseline_commit),
     );
-    println!(
-        "Cases still requiring parity verification: {}",
-        cases.len() - ledger.mappings.len()
+    log(
+        Level::Info,
+        format_args!("Legacy CI cases: {}", cases.len()),
+    );
+    log(
+        Level::Info,
+        format_args!("Mapped Rust scenario identities: {}", ledger.mappings.len()),
+    );
+    log(
+        Level::Info,
+        format_args!(
+            "Legacy cases without a native mapping: {}",
+            cases.len() - ledger.mappings.len()
+        ),
     );
     let complete =
         cases.len() == ledger.mappings.len() && rust_cases.len() == ledger.expected_cases;
+    log(
+        Level::Info,
+        "Mapping completeness does not prove execution; validate the current seven-leg logs with matrix-evidence.",
+    );
     if !complete {
-        println!("INCOMPLETE: Rust tests passing does not establish migration parity.");
+        log(
+            Level::Warning,
+            "INCOMPLETE: Rust tests passing does not establish migration parity.",
+        );
     }
     Ok(complete)
 }

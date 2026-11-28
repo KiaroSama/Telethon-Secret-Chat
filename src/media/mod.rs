@@ -6,6 +6,7 @@ mod reference;
 mod source;
 mod stream;
 mod transfer;
+mod upload;
 mod v4;
 
 pub use kind::*;

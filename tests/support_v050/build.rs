@@ -88,3 +88,104 @@ fn every_mapped_native_integration_suite_remains_executable_source() {
         "mapped native scenarios have no executable suite: {missing:?}"
     );
 }
+
+#[test]
+fn current_matrix_rejects_platform_ignores_on_linux_and_absence_instead_of_ignore() {
+    let folder = tempfile::tempdir().unwrap();
+    let (records, manifest) = current_fixture(folder.path());
+    let windows = records.join(gate::WINDOWS_LEGS[0]).join("rust-tests.txt");
+    let linux = records.join(gate::LEGS[0]).join("rust-tests.txt");
+    let original = std::fs::read(&linux).unwrap();
+    std::fs::copy(&windows, &linux).unwrap();
+    let arguments = || {
+        [
+            records.to_string_lossy().into_owned(),
+            "--current-manifest".into(),
+            manifest.to_string_lossy().into_owned(),
+        ]
+    };
+    assert!(
+        gate::run(arguments())
+            .unwrap_err()
+            .contains("skip declarations differ")
+    );
+    std::fs::write(linux, original).unwrap();
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+    value["platform_excluded"] = serde_json::json!({(gate::WINDOWS_LEGS[0]): gate::WINDOWS_CASES});
+    std::fs::write(&manifest, serde_json::to_vec(&value).unwrap()).unwrap();
+    assert!(
+        gate::run(arguments()).is_err(),
+        "collected ignored cases cannot be relabeled as absent"
+    );
+}
+
+#[test]
+fn standalone_rust_schema_cli_works_outside_checkout_and_keeps_json_compatibility() {
+    let folder = tempfile::tempdir().unwrap();
+    let output = folder.path().join("generated.rs");
+    let binary = env!("CARGO_BIN_EXE_generate-schema");
+    let run = |extra: &[&str]| {
+        std::process::Command::new(binary)
+            .current_dir(folder.path())
+            .arg("--output")
+            .arg(&output)
+            .args(extra)
+            .output()
+            .unwrap()
+    };
+    let generated = run(&[]);
+    assert!(
+        generated.status.success(),
+        "{}",
+        String::from_utf8_lossy(&generated.stderr)
+    );
+    let bytes = std::fs::read(&output).unwrap();
+    let text = std::str::from_utf8(&bytes).unwrap();
+    assert!(text.contains("pub mod types") && text.contains("pub mod enums"));
+    assert!(run(&["--check"]).status.success());
+    std::fs::write(&output, b"// caller modification\n").unwrap();
+    assert_eq!(run(&["--check"]).status.code(), Some(1));
+    assert_eq!(std::fs::read(&output).unwrap(), b"// caller modification\n");
+    let json = folder.path().join("schema.json");
+    let result = std::process::Command::new(binary)
+        .arg("--schema")
+        .arg(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("schema/end-to-end.tl"))
+        .arg("--out")
+        .arg(&json)
+        .output()
+        .unwrap();
+    assert!(result.status.success());
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(json).unwrap()).unwrap();
+    assert!(manifest["count"].as_u64().unwrap() > 0);
+}
+
+#[test]
+fn current_matrix_requires_every_offline_case_to_run_on_at_least_one_leg() {
+    let folder = tempfile::tempdir().unwrap();
+    let (records, manifest) = current_fixture(folder.path());
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&manifest).unwrap()).unwrap();
+    let missing = "tests/current_fixture.rs::never_executed_case";
+    value["expected"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!(missing));
+    value["platform_excluded"] = serde_json::Value::Object(
+        gate::LEGS
+            .into_iter()
+            .map(|leg| (leg.to_owned(), serde_json::json!([missing])))
+            .collect(),
+    );
+    std::fs::write(&manifest, serde_json::to_vec(&value).unwrap()).unwrap();
+    assert!(
+        gate::run([
+            records.to_string_lossy().into_owned(),
+            "--current-manifest".into(),
+            manifest.to_string_lossy().into_owned(),
+        ])
+        .is_err(),
+        "an offline testcase cannot stay mapped while being excluded from every execution leg"
+    );
+}

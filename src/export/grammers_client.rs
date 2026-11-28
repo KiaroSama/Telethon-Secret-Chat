@@ -58,6 +58,14 @@ struct SerializedCall<T> {
     bytes: Vec<u8>,
     marker: std::marker::PhantomData<T>,
 }
+// A cancelled borrowed download must discard its attempt even if the caller
+// keeps the LazyFile for a later retry.
+struct DownloadAttempt<'a>(&'a mut LazyFile);
+impl Drop for DownloadAttempt<'_> {
+    fn drop(&mut self) {
+        self.0.close();
+    }
+}
 impl<T> Serializable for SerializedCall<T> {
     fn serialize(&self, sink: &mut impl FnMut(&[u8])) {
         sink(&self.bytes)
@@ -127,48 +135,71 @@ impl ExportClient for GrammersExportClient {
         target: &'a mut LazyFile,
     ) -> BoxFuture<'a, FetchResult<()>> {
         Box::pin(async move {
-            let raw: tl::enums::InputFileLocation = decode(&location.data)?;
-            let mut offset = 0i64;
-            let mut dc_id = location.dc_id;
-            let mut migrations = 0;
-            loop {
-                let result = self
-                    .client
-                    .invoke_in_dc(
-                        dc_id,
-                        &tl::functions::upload::GetFile {
-                            precise: true,
-                            cdn_supported: false,
-                            location: raw.clone(),
-                            offset,
-                            limit: 128 * 1024,
-                        },
-                    )
-                    .await;
-                let result = match result {
-                    Ok(result) => result,
-                    Err(InvocationError::Rpc(rpc))
-                        if rpc.name == "FILE_MIGRATE" && rpc.value.is_some() && migrations < 3 =>
-                    {
-                        dc_id = i32::try_from(rpc.value.ok_or(ExportError::InvalidRecord)?)
-                            .map_err(|_| ExportError::InvalidRecord)?;
-                        migrations += 1;
-                        continue;
-                    }
-                    Err(failure) => return Err(error(failure)),
-                };
-                let tl::enums::upload::File::File(file) = result else {
-                    return Err(ExportError::Unsupported.into());
-                };
-                target.write(&file.bytes)?;
-                offset = offset
-                    .checked_add(file.bytes.len() as i64)
-                    .ok_or(ExportError::InvalidRecord)?;
-                if file.bytes.len() < 128 * 1024 || size != 0 && offset as u64 >= size {
-                    break;
-                }
-            }
+            target.begin_staged()?;
+            let attempt = DownloadAttempt(target);
+            self.download_chunks(location, size, attempt.0).await?;
+            attempt.0.finish()?;
             Ok(())
         })
+    }
+}
+impl GrammersExportClient {
+    async fn download_chunks(
+        &self,
+        location: &FileLocation,
+        size: u64,
+        target: &mut LazyFile,
+    ) -> FetchResult<()> {
+        let raw: tl::enums::InputFileLocation = decode(&location.data)?;
+        let mut offset = 0i64;
+        let mut dc_id = location.dc_id;
+        let mut migrations = 0;
+        loop {
+            let result = self
+                .client
+                .invoke_in_dc(
+                    dc_id,
+                    &tl::functions::upload::GetFile {
+                        precise: true,
+                        cdn_supported: false,
+                        location: raw.clone(),
+                        offset,
+                        limit: 128 * 1024,
+                    },
+                )
+                .await;
+            let result = match result {
+                Ok(result) => result,
+                Err(InvocationError::Rpc(rpc))
+                    if rpc.name == "FILE_MIGRATE" && rpc.value.is_some() && migrations < 3 =>
+                {
+                    dc_id = i32::try_from(rpc.value.ok_or(ExportError::InvalidRecord)?)
+                        .map_err(|_| ExportError::InvalidRecord)?;
+                    migrations += 1;
+                    continue;
+                }
+                Err(failure) => return Err(error(failure)),
+            };
+            let tl::enums::upload::File::File(file) = result else {
+                return Err(ExportError::Unsupported.into());
+            };
+            let received =
+                u64::try_from(file.bytes.len()).map_err(|_| ExportError::InvalidRecord)?;
+            let next = (offset as u64)
+                .checked_add(received)
+                .ok_or(ExportError::InvalidRecord)?;
+            if received > 128 * 1024
+                || size != 0 && next > size
+                || size != 0 && received < 128 * 1024 && next != size
+            {
+                return Err(ExportError::InvalidRecord.into());
+            }
+            offset = i64::try_from(next).map_err(|_| ExportError::InvalidRecord)?;
+            target.write(&file.bytes)?;
+            if received < 128 * 1024 || size != 0 && next == size {
+                break;
+            }
+        }
+        Ok(())
     }
 }

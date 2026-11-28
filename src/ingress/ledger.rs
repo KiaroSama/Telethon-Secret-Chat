@@ -40,6 +40,7 @@ pub struct IngressBatch {
     pub after: SecretRecord,
     pub output: SecretRecord,
     pub cursor: usize,
+    #[serde(deserialize_with = "crate::storage::strict::deserialize_unique_set")]
     pub applied: BTreeSet<usize>,
     pub created_ms: u64,
 }

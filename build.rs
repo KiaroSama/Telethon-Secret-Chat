@@ -64,6 +64,8 @@ fn main() -> io::Result<()> {
         )?;
     }
     // Generated Debug is disabled because media constructors contain file keys.
+    // Secret Chat negotiation stops at 144; the bundled schema also includes
+    // end-to-end data families which do not change this manager's capability.
     generate_rust_code(
         &mut outputs,
         &definitions,

@@ -1,35 +1,69 @@
-# Rust migration evidence
+# Rust migration and current execution evidence
 
-The immutable baseline is main commit `d53c7c21574ac404e01b8c3535b0d0fcfa25a193`.
-It collected **1851 actual cases**, including parametrization and explicitly gated
-live cases. `legacy-cases.json` retains those original IDs as data and maps each
-to one distinct native Rust scenario. Individual `*-mappings.json` ledgers own the
-reviewed mappings; `rust-cases.json` records the 1,851 mapped native identities.
+The immutable Python baseline is commit
+`d53c7c21574ac404e01b8c3535b0d0fcfa25a193`. It collected **1851 cases**,
+including parametrization and explicitly gated live cases. `legacy-cases.json`
+retains those original identities and maps each to one distinct native Rust
+scenario. The individual `*-mappings.json` ledgers partition those mappings;
+`rust-cases.json` records the 1851 mapped native identities.
 
-The executable suite retains scenario types: unit/regression, async/lifecycle,
-property/stateful, independent crypto/schema/export oracle, source/Git installed
-consumer, SDK boundary and opt-in real-peer tests. Extra foundation regressions
-are folded into related scenarios, preserving assertions without inflating the
-collected count. No placeholder success or newly ignored regression fills a gap.
+The mapped integration scenarios are executable `tests/rust_*.rs` entry points,
+with supporting fixtures and helper modules. A helper function or JSON mapping
+alone is not an executed test. The restored suites retain unit/regression,
+async/lifecycle, property/stateful, independent crypto/schema/export oracle,
+source/Git installed-consumer, SDK boundary, and opt-in real-peer scenarios.
+The subsequent core, native, and regression suites remain enabled alongside them.
+
+## Two different checks
+
+`migration-audit --require-complete` verifies the historical mapping: all 1851
+legacy cases have distinct native identities, the owner ledgers agree, and every
+mapped identity remains in the current executable inventory. This is a metadata
+check. Its success does not establish that any test has run.
+
+`matrix-evidence` verifies actual Cargo execution logs against
+`current-rust-cases.json`, the separate inventory of the current source. It checks
+all seven declared native CI legs, exact identities, per-suite counts, summaries,
+failures, duplicate identities, and allowed ignores. A missing suite, unexpected
+skip, incomplete artifact, extra test, or unreported test failure rejects the
+matrix. The current inventory must be reviewed when tests are intentionally added
+or changed; CI never regenerates it from a possibly incomplete run.
 
 ```sh
-cargo test --locked --all-targets
+cargo test --locked --all-targets -- --test-threads=2
+cargo test --locked --doc
 cargo run --locked --bin migration-audit -- --require-complete
 cargo run --locked --bin matrix-evidence -- /path/to/downloaded-seven-leg-records
 ```
 
-Completeness requires all 1,851 legacy cases to map to distinct native identities.
-The matrix verifier checks those identities plus four native AES-IGE tests, for
-1,855 total. It checks actual rows, per-suite summaries, skip policy, and agreement
-across all seven legs. A green component subset or ancestor commit does not
-qualify the current source.
+The default evidence policy is the bundled current inventory. An explicit
+`--current-manifest PATH` selects a separately reviewed current inventory.
+`--manifest PATH` retains the historical 1851-case policy plus its native
+supplemental cases for archived records; it is not the current CI policy.
 
-Ten real-peer cases in `rust_live_interop` are explicitly ignored by default.
-Windows additionally ignores three Unix filesystem cases: owner-only permissions,
-symlink privilege and directory-fsync behavior. All other cases must run. Optional
-fixture experiments in verifier tests do not authorize extra real matrix ignores.
+The required **Rust CI** job downloads the seven `rust-*` log artifacts and the
+Linux verifier package from the same workflow run, verifies the package hashes,
+and runs both checks. This makes the gate apply to the final tested commit rather
+than to an ancestor or to a green component subset.
 
-Independent reference encoders emitted static expected vectors before removing
-the old implementation; tests do not use the new serializer to invent answers.
-The burned official-client fixture is historical, not a new real account run.
-Live Rust execution requires the [explicit opt-in procedure](../docs/rust-live-tests.md).
+## Explicit live and platform boundaries
+
+Ten cases in `tests/rust_live_interop.rs` and two in
+`tests/live_interop_harness.rs` are live Telegram entry points and are explicitly
+ignored in normal CI. Their credential parsers, offline protocol vectors, and
+local transport fixtures execute normally. The ignored cases are not reported as
+passed or used as evidence of a new real-account run. Use the
+[explicit native live procedure](../docs/rust-live-tests.md) or the
+[current workflow harness procedure](../docs/interop-testing.md) with controlled
+accounts when those checks are required.
+
+Windows also collects and explicitly ignores three Unix filesystem contracts:
+owner-only Unix permissions, symlink privileges, and directory fsync behavior.
+These are different from tests compiled only under `cfg(unix)`. The current
+manifest lists the latter under `platform_excluded`; it cannot relabel a collected
+platform ignore as an absent test. All other collected tests must execute.
+
+Independent reference encoders emitted the historical expected vectors before
+removal of the old implementation. Project corrections and upstream updates use
+explicit reviewed overlays rather than silently replacing those baseline
+expectations. The burned official-client capture is historical evidence.

@@ -312,3 +312,226 @@ fn final_representable_incoming_sequence_can_be_accepted_once() {
         vec![i32::MAX / 2]
     );
 }
+
+fn commit_frame(raw: i32, shared_key: &SharedKey) -> Vec<u8> {
+    frame(
+        raw,
+        0,
+        144,
+        shared_key,
+        types::DecryptedMessageService {
+            random_id: 900 + i64::from(raw),
+            action: types::DecryptedMessageActionCommitKey {
+                exchange_id: 99,
+                key_fingerprint: key(19).fingerprint(),
+            }
+            .into(),
+        }
+        .into(),
+    )
+}
+
+#[test]
+fn commitment_must_be_authenticated_with_the_preceding_key() {
+    let mut protocol = accepted_receiver();
+    let before = state_marker(&protocol);
+    assert!(
+        protocol
+            .receive(CHAT_ID, &commit_frame(0, &key(19)), None, 1)
+            .is_err()
+    );
+    assert!(
+        before == state_marker(&protocol),
+        "invalid commitment changed state"
+    );
+}
+
+#[test]
+fn delayed_commitment_tightens_the_switch_boundary_after_restart() {
+    let mut protocol = accepted_receiver();
+    protocol
+        .receive(CHAT_ID, &text_frame(2, 0, 144, &key(19)), None, 1)
+        .unwrap();
+    let mut restored = reopen(&protocol);
+    restored
+        .receive(CHAT_ID, &commit_frame(0, &key(7)), None, 1)
+        .unwrap();
+    let before = state_marker(&restored);
+    assert!(
+        restored
+            .receive(CHAT_ID, &text_frame(1, 0, 144, &key(7)), None, 1)
+            .is_err()
+    );
+    assert!(
+        before == state_marker(&restored),
+        "post-commit previous-key input changed state"
+    );
+    restored
+        .receive(CHAT_ID, &text_frame(1, 0, 144, &key(19)), None, 1)
+        .unwrap();
+    assert_eq!(restored.pending_deliveries(CHAT_ID).unwrap(), vec![1, 2]);
+}
+
+#[test]
+fn commitment_rejects_a_future_buffered_previous_key_frame() {
+    let mut protocol = accepted_receiver();
+    protocol
+        .receive(CHAT_ID, &text_frame(2, 0, 144, &key(7)), None, 1)
+        .unwrap();
+    let before = state_marker(&protocol);
+    assert!(
+        protocol
+            .receive(CHAT_ID, &commit_frame(1, &key(7)), None, 1)
+            .is_err()
+    );
+    assert!(
+        before == state_marker(&protocol),
+        "invalid commitment retained a conflicting future frame"
+    );
+}
+
+#[test]
+fn legacy_snapshot_with_ambiguous_previous_key_gaps_is_refused() {
+    let mut protocol = accepted_receiver();
+    protocol
+        .receive(CHAT_ID, &text_frame(1, 0, 144, &key(19)), None, 1)
+        .unwrap();
+    let mut encoded = state_marker(&protocol);
+    let object = encoded.as_object_mut().unwrap();
+    for field in [
+        "incoming_key_cutover",
+        "accepted_exchange",
+        "gap_key_fingerprints",
+    ] {
+        object.remove(field);
+    }
+    let chat: Chat = serde_json::from_value(encoded).unwrap();
+    assert!(
+        chat.validate().is_err(),
+        "a snapshot must not invent the missing origin of buffered messages during a key switch"
+    );
+}
+
+#[test]
+fn native_snapshot_refuses_nonmonotonic_buffered_acknowledgements() {
+    let mut protocol = receiver();
+    protocol
+        .send_message(CHAT_ID, "one".into(), None, None)
+        .unwrap();
+    protocol
+        .send_message(CHAT_ID, "two".into(), None, None)
+        .unwrap();
+    let mut chat = protocol.chat_record(CHAT_ID).unwrap();
+    for (raw, ack) in [(1, 2), (2, 1)] {
+        chat.gaps.insert(
+            raw,
+            kiaro_secret_chat::chat::Envelope {
+                body: framing::wrap(message(raw), 144, ack * 2, raw * 2 + 1)
+                    .unwrap()
+                    .to_bytes(),
+                file: None,
+                date: 1,
+            },
+        );
+    }
+    assert!(
+        chat.validate().is_err(),
+        "restored gap ordering must satisfy the same acknowledgement contract as live reception"
+    );
+}
+
+#[test]
+fn prior_confirmation_cannot_erase_a_deferred_commitment_boundary() {
+    let mut protocol = accepted_receiver();
+    protocol
+        .mutate_chat(CHAT_ID, |chat| {
+            chat.new_key_confirmed = true;
+            Ok(())
+        })
+        .unwrap();
+    protocol
+        .receive(CHAT_ID, &commit_frame(0, &key(7)), None, 1)
+        .unwrap();
+    let before = state_marker(&protocol);
+    assert!(
+        protocol
+            .receive(CHAT_ID, &text_frame(1, 0, 144, &key(7)), None, 1)
+            .is_err()
+    );
+    assert!(
+        before == state_marker(&protocol),
+        "prior rekey confirmation erased the next commitment boundary"
+    );
+}
+
+#[test]
+fn every_valid_four_message_arrival_order_survives_restart_at_each_step() {
+    let mut cases = 0;
+    for a in 0..4 {
+        for b in 0..4 {
+            for c in 0..4 {
+                for d in 0..4 {
+                    let order = [a, b, c, d];
+                    if order
+                        .into_iter()
+                        .collect::<std::collections::BTreeSet<_>>()
+                        .len()
+                        != 4
+                    {
+                        continue;
+                    }
+                    let mut protocol = accepted_receiver();
+                    for raw in order {
+                        let shared = if raw < 2 { key(7) } else { key(19) };
+                        protocol
+                            .receive(CHAT_ID, &text_frame(raw, 0, 144, &shared), None, 1)
+                            .unwrap();
+                        protocol = reopen(&protocol);
+                    }
+                    assert_eq!(
+                        protocol.pending_deliveries(CHAT_ID).unwrap(),
+                        vec![0, 1, 2, 3]
+                    );
+                    assert!(
+                        protocol
+                            .chat_record(CHAT_ID)
+                            .unwrap()
+                            .previous_key
+                            .is_none()
+                    );
+                    cases += 1;
+                }
+            }
+        }
+    }
+    assert_eq!(cases, 24);
+}
+
+#[test]
+fn legacy_single_key_gap_reopens_without_inventing_a_key_switch() {
+    let mut protocol = receiver();
+    protocol
+        .receive(CHAT_ID, &text_frame(1, 0, 144, &key(7)), None, 1)
+        .unwrap();
+    let mut encoded = state_marker(&protocol);
+    let object = encoded.as_object_mut().unwrap();
+    for field in [
+        "incoming_key_cutover",
+        "accepted_exchange",
+        "gap_key_fingerprints",
+    ] {
+        object.remove(field);
+    }
+    let chat: Chat = serde_json::from_value(encoded).unwrap();
+    chat.validate().unwrap();
+    let mut state = State::empty(AUTHORIZATION.into()).unwrap();
+    state.chats.insert(CHAT_ID, chat);
+    let mut storage = MemoryStorage::default();
+    storage.commit(&state).unwrap();
+    let mut restored = Protocol::open(storage, AUTHORIZATION.into()).unwrap();
+    restored.start().unwrap();
+    restored
+        .receive(CHAT_ID, &text_frame(0, 0, 144, &key(7)), None, 1)
+        .unwrap();
+    assert_eq!(restored.pending_deliveries(CHAT_ID).unwrap(), vec![0, 1]);
+}

@@ -35,7 +35,7 @@ pub(super) fn prepare(
     chat.out_seq_no = chat
         .out_seq_no
         .checked_add(1)
-        .filter(|n| *n <= i32::MAX / 2)
+        .filter(|n| *n <= sequence::MAX_SEQUENCE_COUNT)
         .ok_or(Error::Sequence)?;
     chat.messages_since_rekey = chat.messages_since_rekey.saturating_add(1);
     chat.outbox.insert(sequence, outgoing.clone());

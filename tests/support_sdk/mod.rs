@@ -30,18 +30,20 @@ fn copy_tree(source: &Path, destination: &Path) {
         } else {
             let path = entry.path();
             let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("");
-            let approved = matches!(extension, "rs" | "tl" | "png")
-                || matches!(
-                    name.to_str(),
-                    Some(
-                        "Cargo.toml"
-                            | "README.md"
-                            | "LICENSE-MIT"
-                            | "LICENSE-APACHE"
-                            | "upstream-hashes.json"
-                            | "local-patches.json"
-                    )
-                );
+            let approved = matches!(
+                extension,
+                "rs" | "tl" | "png" | "css" | "js" | "json" | "icc"
+            ) || matches!(
+                name.to_str(),
+                Some(
+                    "Cargo.toml"
+                        | "README.md"
+                        | "LICENSE-MIT"
+                        | "LICENSE-APACHE"
+                        | "upstream-hashes.json"
+                        | "local-patches.json"
+                )
+            );
             if approved {
                 std::fs::copy(path, target).unwrap();
             }
@@ -53,7 +55,7 @@ fn build() -> Harness {
     let directory = tempfile::tempdir().unwrap();
     let stage = directory.path().join("source");
     std::fs::create_dir(&stage).unwrap();
-    for name in ["src", "schema", "vendor/grammers"] {
+    for name in ["src", "schema", "vendor/grammers", "data", "assets"] {
         copy_tree(&root.join(name), &stage.join(name));
     }
     for name in [
@@ -99,6 +101,7 @@ fn build() -> Harness {
         quote(&sdk)
     );
     std::fs::write(fixture.join("Cargo.toml"), manifest).unwrap();
+    std::fs::copy(root.join("Cargo.lock"), fixture.join("Cargo.lock")).unwrap();
     let target = std::env::var_os("CARGO_TARGET_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| root.join("target"));

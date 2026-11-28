@@ -1,5 +1,6 @@
 //! Four-message rekey protocol. The CommitKey ciphertext uses the previous key;
 //! adoption and retention of that ciphertext commit as one state transition.
+mod provenance;
 use crate::{
     chat::{Chat, ChatState, Exchange},
     crypto::{SharedKey, random_id},
@@ -8,6 +9,9 @@ use crate::{
     error::{Error, Result},
     protocol::{Effects, prepare_action},
     types,
+};
+pub(crate) use provenance::{
+    check_buffered_key, fill_gap_provenance, received_key_cutover, validate_provenance,
 };
 pub const MESSAGE_TRIGGER: u64 = 100;
 pub const AGE_TRIGGER: u64 = 7 * 24 * 60 * 60;
@@ -77,15 +81,25 @@ pub fn start(chat: &mut Chat) -> Result<Option<crate::protocol::SendEffect>> {
 }
 fn clear(chat: &mut Chat) {
     chat.exchange = None;
+    if chat.previous_key.is_none() {
+        chat.incoming_key_cutover = None;
+        chat.accepted_exchange = None;
+    }
     if chat.state == ChatState::Rekeying {
         chat.state = ChatState::Ready;
     }
 }
 pub fn adopt_new_key(chat: &mut Chat, key: SharedKey, now: u64) -> Result<()> {
+    fill_gap_provenance(chat)?;
+    let accepted_exchange = match chat.exchange {
+        Some(Exchange::Accepted { id, .. }) => Some(id),
+        _ => None,
+    };
     let previous = chat.key.clone();
     chat.adopt_key(key)?;
     chat.previous_key = previous;
     clear(chat);
+    chat.accepted_exchange = accepted_exchange;
     chat.messages_since_rekey = 0;
     chat.rekeyed_at = now;
     chat.new_key_confirmed = false;
@@ -113,8 +127,15 @@ pub fn observe_key(chat: &mut Chat, fingerprint: i64, now: u64) -> Result<bool> 
     Ok(false)
 }
 pub fn retire_if_settled(chat: &mut Chat) {
-    if chat.new_key_confirmed && chat.gaps.is_empty() && chat.gap_end.is_none() {
+    let preceding_gaps_filled = chat
+        .incoming_key_cutover
+        .map_or(chat.gaps.is_empty() && chat.gap_end.is_none(), |cutover| {
+            chat.in_seq_no >= cutover
+        });
+    if chat.previous_key.is_some() && chat.new_key_confirmed && preceding_gaps_filled {
         chat.previous_key = None;
+        chat.incoming_key_cutover = None;
+        chat.accepted_exchange = None;
     }
 }
 pub fn handle(chat: &mut Chat, action: &Action, effects: &mut Effects, now: u64) -> Result<bool> {

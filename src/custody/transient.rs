@@ -546,6 +546,7 @@ fn scrub_chat(chat: &mut crate::chat::Chat) {
     chat.paused = true;
     chat.outbox.clear();
     chat.gaps.clear();
+    chat.gap_key_fingerprints.clear();
     chat.deliveries.clear();
     chat.service_deliveries.clear();
 }
@@ -554,6 +555,7 @@ fn projection(state: &State) -> State {
     for chat in projected.chats.values_mut() {
         chat.outbox.clear();
         chat.gaps.clear();
+        chat.gap_key_fingerprints.clear();
         chat.deliveries.clear();
         chat.service_deliveries.clear();
     }

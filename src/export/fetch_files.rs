@@ -92,34 +92,92 @@ impl LoadedFileCache {
 }
 pub struct LazyFile {
     path: PathBuf,
-    handle: Option<fs::File>,
+    handle: Option<LazyHandle>,
+    staged: bool,
+    finished: bool,
+}
+enum LazyHandle {
+    Direct(fs::File),
+    Staged(tempfile::NamedTempFile),
+}
+impl LazyHandle {
+    fn file(&mut self) -> &mut fs::File {
+        match self {
+            Self::Direct(file) => file,
+            Self::Staged(file) => file.as_file_mut(),
+        }
+    }
 }
 impl LazyFile {
     pub fn new(path: impl Into<PathBuf>) -> Self {
         Self {
             path: path.into(),
             handle: None,
+            staged: false,
+            finished: false,
         }
+    }
+    fn staged(path: impl Into<PathBuf>) -> Self {
+        Self {
+            staged: true,
+            ..Self::new(path)
+        }
+    }
+    pub(crate) fn begin_staged(&mut self) -> Result<()> {
+        if self.handle.is_some() {
+            return Err(ExportError::WriterState);
+        }
+        self.staged = true;
+        self.finished = false;
+        Ok(())
     }
     pub fn write(&mut self, data: &[u8]) -> Result<usize> {
         if self.handle.is_none() {
-            if let Some(parent) = self.path.parent() {
-                fs::create_dir_all(parent).map_err(|_| ExportError::Filesystem)?;
-            }
-            self.handle = Some(fs::File::create(&self.path).map_err(|_| ExportError::Filesystem)?);
+            let parent = self
+                .path
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .unwrap_or_else(|| std::path::Path::new("."));
+            fs::create_dir_all(parent).map_err(|_| ExportError::Filesystem)?;
+            self.handle = Some(if self.staged {
+                LazyHandle::Staged(
+                    tempfile::Builder::new()
+                        .prefix(".kiaro-export-")
+                        .tempfile_in(parent)
+                        .map_err(|_| ExportError::Filesystem)?,
+                )
+            } else {
+                LazyHandle::Direct(
+                    fs::File::create(&self.path).map_err(|_| ExportError::Filesystem)?,
+                )
+            });
+            self.finished = false;
         }
         self.handle
             .as_mut()
             .ok_or(ExportError::Filesystem)?
+            .file()
             .write_all(data)
             .map_err(|_| ExportError::Filesystem)?;
         Ok(data.len())
     }
     pub fn finish(&mut self) -> Result<()> {
+        if self.finished {
+            return Ok(());
+        }
         if self.handle.is_none() {
             self.write(&[])?;
         }
-        self.close();
+        let mut handle = self.handle.take().ok_or(ExportError::Filesystem)?;
+        handle.file().flush().map_err(|_| ExportError::Filesystem)?;
+        if let LazyHandle::Staged(file) = handle {
+            file.as_file()
+                .sync_all()
+                .map_err(|_| ExportError::Filesystem)?;
+            file.persist(&self.path)
+                .map_err(|_| ExportError::Filesystem)?;
+        }
+        self.finished = true;
         Ok(())
     }
     pub fn close(&mut self) {
@@ -524,9 +582,9 @@ impl<'a, C: ExportClient> MessageFiles<'a, C> {
         }
         let relative = prepare_relative_path(&self.settings.path, &file.suggested_path);
         if !file.content.is_empty() {
-            let mut target = LazyFile::new(self.settings.path.join(&relative));
+            let mut target = LazyFile::staged(self.settings.path.join(&relative));
             target.write(&file.content)?;
-            target.close();
+            target.finish()?;
             file.relative_path = relative.clone();
             self.file_cache.save(&file.location, relative);
             return Ok(());
@@ -549,7 +607,7 @@ impl<'a, C: ExportClient> MessageFiles<'a, C> {
     ) -> FetchResult<String> {
         let mut location = file.location.clone();
         let path = self.settings.path.join(&relative);
-        let mut target = LazyFile::new(&path);
+        let mut target = LazyFile::staged(&path);
         let mut refreshes = 0;
         loop {
             match self
@@ -585,7 +643,7 @@ impl<'a, C: ExportClient> MessageFiles<'a, C> {
                     };
                     location = fresh;
                     target.close();
-                    target = LazyFile::new(&path);
+                    target = LazyFile::staged(&path);
                 }
             }
         }

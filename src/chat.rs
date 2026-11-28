@@ -98,12 +98,30 @@ pub struct Chat {
     pub resend_due: Option<(i32, i32)>,
     #[serde(default)]
     pub new_key_confirmed: bool,
+    /// Earliest incoming raw sequence that must use the newly adopted key.
+    #[serde(default)]
+    pub incoming_key_cutover: Option<i32>,
+    /// Retain the accepted exchange while an earlier CommitKey may still arrive.
+    #[serde(default)]
+    pub accepted_exchange: Option<i64>,
     pub rekeyed_at: u64,
     pub messages_since_rekey: u64,
+    #[serde(deserialize_with = "crate::storage::strict::deserialize_unique_map")]
     pub gaps: BTreeMap<i32, Envelope>,
+    /// Authentication provenance for buffered frames; never inferred across a key switch.
+    #[serde(
+        default,
+        deserialize_with = "crate::storage::strict::deserialize_unique_map"
+    )]
+    pub gap_key_fingerprints: BTreeMap<i32, i64>,
+    #[serde(deserialize_with = "crate::storage::strict::deserialize_unique_map")]
     pub outbox: BTreeMap<i32, Outgoing>,
+    #[serde(deserialize_with = "crate::storage::strict::deserialize_unique_map")]
     pub deliveries: BTreeMap<i32, Envelope>,
-    #[serde(default)]
+    #[serde(
+        default,
+        deserialize_with = "crate::storage::strict::deserialize_unique_map"
+    )]
     pub service_deliveries: BTreeMap<i32, ServiceDelivery>,
     pub paused: bool,
 }
@@ -155,9 +173,12 @@ impl Chat {
             gap_end: None,
             resend_due: None,
             new_key_confirmed: false,
+            incoming_key_cutover: None,
+            accepted_exchange: None,
             rekeyed_at: 0,
             messages_since_rekey: 0,
             gaps: BTreeMap::new(),
+            gap_key_fingerprints: BTreeMap::new(),
             outbox: BTreeMap::new(),
             deliveries: BTreeMap::new(),
             service_deliveries: BTreeMap::new(),
@@ -294,11 +315,14 @@ impl Chat {
         self.state = ChatState::Closed;
         self.key = None;
         self.previous_key = None;
+        self.incoming_key_cutover = None;
+        self.accepted_exchange = None;
         self.exchange = None;
         self.handshake_secret = None;
         self.peer_public = None;
         self.dh = None;
         self.gaps.clear();
+        self.gap_key_fingerprints.clear();
         self.outbox.clear();
         self.deliveries.clear();
         self.service_deliveries.clear();

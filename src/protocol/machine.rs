@@ -94,6 +94,7 @@ impl<S: Storage> Protocol<S> {
                 chat.paused = true;
                 chat.outbox.clear();
                 chat.gaps.clear();
+                chat.gap_key_fingerprints.clear();
                 chat.deliveries.clear();
                 chat.service_deliveries.clear();
             }
@@ -319,7 +320,10 @@ impl<S: Storage> Protocol<S> {
         let key = crate::rekey::select_key(chat, fingerprint).ok_or(Error::FrameRejected)?;
         let body = decrypt_frame(key, frame, chat.in_direction())?;
         let header = framing::inspect_header(&body)?;
-        if !sequence::preflight_header(chat, &header)? {
+        let is_new = sequence::preflight_header(chat, &header)?;
+        let raw = header.out_seq_no / 2;
+        crate::rekey::check_buffered_key(chat, raw, fingerprint)?;
+        if !is_new {
             return self.ingress_transaction(
                 id,
                 crate::ingress::application::Kind::Message,
@@ -327,8 +331,19 @@ impl<S: Storage> Protocol<S> {
             );
         }
         let wrapper = framing::unwrap(&body)?;
+        let action = match &wrapper.message {
+            enums::DecryptedMessage::Service(service) => Some(&service.action),
+            enums::DecryptedMessage::ServiceLegacyaa48327d(service) => Some(&service.action),
+            _ => None,
+        };
+        let cutover = crate::rekey::received_key_cutover(chat, raw, fingerprint, action)?;
         self.ingress_transaction(id, crate::ingress::application::Kind::Message, |state| {
             let chat = state.chats.get_mut(&id).ok_or(Error::ChatState)?;
+            crate::rekey::fill_gap_provenance(chat)?;
+            chat.incoming_key_cutover = cutover;
+            if raw > chat.in_seq_no {
+                chat.gap_key_fingerprints.insert(raw, fingerprint);
+            }
             let mut wrapper = wrapper;
             let mut answers = Vec::new();
             let action = match &mut wrapper.message {
@@ -527,6 +542,7 @@ impl<S: Storage> Protocol<S> {
                     chat.state = ChatState::Suspended;
                     chat.paused = true;
                     chat.gaps.clear();
+                    chat.gap_key_fingerprints.clear();
                     chat.outbox.clear();
                     chat.deliveries.clear();
                     chat.service_deliveries.clear();

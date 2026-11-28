@@ -1,6 +1,10 @@
 //! Fail closed on incomplete Rust execution evidence, including declared skips.
 #![forbid(unsafe_code)]
 
+#[allow(dead_code)]
+#[path = "common/mod.rs"]
+mod common;
+use common::{Level, log};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
@@ -58,6 +62,7 @@ pub struct Policy {
     pub live: BTreeSet<String>,
     pub platform: BTreeMap<String, BTreeSet<String>>,
     pub optional: BTreeSet<String>,
+    excluded: BTreeMap<String, BTreeSet<String>>,
     supplemental: &'static [&'static str],
 }
 
@@ -73,7 +78,7 @@ impl Policy {
     fn current(text: &str) -> Result<Self, String> {
         let manifest: CurrentManifest =
             serde_json::from_str(text).map_err(|_| "Invalid current Rust matrix manifest")?;
-        let live = [
+        let mut live = [
             "tests/live_interop_harness.rs::same_library_pair",
             "tests/live_interop_harness.rs::official_client_interop",
         ]
@@ -81,6 +86,17 @@ impl Policy {
         .map(str::to_owned)
         .collect::<BTreeSet<_>>();
         let expected: BTreeSet<_> = manifest.expected.iter().cloned().collect();
+        live.extend(
+            LIVE_CASES
+                .iter()
+                .filter(|id| expected.contains(**id))
+                .map(|id| (*id).to_owned()),
+        );
+        let platform_ignored: BTreeSet<_> = WINDOWS_CASES
+            .iter()
+            .filter(|id| expected.contains(**id))
+            .map(|id| (*id).to_owned())
+            .collect();
         if expected.len() != manifest.expected.len()
             || !live.is_subset(&expected)
             || expected.len() == live.len()
@@ -88,6 +104,16 @@ impl Policy {
                 !LEGS.contains(&leg.as_str())
                     || !cases.is_subset(&expected)
                     || !cases.is_disjoint(&live)
+                    || !cases.is_disjoint(&platform_ignored)
+            })
+            || expected.iter().any(|identity| {
+                !live.contains(identity)
+                    && LEGS.iter().all(|leg| {
+                        manifest
+                            .platform_excluded
+                            .get(*leg)
+                            .is_some_and(|cases| cases.contains(identity))
+                    })
             })
         {
             return Err(
@@ -97,8 +123,12 @@ impl Policy {
         Ok(Self {
             expected,
             live,
-            platform: manifest.platform_excluded,
+            platform: WINDOWS_LEGS
+                .map(|leg| (leg.to_owned(), platform_ignored.clone()))
+                .into_iter()
+                .collect(),
             optional: BTreeSet::new(),
+            excluded: manifest.platform_excluded,
             supplemental: &[],
         })
     }
@@ -135,6 +165,7 @@ impl Policy {
                 .into_iter()
                 .collect(),
             optional: BTreeSet::new(),
+            excluded: BTreeMap::new(),
             supplemental: &SUPPLEMENTAL_CASES,
         })
     }
@@ -158,9 +189,7 @@ fn count(summary: &str, word: &str) -> Result<usize, String> {
 }
 pub fn parse_record(text: &str, leg: &str, policy: &Policy) -> Result<BTreeSet<String>, String> {
     let mut expected_all = policy.expected.clone();
-    if policy.supplemental.is_empty()
-        && let Some(excluded) = policy.platform.get(leg)
-    {
+    if let Some(excluded) = policy.excluded.get(leg) {
         expected_all.retain(|id| !excluded.contains(id));
     }
     for &id in policy.supplemental {
@@ -283,9 +312,7 @@ pub fn parse_record(text: &str, leg: &str, policy: &Policy) -> Result<BTreeSet<S
         }
     }
     let mut required = policy.live.clone();
-    if !policy.supplemental.is_empty()
-        && let Some(platform) = policy.platform.get(leg)
-    {
+    if let Some(platform) = policy.platform.get(leg) {
         required.extend(platform.iter().cloned());
     }
     let allowed = required
@@ -392,7 +419,7 @@ pub fn strip_ansi(text: &str) -> String {
     }
     output
 }
-const USAGE: &str = "Usage: matrix-evidence RECORDS [--manifest LEGACY_JSON | --current-manifest JSON] [--expect-legs N]\n       matrix-evidence --coverage LLVM_JSON\n\nCurrent JSON lists unique test identities in expected and, optionally, a platform_excluded object mapping leg names to absent test identities.";
+const USAGE: &str = "Usage: matrix-evidence RECORDS [--manifest LEGACY_JSON | --current-manifest JSON] [--expect-legs N]\n       matrix-evidence --coverage LLVM_JSON\n\nThe default is the bundled current executable inventory. Current JSON lists unique test identities in expected and, optionally, a platform_excluded object mapping leg names to cfg-absent identities. Declared live tests and the three Windows filesystem contract ignores remain collected and are verified separately. --manifest selects the historical migration inventory.";
 
 pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<String, String> {
     let mut directory = PathBuf::from("records");
@@ -400,7 +427,7 @@ pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<String, String
     let mut manifest = None;
     let mut count = LEGS.len();
     let mut supplied = false;
-    let mut current = false;
+    let mut current = true;
     let mut args = arguments.into_iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -421,6 +448,7 @@ pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<String, String
                 return check_coverage(&bytes, &root);
             }
             "--manifest" if manifest.is_none() => {
+                current = false;
                 manifest = Some(PathBuf::from(
                     args.next().ok_or("--manifest requires a path")?,
                 ));
@@ -445,7 +473,7 @@ pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<String, String
     let manifest = if let Some(path) = manifest {
         fs::read_to_string(path).map_err(|_| "Rust case manifest could not be read")?
     } else {
-        include_str!("../../migration/rust-cases.json").to_owned()
+        include_str!("../../migration/current-rust-cases.json").to_owned()
     };
     let policy = if current {
         Policy::current(&manifest)?
@@ -471,11 +499,14 @@ fn main() -> ExitCode {
     }
     match run(args) {
         Ok(summary) => {
-            println!("{summary}");
+            log(Level::Info, summary);
             ExitCode::SUCCESS
         }
         Err(error) => {
-            eprintln!("ERROR: Rust matrix evidence rejected: {error}");
+            log(
+                Level::Error,
+                format_args!("Rust matrix evidence rejected: {error}"),
+            );
             ExitCode::FAILURE
         }
     }

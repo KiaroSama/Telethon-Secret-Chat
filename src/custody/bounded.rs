@@ -26,6 +26,7 @@ pub enum PauseReason {
 struct Control {
     pause: Option<PauseReason>,
     lost: bool,
+    #[serde(deserialize_with = "crate::storage::strict::deserialize_unique_map")]
     ages: BTreeMap<String, u64>,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,9 +66,8 @@ impl<S: Storage> CustodyStorage<S> {
             }
         };
         let controls: BTreeMap<i32, Control> = match state.private_records.get(CONTROL) {
-            Some(value) => {
-                serde_json::from_slice(value.as_bytes()).map_err(|_| Error::InvalidState)?
-            }
+            Some(value) => crate::storage::strict::unique_map_from_slice(value.as_bytes())
+                .map_err(|_| Error::InvalidState)?,
             None => {
                 if !state.chats.is_empty() {
                     return Err(Error::InvalidState);
@@ -308,7 +308,7 @@ impl<S: Storage> Storage for CustodyStorage<S> {
         if state.authorization != self.state.authorization {
             return Err(Error::Authorization);
         }
-        let controls = serde_json::from_slice(
+        let controls = crate::storage::strict::unique_map_from_slice(
             state
                 .private_records
                 .get(CONTROL)

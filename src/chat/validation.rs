@@ -9,8 +9,8 @@ impl Chat {
             || self.out_seq_no < 0
             || self.peer_in_seq_no < 0
             || self.peer_in_seq_no > self.out_seq_no
-            || self.out_seq_no > i32::MAX / 2
-            || self.in_seq_no > i32::MAX / 2
+            || self.out_seq_no > crate::sequence::MAX_SEQUENCE_COUNT
+            || self.in_seq_no > crate::sequence::MAX_SEQUENCE_COUNT
             || self.ttl < 0
             || self.capability_layer < 46
             || (self.wrapper_layer != 0 && self.wrapper_layer < 46)
@@ -73,6 +73,8 @@ impl Chat {
         for (seq, row) in &self.service_deliveries {
             self.service_wrapper(*seq, row)?;
         }
+        crate::sequence::validate_pending(self).map_err(|_| Error::InvalidState)?;
+        crate::rekey::validate_provenance(self)?;
         Ok(())
     }
     pub(crate) fn service_wrapper(

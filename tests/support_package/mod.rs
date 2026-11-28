@@ -45,7 +45,16 @@ fn copy_tree(source: &Path, target: &Path) {
             let name = path.file_name().unwrap().to_string_lossy();
             if matches!(
                 extension,
-                "rs" | "tl" | "png" | "json" | "md" | "toml" | "lock" | "txt"
+                "rs" | "tl"
+                    | "png"
+                    | "json"
+                    | "md"
+                    | "toml"
+                    | "lock"
+                    | "txt"
+                    | "css"
+                    | "js"
+                    | "icc"
             ) || name == "LICENSE"
                 || name == "NOTICE"
                 || name.starts_with("LICENSE-")
@@ -71,7 +80,7 @@ fn git(stage: &Path, args: &[&OsStr]) -> std::process::Output {
             "-c",
             "user.name=Native Rust Fixture",
             "-c",
-            "user.email=fixture@invalid.test",
+            "user.email=Kiaro.Sama.Dev@gmail.com",
             "-c",
             "commit.gpgsign=false",
         ])
@@ -140,6 +149,8 @@ fn build() -> Installed {
     for folder in [
         "src",
         "schema",
+        "data",
+        "assets",
         "vendor/grammers",
         "migration",
         "docs",

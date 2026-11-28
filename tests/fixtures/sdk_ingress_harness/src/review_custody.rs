@@ -1,6 +1,5 @@
 //! Real initialization staging and serialized encrypted-custody callbacks.
 use kiaro_secret_chat::{
-    binding::AuthorizationBinding,
     custody::IngressLimits,
     grammers_client::Client,
     grammers_mtsender::{
@@ -14,7 +13,6 @@ use kiaro_secret_chat::{
     grammers_tl_types::{self as tl, Serializable},
     ingress::{DurableIngress, EncryptedIngressStorage},
 };
-use sha1::{Digest, Sha1};
 use std::future::Future;
 use std::{
     sync::{
@@ -306,11 +304,14 @@ impl DurableIngressHook for Proxy {
 async fn concurrent_checkpoint() {
     let directory = tempfile::tempdir().unwrap();
     let key = [7; 256];
-    let digest = Sha1::digest(key);
-    let auth = i64::from_le_bytes(digest[12..20].try_into().unwrap());
-    let binding =
-        AuthorizationBinding::from_session_parts(123, auth, 2, "ordered-sdk-fixture".into())
-            .unwrap();
+    let mut data = SessionData {
+        home_dc: 2,
+        ..Default::default()
+    };
+    data.dc_options.get_mut(&2).unwrap().auth_key = Some(key);
+    let pool = SenderPool::new(Arc::new(MemorySession::from(data)), 123);
+    let client = Client::new(pool.handle.clone());
+    let binding = super::super::binding_for(&client, "ordered-sdk-fixture");
     let backend = EncryptedIngressStorage::open(
         directory.path().join("custody"),
         [9; 32],
@@ -323,13 +324,6 @@ async fn concurrent_checkpoint() {
         IngressLimits::new(32, 1024 * 1024, 3600.0).unwrap(),
     )
     .unwrap();
-    let mut data = SessionData {
-        home_dc: 2,
-        ..Default::default()
-    };
-    data.dc_options.get_mut(&2).unwrap().auth_key = Some(key);
-    let pool = SenderPool::new(Arc::new(MemorySession::from(data)), 123);
-    let client = Client::new(pool.handle.clone());
     let handle = pool.handle.clone();
     let mut machine = MessageBoxes::new();
     machine.set_state(super::super::state(40));
@@ -442,11 +436,14 @@ async fn refreshed_addresses() {
 fn runtime_independent_permits() {
     let directory = tempfile::tempdir().unwrap();
     let key = [7; 256];
-    let digest = Sha1::digest(key);
-    let auth = i64::from_le_bytes(digest[12..20].try_into().unwrap());
-    let binding =
-        AuthorizationBinding::from_session_parts(123, auth, 2, "short-lived-rpc-runtime".into())
-            .unwrap();
+    let mut data = SessionData {
+        home_dc: 2,
+        ..Default::default()
+    };
+    data.dc_options.get_mut(&2).unwrap().auth_key = Some(key);
+    let mut pool = SenderPool::new(Arc::new(MemorySession::from(data)), 123);
+    let client = Client::new(pool.handle.clone());
+    let binding = super::super::binding_for(&client, "short-lived-rpc-runtime");
     let backend = EncryptedIngressStorage::open(
         directory.path().join("custody"),
         [9; 32],
@@ -459,12 +456,6 @@ fn runtime_independent_permits() {
         IngressLimits::new(32, 1024 * 1024, 3600.0).unwrap(),
     )
     .unwrap();
-    let mut data = SessionData {
-        home_dc: 2,
-        ..Default::default()
-    };
-    data.dc_options.get_mut(&2).unwrap().auth_key = Some(key);
-    let mut pool = SenderPool::new(Arc::new(MemorySession::from(data)), 123);
     let mut machine = MessageBoxes::new();
     machine.set_state(super::super::state(40));
     let runtime = || {

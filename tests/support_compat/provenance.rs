@@ -15,7 +15,7 @@ pub fn verify() {
     assert_eq!(native["upstream_revision"], original["revision"]);
     assert_eq!(
         native["upstream_revision"],
-        "02367f9711ca3589a8bbb02e4128aca1631c77c4"
+        "11e13a989a754f9cf01a798480a2e20ce9e5b1fd"
     );
     assert_eq!(
         native["baseline_manifest_sha256"],

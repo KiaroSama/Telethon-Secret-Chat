@@ -19,20 +19,29 @@ pub async fn run(transport: &GrammersTransport, model: &Arc<Mutex<Server>>) {
         let file = Transport::upload(transport, &mut input, &key)
             .await
             .unwrap();
-        let id = match file {
+        let (id, parts, checksum) = match file {
             tl::enums::InputEncryptedFile::Uploaded(f) => {
                 assert_eq!(size, 65);
                 assert_eq!(f.key_fingerprint, key.fingerprint());
-                f.id
+                (f.id, f.parts, Some(f.md5_checksum))
             }
             tl::enums::InputEncryptedFile::BigUploaded(f) => {
                 assert!(size > 10 * 1024 * 1024);
                 assert_eq!(f.key_fingerprint, key.fingerprint());
-                f.id
+                (f.id, f.parts, None)
             }
             _ => unreachable!(),
         };
         let bytes = model.lock().unwrap().files[&id].clone();
+        assert_eq!(parts as usize, bytes.len().div_ceil(512 * 1024));
+        assert_eq!(bytes.len(), size.div_ceil(16) * 16);
+        if let Some(checksum) = checksum {
+            let expected = kiaro_secret_chat::media::md5_digest(&bytes)
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>();
+            assert_eq!(checksum, expected);
+        }
         let mut decoded = Vec::new();
         decrypt_file(&mut &bytes[..], &mut decoded, size as u64, &key).unwrap();
         assert_eq!(decoded, plaintext);

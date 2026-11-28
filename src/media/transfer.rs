@@ -8,51 +8,51 @@ use grammers_tl_types as tl;
 use std::{
     io::{Seek, SeekFrom, Write},
     path::{Path, PathBuf},
+    sync::Arc,
 };
+pub(crate) type TransferGuard = Arc<dyn Fn() -> Result<()> + Send + Sync>;
+
 pub async fn upload_file(
     client: &Client,
     source: &mut SourceReader,
     key: &FileKey,
 ) -> Result<tl::enums::InputEncryptedFile> {
-    let name = source.name.clone();
-    let mut reader = source.encrypting_reader(key.clone())?;
-    let encrypted_size = usize::try_from(reader.size).map_err(|_| Error::Media)?;
-    let uploaded = client
-        .upload_stream(&mut reader, encrypted_size, name)
-        .await;
-    let uploaded = uploaded.map_err(|_| Error::Transport)?;
-    let fingerprint = key.fingerprint();
-    Ok(match uploaded.raw {
-        tl::enums::InputFile::File(file) => tl::types::InputEncryptedFileUploaded {
-            id: file.id,
-            parts: file.parts,
-            md5_checksum: file.md5_checksum,
-            key_fingerprint: fingerprint,
-        }
-        .into(),
-        tl::enums::InputFile::Big(file) => tl::types::InputEncryptedFileBigUploaded {
-            id: file.id,
-            parts: file.parts,
-            key_fingerprint: fingerprint,
-        }
-        .into(),
-        _ => return Err(Error::Media),
-    })
+    upload_file_guarded(client, source, key, Arc::new(|| Ok(()))).await
+}
+pub(crate) async fn upload_file_guarded(
+    client: &Client,
+    source: &mut SourceReader,
+    key: &FileKey,
+    guard: TransferGuard,
+) -> Result<tl::enums::InputEncryptedFile> {
+    guard()?;
+    super::upload::upload(client, source, key, guard).await
 }
 pub async fn download_file(
     client: &Client,
     reference: &MediaReference,
     path: &Path,
 ) -> Result<PathBuf> {
+    download_file_guarded(client, reference, path, Arc::new(|| Ok(()))).await
+}
+pub(crate) async fn download_file_guarded(
+    client: &Client,
+    reference: &MediaReference,
+    path: &Path,
+    guard: TransferGuard,
+) -> Result<PathBuf> {
+    guard()?;
     let parts = reference.validate()?;
     let expected =
         usize::try_from(crate::files::encrypted_size(parts.size)?).map_err(|_| Error::Capacity)?;
     let absolute = std::path::absolute(path).map_err(|_| Error::Storage)?;
     let parent = absolute.parent().ok_or(Error::Storage)?.to_owned();
+    let temporary_guard = Arc::clone(&guard);
     let temporary = super::blocking::spawn(move |cancelled| {
         if cancelled.load(std::sync::atomic::Ordering::Acquire) {
             return Err(Error::ManagerStopping);
         }
+        temporary_guard()?;
         std::fs::create_dir_all(&parent).map_err(|_| Error::Storage)?;
         tempfile::tempfile_in(parent).map_err(|_| Error::Storage)
     })?
@@ -61,15 +61,23 @@ pub async fn download_file(
     let mut temporary = temporary;
     let mut written = 0usize;
     let mut download = client.iter_download(reference);
-    while let Some(bytes) = download.next().await.map_err(|_| Error::Transport)? {
+    loop {
+        guard()?;
+        let response = download.next().await;
+        guard()?;
+        let Some(bytes) = response.map_err(|_| Error::Transport)? else {
+            break;
+        };
         written = written
             .checked_add(bytes.len())
             .filter(|total| *total <= expected)
             .ok_or(Error::Media)?;
+        let write_guard = Arc::clone(&guard);
         temporary = super::blocking::spawn(move |cancelled| {
             if cancelled.load(std::sync::atomic::Ordering::Acquire) {
                 return Err(Error::ManagerStopping);
             }
+            write_guard()?;
             temporary.write_all(&bytes).map_err(|_| Error::Storage)?;
             Ok(temporary)
         })?
@@ -81,6 +89,7 @@ pub async fn download_file(
     }
     let fingerprint = reference.key_fingerprint;
     super::blocking::spawn(move |cancelled| {
+        guard()?;
         temporary.flush().map_err(|_| Error::Storage)?;
         temporary
             .seek(SeekFrom::Start(0))
@@ -95,7 +104,7 @@ pub async fn download_file(
                 if cancelled.load(std::sync::atomic::Ordering::Acquire) {
                     Err(Error::ManagerStopping)
                 } else {
-                    Ok(())
+                    guard()
                 }
             },
         )?;
@@ -110,6 +119,17 @@ pub async fn download_bytes(
     reference: &MediaReference,
     maximum: usize,
 ) -> Result<Vec<u8>> {
+    download_bytes_guarded(client, reference, maximum, Arc::new(|| Ok(())))
+        .await
+        .map(|mut plaintext| std::mem::take(&mut *plaintext))
+}
+pub(crate) async fn download_bytes_guarded(
+    client: &Client,
+    reference: &MediaReference,
+    maximum: usize,
+    guard: TransferGuard,
+) -> Result<zeroize::Zeroizing<Vec<u8>>> {
+    guard()?;
     let parts = reference.validate()?;
     let size = usize::try_from(parts.size).map_err(|_| Error::Capacity)?;
     if size > maximum {
@@ -119,7 +139,13 @@ pub async fn download_bytes(
         usize::try_from(crate::files::encrypted_size(parts.size)?).map_err(|_| Error::Capacity)?;
     let mut encrypted = zeroize::Zeroizing::new(Vec::with_capacity(expected));
     let mut download = client.iter_download(reference);
-    while let Some(bytes) = download.next().await.map_err(|_| Error::Transport)? {
+    loop {
+        guard()?;
+        let response = download.next().await;
+        guard()?;
+        let Some(bytes) = response.map_err(|_| Error::Transport)? else {
+            break;
+        };
         if encrypted
             .len()
             .checked_add(bytes.len())
@@ -136,6 +162,7 @@ pub async fn download_bytes(
         if cancelled.load(std::sync::atomic::Ordering::Acquire) {
             return Err(Error::ManagerStopping);
         }
+        guard()?;
         // An abandoned worker result must scrub plaintext as well as ciphertext.
         let mut plaintext = zeroize::Zeroizing::new(Vec::with_capacity(size));
         crate::files::decrypt_file(
@@ -147,9 +174,9 @@ pub async fn download_bytes(
         if cancelled.load(std::sync::atomic::Ordering::Acquire) {
             return Err(Error::ManagerStopping);
         }
+        guard()?;
         Ok(plaintext)
     })?
     .await
     .map_err(|_| Error::Storage)?
-    .map(|mut plaintext| std::mem::take(&mut *plaintext))
 }

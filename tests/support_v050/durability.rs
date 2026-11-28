@@ -19,6 +19,9 @@ use serde_json::json;
 
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
+#[path = "durability_schema.rs"]
+mod schema;
+
 fn native_state(authorization: String) -> TestResult<State> {
     let mut protocol = Protocol::open(MemoryStorage::default(), authorization.clone())?;
     protocol.start()?;

@@ -1,7 +1,7 @@
 //! Native Rust `kiaro-secret-chat` library entry point.
 //!
 //! Wires caller-owned MTProto 2.0 secret chats backed by `Lonami/grammers`
-//! (Layer 234), including generated Layer 202 secret-chat TL types, durable
+//! (Layer 234), including generated end-to-end TL types, durable
 //! pre-ack ingress, bounded/transient/strong managers, encrypted media,
 //! auto-save, Desktop-compatible rich archive export, and offline binding
 //! migration.

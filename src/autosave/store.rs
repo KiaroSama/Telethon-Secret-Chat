@@ -297,7 +297,14 @@ impl AutoSave {
     fn pending_unlocked(&self, id: i32) -> Result<BTreeMap<String, PendingFile>> {
         let path = self.chat_dir(id)?.join("pending.json");
         match fs::read(path) {
-            Ok(bytes) => serde_json::from_slice(&bytes).map_err(|_| Error::InvalidState),
+            Ok(bytes) => crate::storage::strict::unique_map_from_slice::<i64, PendingFile>(&bytes)
+                .map(|entries| {
+                    entries
+                        .into_iter()
+                        .map(|(id, record)| (id.to_string(), record))
+                        .collect()
+                })
+                .map_err(|_| Error::InvalidState),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(BTreeMap::new()),
             Err(_) => Err(Error::Storage),
         }

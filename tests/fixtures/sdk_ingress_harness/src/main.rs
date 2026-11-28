@@ -15,7 +15,6 @@ use kiaro_secret_chat::{
     grammers_tl_types::{self as tl, Deserializable, Identifiable, Serializable},
     ingress::{DurableIngress, EncryptedIngressStorage},
 };
-use sha1::{Digest, Sha1};
 use std::{
     collections::BTreeMap,
     sync::{Arc, Mutex},
@@ -80,6 +79,10 @@ fn decode<T: Deserializable>(bytes: &[u8]) -> T {
     assert_eq!(cursor.pos(), bytes.len());
     value
 }
+fn binding_for(client: &Client, generation: &str) -> AuthorizationBinding {
+    let (dc_id, tag) = client.authorization_key_tag().unwrap().unwrap();
+    AuthorizationBinding::v2(123, dc_id, tag, generation).unwrap()
+}
 impl Server {
     fn ack(&mut self, qts: i32) {
         self.requests.push(qts);
@@ -102,6 +105,11 @@ impl Server {
                 let request: tl::functions::users::GetUsers = decode(args);
                 assert_eq!(request.id, vec![tl::enums::InputUser::UserSelf]);
                 Ok(self_user(self.bot))
+            }
+            id if id == tl::functions::account::GetAuthorizations::CONSTRUCTOR_ID
+                || id == tl::functions::help::GetConfig::CONSTRUCTOR_ID =>
+            {
+                adapter::server::Server::default().invoke(dc, body)
             }
             id if id == tl::functions::messages::ReceivedQueue::CONSTRUCTOR_ID => {
                 let request: tl::functions::messages::ReceivedQueue = decode(args);
@@ -170,11 +178,14 @@ async fn run_ingress_mode(mode: String) {
     ));
     let dir = tempfile::tempdir().unwrap();
     let key: [u8; 256] = std::array::from_fn(|i| i as u8);
-    let hash = Sha1::digest(key);
-    let id = i64::from_le_bytes(hash[12..20].try_into().unwrap());
-    let binding =
-        AuthorizationBinding::from_session_parts(123, id, 2, "offline-sdk-generation".into())
-            .unwrap();
+    let mut session = SessionData {
+        home_dc: 2,
+        ..Default::default()
+    };
+    session.dc_options.get_mut(&2).unwrap().auth_key = Some(key);
+    let pool = SenderPool::new(Arc::new(MemorySession::from(session)), 123);
+    let client = Client::new(pool.handle.clone());
+    let binding = binding_for(&client, "offline-sdk-generation");
     let store =
         EncryptedIngressStorage::open(dir.path().join("custody"), [9; 32], binding, 1024 * 1024)
             .unwrap();
@@ -183,13 +194,6 @@ async fn run_ingress_mode(mode: String) {
         IngressLimits::new(if mode == "capacity" { 1 } else { 32 }, 1024 * 1024, 3600.0).unwrap(),
     )
     .unwrap();
-    let mut session = SessionData {
-        home_dc: 2,
-        ..Default::default()
-    };
-    session.dc_options.get_mut(&2).unwrap().auth_key = Some(key);
-    let pool = SenderPool::new(Arc::new(MemorySession::from(session)), 123);
-    let client = Client::new(pool.handle.clone());
     let mut machine = MessageBoxes::new();
     machine.set_state(state(40));
     if mode == "difference" {

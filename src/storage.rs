@@ -10,6 +10,7 @@ mod foundation;
 mod guard_tests;
 #[cfg(test)]
 mod lifecycle_tests;
+pub(crate) mod strict;
 pub use crate::secret_record::SecretRecord;
 use crate::{
     chat::Chat,
@@ -42,9 +43,11 @@ pub struct State {
     #[serde(default)]
     pub mode: StoreMode,
     pub authorization: String,
+    #[serde(deserialize_with = "strict::deserialize_unique_map")]
     pub chats: BTreeMap<i32, Chat>,
+    #[serde(deserialize_with = "strict::deserialize_unique_map")]
     pub settings: BTreeMap<String, serde_json::Value>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "strict::deserialize_unique_map")]
     pub private_records: BTreeMap<String, SecretRecord>,
 }
 impl State {
@@ -253,6 +256,11 @@ impl FileStorage {
         }
         let lock = options.open(lockpath).map_err(|_| Error::Storage)?;
         lock.try_lock().map_err(|_| Error::Storage)?;
+        // A replaceable data file cannot also serve as a stable lock sidecar.
+        let metadata = lock.metadata().map_err(|_| Error::Storage)?;
+        if !metadata.is_file() || metadata.len() != 0 {
+            return Err(Error::Storage);
+        }
         crate::temporary::cleanup(
             path.parent().ok_or(Error::Storage)?,
             &temporary_prefix(&path)?,

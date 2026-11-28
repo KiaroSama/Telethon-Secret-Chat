@@ -128,6 +128,11 @@ impl GrammersTransport {
         Ok(())
     }
 
+    fn transfer_guard(&self) -> crate::media::TransferGuard {
+        let transport = self.clone();
+        Arc::new(move || transport.check_bound_client())
+    }
+
     pub async fn dh_config(&self) -> Result<DhConfig> {
         Transport::dh_config(self).await
     }
@@ -322,7 +327,12 @@ impl Transport for GrammersTransport {
             self.check_bound_client()?;
             let file = self
                 .io
-                .scope(crate::media::upload_file(self.client(), source, key))
+                .scope(crate::media::upload_file_guarded(
+                    self.client(),
+                    source,
+                    key,
+                    self.transfer_guard(),
+                ))
                 .await?;
             self.check_bound_client()?;
             Ok(file)
@@ -335,16 +345,17 @@ impl Transport for GrammersTransport {
     ) -> BoxFuture<'a, Result<Vec<u8>>> {
         Box::pin(async move {
             self.check_bound_client()?;
-            let bytes = self
+            let mut bytes = self
                 .io
-                .scope(crate::media::download_bytes(
+                .scope(crate::media::download_bytes_guarded(
                     self.client(),
                     reference,
                     maximum,
+                    self.transfer_guard(),
                 ))
                 .await?;
             self.check_bound_client()?;
-            Ok(bytes)
+            Ok(std::mem::take(&mut *bytes))
         })
     }
     fn download<'a>(
@@ -356,7 +367,12 @@ impl Transport for GrammersTransport {
             self.check_bound_client()?;
             let path = self
                 .io
-                .scope(crate::media::download_file(self.client(), reference, path))
+                .scope(crate::media::download_file_guarded(
+                    self.client(),
+                    reference,
+                    path,
+                    self.transfer_guard(),
+                ))
                 .await?;
             self.check_bound_client()?;
             Ok(path)
