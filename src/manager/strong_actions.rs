@@ -32,8 +32,12 @@ impl<T: Transport> StrongSecretChatManager<T> {
     /// Resume intact custody, then revisit committed input from paused peers.
     pub async fn resume_chat(&self, id: i32) -> Result<()> {
         self.ready()?;
-        self.inner.manager.resume_chat(id).await?;
-        self.drain_ingress().await
+        let wake = ReplayWake::new(self)?;
+        let result = {
+            let operation = self.inner.manager.resume_chat(id);
+            operation.await
+        };
+        wake.finish(result).await
     }
     /// Pending consumer receipts use the original wire sequence and ciphertext identity.
     pub fn pending_deliveries(&self, id: i32) -> Result<Vec<crate::custody::RelayDelivery>> {
@@ -90,12 +94,22 @@ impl<T: Transport> StrongSecretChatManager<T> {
     /// Create using the caller client's authorization and retained request identity.
     pub async fn create(&self, user: tl::enums::InputUser) -> Result<ChatSnapshot> {
         self.ready()?;
-        self.inner.manager.create(user).await
+        let wake = ReplayWake::new(self)?;
+        let result = {
+            let operation = self.inner.manager.create(user);
+            operation.await
+        };
+        wake.finish(result).await
     }
     /// Accept a durably held incoming request.
     pub async fn accept(&self, id: i32) -> Result<ChatSnapshot> {
         self.ready()?;
-        self.inner.manager.accept(id).await
+        let wake = ReplayWake::new(self)?;
+        let result = {
+            let operation = self.inner.manager.accept(id);
+            operation.await
+        };
+        wake.finish(result).await
     }
     /// Send content through the durable retained outbox.
     pub async fn send_message(

@@ -14,6 +14,7 @@ use std::{sync::Arc, time::Duration};
 mod compile_boundary;
 use crate::test_support::support as fake;
 mod fixture;
+mod recheck_v060;
 pub(super) mod review;
 #[path = "strong_replay_tests.rs"]
 mod strong_replay_tests;

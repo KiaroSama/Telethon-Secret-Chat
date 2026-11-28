@@ -28,7 +28,7 @@ async fn scope_pending<F: Future>(
         )
         .await
 }
-fn nested(identity: usize) -> bool {
+pub(super) fn nested(identity: usize) -> bool {
     SCOPE
         .try_with(|current| current.identity == identity)
         .unwrap_or(false)

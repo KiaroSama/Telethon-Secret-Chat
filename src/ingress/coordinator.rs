@@ -294,6 +294,15 @@ impl DurableIngress {
             .batches
             .clone())
     }
+    pub(crate) fn row_applied(&self, batch: u64, index: usize) -> Result<bool> {
+        let core = self.core.lock().map_err(|_| Error::Storage)?;
+        Ok(core
+            .ledger
+            .batches
+            .iter()
+            .find(|row| row.id == batch)
+            .is_none_or(|row| index < row.cursor || row.applied.contains(&index)))
+    }
     pub fn limits(&self) -> Result<IngressLimits> {
         Ok(self.core.lock().map_err(|_| Error::Storage)?.limits.clone())
     }
