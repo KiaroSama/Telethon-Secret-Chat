@@ -71,6 +71,7 @@ mod source_inventory {
         for path in [
             "Cargo.toml",
             "Cargo.lock",
+            "build.rs",
             "LICENSE",
             "NOTICE",
             "README.md",
