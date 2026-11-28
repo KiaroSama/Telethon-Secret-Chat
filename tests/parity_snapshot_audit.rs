@@ -3,7 +3,9 @@
 use std::sync::Arc;
 
 use kiaro_secret_chat::errors::SecretChatError;
-use kiaro_secret_chat::manager::{BoxFuture, ManagerLimits, SecretChatManager, SecretTransport};
+use kiaro_secret_chat::manager::{
+    BoxFuture, CoreSecretChatManager, ManagerLimits, SecretTransport,
+};
 use kiaro_secret_chat::ported::schema_secret_tl;
 use kiaro_secret_chat::protocol::{ChatRole, key_fingerprint};
 use kiaro_secret_chat::runtime_modes::PersistentSecretChatManager;
@@ -66,8 +68,8 @@ async fn new_receiver() -> Mode {
     mode
 }
 
-async fn sender() -> SecretChatManager<Transport> {
-    let sender = SecretChatManager::new(Arc::new(Transport));
+async fn sender() -> CoreSecretChatManager<Transport> {
+    let sender = CoreSecretChatManager::new(Arc::new(Transport));
     sender
         .register_established_chat(7, 101, 202, ChatRole::Initiator, &KEY)
         .await

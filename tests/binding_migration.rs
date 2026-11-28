@@ -3,11 +3,12 @@
 use std::{fs, path::Path};
 
 use kiaro_secret_chat::binding_migration::{
-    BindingOwnershipProof, MigrationSummary, migrate_chat_store_v1_to_v2,
-    migrate_custody_store_v1_to_v2, migrate_ingress_store_v1_to_v2,
+    BindingOwnershipProof, LegacyAuthorizationBinding, MigrationSummary,
+    migrate_chat_store_v1_to_v2, migrate_custody_store_v1_to_v2, migrate_ingress_store_v1_to_v2,
+    migrate_v1_enc_store_to_v2, migrate_v1_json_store_to_v2,
 };
 use kiaro_secret_chat::custody::{
-    CustodyBackend, CustodyLimits, CustodyMode, CustodyRecord, CustodyStore,
+    CustodyBackend, CustodyMode, CustodyRecord, CustodyStore, StoreCustodyLimits,
 };
 use kiaro_secret_chat::errors::SecretChatError;
 use kiaro_secret_chat::ingress::{
@@ -18,13 +19,24 @@ use kiaro_secret_chat::manager::{BoxFuture, ManagerLimits, SecretTransport};
 use kiaro_secret_chat::protocol::{ChatRole, encrypt_frame, wrap_frame};
 use kiaro_secret_chat::runtime_modes::{PersistentSecretChatManager, StrongSecretChatManager};
 use kiaro_secret_chat::storage_backend::{FileStorage, PersistedChatRecord, SecretChatStore};
+use kiaro_secret_chat::{
+    binding::AuthorizationBinding,
+    chat::{Chat, ChatState},
+    custody::{
+        CustodyLimits, CustodyStorage, IngressLimits as JournalLimits, ProtectedFileStorage,
+        TransientLimits, TransientStorage,
+    },
+    ingress::{DurableIngress, EncryptedIngressStorage},
+    protocol::Protocol,
+    storage::{FileStorage as HistoricalFileStorage, SecretRecord, State, Storage as _, StoreMode},
+};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
 const STORE_KEY: [u8; 32] = [0x32; 32];
 const CHAT_KEY: [u8; 256] = [0x42; 256];
 const TAG: [u8; 32] = [0xab; 32];
-type TestResult = Result<(), Box<dyn std::error::Error>>;
+type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 type Migrate =
     fn(&Path, [u8; 32], &BindingOwnershipProof) -> Result<MigrationSummary, SecretChatError>;
 
@@ -100,7 +112,7 @@ fn custody_record(id: i64, binding: &str) -> Result<CustodyRecord, SecretChatErr
         binding,
         CustodyMode::Durable,
         CustodyBackend::EncryptedFile,
-        CustodyLimits::default(),
+        StoreCustodyLimits::default(),
     );
     record.push_payload(&[1, 2, 3])?;
     record.push_payload(&[4, 5])?;
@@ -338,6 +350,239 @@ fn current_binding_matches_transport_bytes_and_proof_debug_redacts_tag() -> Test
         assert!(!debug.contains("171"));
         assert!(!debug.contains(&hex::encode(TAG)));
         assert!(!debug.contains(&proof.legacy_v1_binding));
+    }
+    let binding = AuthorizationBinding::v2(912, 4, TAG, "migration-test")?;
+    assert_eq!(binding.fingerprint(), proof.expected_v2_binding()?);
+    assert_eq!(binding.auth_key_tag(), Some(TAG));
+    assert_ne!(binding.fingerprint(), legacy_binding(17));
+    assert_eq!(
+        AuthorizationBinding::from_parts(912, TAG, 4, "migration-test".into())?.fingerprint(),
+        binding.fingerprint(),
+    );
+    assert_eq!(binding.auth_key_id(), None);
+    assert!(
+        serde_json::from_value::<AuthorizationBinding>(json!({
+            "user_id": 912, "dc_id": 4, "authorization_hash": 17, "generation": "migration-test"
+        }))
+        .is_err()
+    );
+    Ok(())
+}
+
+fn historical_state(binding: String, mode: StoreMode) -> TestResult<State> {
+    let mut state = State::empty(binding)?;
+    state.mode = mode;
+    state
+        .chats
+        .insert(7, Chat::new(7, 123, 456, true, ChatState::Requested));
+    if mode != StoreMode::Protected {
+        state
+            .settings
+            .insert("keep".into(), json!({"enabled": true}));
+        state.private_records.insert(
+            "custody/v1".into(),
+            SecretRecord::new(br#"{"7":{"pause":null,"lost":false,"ages":{}}}"#.to_vec()),
+        );
+    }
+    Ok(state)
+}
+
+fn historical_ingress_fixture(path: &Path, old: &LegacyAuthorizationBinding) -> TestResult<State> {
+    use aes_gcm::{
+        Aes256Gcm, KeyInit, Nonce,
+        aead::{Aead, Payload},
+    };
+
+    let digest = old.fingerprint();
+    let mut state = historical_state(digest.clone(), StoreMode::Ingress)?;
+    let mut boxes = kiaro_secret_chat::grammers_session::updates::MessageBoxes::new();
+    boxes.set_state(
+        kiaro_secret_chat::grammers_tl_types::types::updates::State {
+            pts: 10,
+            qts: 40,
+            date: 123,
+            seq: 1,
+            unread_count: 0,
+        },
+    );
+    let checkpoint = boxes
+        .durable_checkpoint()
+        .map_err(|_| "invalid fixture checkpoint")?;
+    use kiaro_secret_chat::grammers_session::updates::{UpdatesLike, durable};
+    use kiaro_secret_chat::grammers_tl_types::types;
+    let receipt = durable::encode_live(&UpdatesLike::Updates(
+        types::Updates {
+            updates: vec![
+                types::UpdateNewEncryptedMessage {
+                    message: types::EncryptedMessageService {
+                        random_id: 41,
+                        chat_id: 7,
+                        date: 124,
+                        bytes: vec![1, 2, 3],
+                    }
+                    .into(),
+                    qts: 41,
+                }
+                .into(),
+            ],
+            users: vec![],
+            chats: vec![],
+            date: 124,
+            seq: 2,
+        }
+        .into(),
+    ))
+    .map_err(|_| "invalid fixture receipt")?;
+    let ledger = json!({"version": 1, "checkpoint": hex::encode(checkpoint),
+        "receipt_frontier": 40, "next_id": 2, "batches": [], "paused": false,
+        "inputs": [{"id": 1, "envelope": hex::encode(receipt), "created_ms": 1}]});
+    state.private_records.insert(
+        "ingress/journal-v1".into(),
+        SecretRecord::new(serde_json::to_vec(&ledger)?),
+    );
+    let nonce = [0x73; 12];
+    let aad = [b"KIARO-INGRESS-RUST-1\0".as_slice(), digest.as_bytes()].concat();
+    let ciphertext = Aes256Gcm::new_from_slice(&STORE_KEY)
+        .map_err(|_| "invalid fixture key")?
+        .encrypt(
+            &Nonce::from(nonce),
+            Payload {
+                msg: &serde_json::to_vec(&state)?,
+                aad: &aad,
+            },
+        )
+        .map_err(|_| "fixture encryption failed")?;
+    let mut outer = State::empty(digest)?;
+    outer.mode = StoreMode::Ingress;
+    let blob = [nonce.as_slice(), &ciphertext].concat();
+    outer
+        .private_records
+        .insert("aead/ingress-v1".into(), SecretRecord::new(blob));
+    HistoricalFileStorage::open(path)?.commit(&outer)?;
+    Ok(state)
+}
+
+#[test]
+fn historical_encrypted_store_only_opens_after_explicit_rebinding() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("journal.v1.enc");
+    let old = LegacyAuthorizationBinding::from_session_parts(912, -17, 4, "migration-test")?;
+    let new = AuthorizationBinding::v2(912, 4, TAG, "migration-test")?;
+    let mut expected = historical_ingress_fixture(&path, &old)?;
+    let before = fs::read(&path)?;
+    assert!(EncryptedIngressStorage::open(&path, STORE_KEY, new.clone(), 4096).is_err());
+    assert_eq!(fs::read(&path)?, before);
+    let summary = migrate_v1_enc_store_to_v2(&path, STORE_KEY, &old, &new, 4096)?;
+    assert_eq!(summary.from_binding, old.fingerprint());
+    assert_eq!(summary.to_binding, new.fingerprint());
+    assert_eq!(summary.migrated_records, 1);
+    assert_ne!(fs::read(&path)?, before);
+    expected.authorization = new.fingerprint();
+    let reopened = EncryptedIngressStorage::open(&path, STORE_KEY, new.clone(), 4096)?;
+    assert_eq!(
+        serde_json::to_value(reopened.load()?.ok_or("missing store")?)?,
+        serde_json::to_value(expected)?
+    );
+    let mut limits = JournalLimits::new(32, 1024 * 1024, 3600.0)?;
+    limits.bytes = 4096;
+    limits.batch_bytes = 4096;
+    let journal = DurableIngress::new(reopened, limits)?;
+    let boxes =
+        kiaro_secret_chat::grammers_session::updates::MessageBoxes::from_durable_checkpoint(
+            &journal.checkpoint()?,
+        )
+        .map_err(|_| "invalid restored checkpoint")?;
+    assert_eq!(boxes.session_state().qts, 40);
+    drop(journal);
+    let migrated = fs::read(&path)?;
+    assert!(migrate_v1_enc_store_to_v2(&path, STORE_KEY, &old, &new, 4096)?.already_migrated);
+    assert_eq!(fs::read(&path)?, migrated);
+    Ok(())
+}
+
+#[test]
+fn historical_encrypted_migration_refuses_wrong_proof_corruption_and_active_owner() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("journal.data");
+    let old = LegacyAuthorizationBinding::from_session_parts(912, -17, 4, "migration-test")?;
+    let wrong = LegacyAuthorizationBinding::from_parts(912, -17, 4, "migration-test")?;
+    let new = AuthorizationBinding::v2(912, 4, TAG, "migration-test")?;
+    let wrong_owner = AuthorizationBinding::v2(913, 4, TAG, "migration-test")?;
+    historical_ingress_fixture(&path, &old)?;
+    let before = fs::read(&path)?;
+    for (key, proof, target) in [
+        ([0; 32], &old, &new),
+        (STORE_KEY, &wrong, &new),
+        (STORE_KEY, &old, &wrong_owner),
+    ] {
+        assert!(migrate_v1_enc_store_to_v2(&path, key, proof, target, 4096).is_err());
+        assert_eq!(fs::read(&path)?, before);
+    }
+    let mut lock = HistoricalFileStorage::open(&path)?;
+    assert!(migrate_v1_enc_store_to_v2(&path, STORE_KEY, &old, &new, 4096).is_err());
+    assert_eq!(fs::read(&path)?, before);
+    let mut outer = lock.load()?.ok_or("missing fixture")?;
+    let record = outer
+        .private_records
+        .get_mut("aead/ingress-v1")
+        .ok_or("missing ciphertext")?;
+    let mut blob = record.as_bytes().to_vec();
+    blob[12] ^= 1;
+    *record = SecretRecord::new(blob);
+    lock.commit(&outer)?;
+    drop(lock);
+    let corrupt = fs::read(&path)?;
+    assert!(migrate_v1_enc_store_to_v2(&path, STORE_KEY, &old, &new, 4096).is_err());
+    assert_eq!(fs::read(&path)?, corrupt);
+    Ok(())
+}
+
+#[test]
+fn historical_plaintext_store_migration_preserves_every_field_except_binding() -> TestResult {
+    let dir = tempfile::tempdir()?;
+    let old = LegacyAuthorizationBinding::from_parts(912, 17, 4, "migration-test")?;
+    let wrong = LegacyAuthorizationBinding::from_parts(912, 18, 4, "migration-test")?;
+    let new = AuthorizationBinding::v2(912, 4, TAG, "migration-test")?;
+    assert_eq!(old.fingerprint(), legacy_binding(17));
+    for (name, mode) in [
+        ("durable", StoreMode::Durable),
+        ("bounded", StoreMode::Bounded),
+        ("protected", StoreMode::Protected),
+    ] {
+        let path = dir.path().join(name);
+        let mut expected = historical_state(old.fingerprint(), mode)?;
+        HistoricalFileStorage::open(&path)?.commit(&expected)?;
+        let before = fs::read(&path)?;
+        let refused = match mode {
+            StoreMode::Durable => {
+                Protocol::open(HistoricalFileStorage::open(&path)?, new.fingerprint()).is_err()
+            }
+            StoreMode::Bounded => CustodyStorage::new(
+                HistoricalFileStorage::open(&path)?,
+                new.fingerprint(),
+                CustodyLimits::new(32, 1024 * 1024, 3600.0)?,
+            )
+            .is_err(),
+            StoreMode::Protected => TransientStorage::new(
+                ProtectedFileStorage::open(&path)?,
+                new.fingerprint(),
+                TransientLimits::default(),
+            )
+            .is_err(),
+            StoreMode::Ingress => unreachable!("tested with its authenticated envelope"),
+        };
+        assert!(refused);
+        assert!(migrate_v1_json_store_to_v2(&path, &wrong, &new).is_err());
+        assert_eq!(fs::read(&path)?, before);
+        assert!(!migrate_v1_json_store_to_v2(&path, &old, &new)?.already_migrated);
+        let actual = HistoricalFileStorage::open(&path)?
+            .load()?
+            .ok_or("missing store")?;
+        expected.authorization = new.fingerprint();
+        assert_eq!(
+            serde_json::to_value(actual)?,
+            serde_json::to_value(expected)?
+        );
     }
     Ok(())
 }

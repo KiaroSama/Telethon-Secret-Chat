@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use kiaro_secret_chat::errors::SecretChatError;
-use kiaro_secret_chat::manager::{BoxFuture, SecretChatManager, SecretTransport};
+use kiaro_secret_chat::manager::{BoxFuture, CoreSecretChatManager, SecretTransport};
 use kiaro_secret_chat::protocol::{
     ChatRole, check_dh_config, check_peer_value, describe_protocol_error, dh_public_value,
     dh_shared_key, generate_secret_bytes, key_fingerprint, rekey_collision,
@@ -137,8 +137,8 @@ async fn full_2048bit_dh_handshake_and_encrypted_exchange_succeeds_and_refuses_c
     assert!(described.is_some());
 
     // Exchange an encrypted message using the freshly derived 2048-bit DH key.
-    let alice = SecretChatManager::new(Arc::new(LoopbackTransport("auth-dh-alice")));
-    let bob = SecretChatManager::new(Arc::new(LoopbackTransport("auth-dh-bob")));
+    let alice = CoreSecretChatManager::new(Arc::new(LoopbackTransport("auth-dh-alice")));
+    let bob = CoreSecretChatManager::new(Arc::new(LoopbackTransport("auth-dh-bob")));
     alice
         .register_established_chat(77, 500, 600, ChatRole::Initiator, &key_alice)
         .await

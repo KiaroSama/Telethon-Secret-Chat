@@ -1,0 +1,17 @@
+{
+  "legacy_case": "tests/test_tdexport_html_text.py::test_safe_message_href_follows_qurl[tg://resolve?domain=x-tg://resolve?domain=x]",
+  "traces": [
+    {
+      "function": "html_safe.safe_message_href",
+      "args": [
+        "tg://resolve?domain=x"
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": "tg://resolve?domain=x",
+      "after": [
+        "tg://resolve?domain=x"
+      ]
+    }
+  ]
+}

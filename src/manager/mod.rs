@@ -1,546 +1,445 @@
-mod delivery;
-mod text;
+//! Managed secret chats sharing the caller's Telegram authorization and update pump.
+pub(crate) mod core;
+pub use core::{BoxFuture, CoreSecretChatManager, ManagerLimits, SecretEvent, SecretTransport};
+pub(crate) use core::{
+    ChatCheckpoint, EventRetention, PersistedOutboxItem, ReceivedBatch, TextTtl,
+};
+mod conversation;
+mod custody;
+mod dispatch;
+mod establishment;
+mod events;
+mod expiry;
+mod export;
+mod lifecycle;
+mod media;
+mod receiving;
+mod runtime;
+mod saved_downloads;
+mod strong;
+pub mod transport;
 
-pub(crate) use text::TextTtl;
-
-use std::collections::{BTreeMap, BTreeSet};
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex as EventMutex};
-
-use serde_json::Value;
-use tokio::sync::Mutex;
-use zeroize::Zeroizing;
-
-use crate::errors::SecretChatError;
-use crate::protocol::{AcceptedMessage, ChatRole, MAX_ENCRYPTED_FRAME_LEN, SecretChat};
-
-pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
-
-/// The caller supplies an authorized transport; the manager never logs transport errors.
-pub trait SecretTransport: Send + Sync {
-    fn auth_identity(&self) -> &str;
-    fn send_encrypted<'a>(
-        &'a self,
-        chat_id: i64,
-        random_id: i64,
-        frame: Vec<u8>,
-    ) -> BoxFuture<'a, Result<(), SecretChatError>>;
-    /// Implement using messages.sendEncryptedService, preserving the supplied ciphertext.
-    /// The default refuses explicitly instead of sending a service with the wrong RPC.
-    fn send_encrypted_service<'a>(
-        &'a self,
-        chat_id: i64,
-        _random_id: i64,
-        _frame: Vec<u8>,
-    ) -> BoxFuture<'a, Result<(), SecretChatError>> {
-        Box::pin(async move {
-            Err(SecretChatError::ParameterRejected {
-                chat_id: Some(chat_id),
-                reason: "the transport must implement encrypted service delivery".into(),
-            })
-        })
-    }
-    fn discard_encryption<'a>(
-        &'a self,
-        chat_id: i64,
-        delete_history: bool,
-    ) -> BoxFuture<'a, Result<(), SecretChatError>>;
+use crate::{
+    autosave::AutoSave,
+    chat::{Chat, ChatSnapshot},
+    error::{Error, Result},
+    protocol::Protocol,
+    storage::Storage,
+};
+pub use conversation::SendMessageOptions;
+pub use custody::{BoundedSecretChatManager, TransientSecretChatManager};
+pub use events::{Event, MessageReceived};
+pub use media::SendFileOptions;
+use std::{
+    collections::{BTreeMap, HashSet, VecDeque},
+    path::PathBuf,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
+    },
+    time::Duration,
+};
+pub use strong::StrongSecretChatManager;
+use tokio::{
+    sync::{Mutex as AsyncMutex, Notify},
+    task::{Id, JoinHandle},
+};
+pub use transport::{PermanentError, RpcFailure, Sent, Transport, classify_invocation_error};
+/// Synchronous finite-mode admission; false refuses before the public effect.
+pub type Admission = Arc<dyn Fn(Option<i32>, crate::storage::Operation) -> bool + Send + Sync>;
+#[derive(Clone)]
+pub struct Options {
+    pub history_limit: usize,
+    pub auto_save_folder: Option<PathBuf>,
+    pub handler_cleanup_timeout: Duration,
+    pub admission: Option<Admission>,
 }
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SecretEvent {
-    ChatReady {
-        chat_id: i64,
-    },
-    MessageReceived {
-        chat_id: i64,
-        message: AcceptedMessage,
-    },
-    ServiceActionReceived {
-        chat_id: i64,
-        message: AcceptedMessage,
-    },
-    MessageAcknowledged {
-        chat_id: i64,
-        random_id: i64,
-    },
-    ChatClosed {
-        chat_id: i64,
-        reason: String,
-    },
-}
-
-/// Finite retained-outbox budgets. Persistent modes also apply these bounds to
-/// accepted batches awaiting delivery. Exhaustion refuses work without evicting data.
-#[derive(Debug, Clone, Copy)]
-pub struct ManagerLimits {
-    pub max_retained_messages: usize,
-    pub max_retained_bytes: usize,
-}
-
-impl Default for ManagerLimits {
+impl Default for Options {
     fn default() -> Self {
         Self {
-            max_retained_messages: 1024,
-            max_retained_bytes: 16 * 1024 * 1024,
+            history_limit: 1000,
+            auto_save_folder: None,
+            handler_cleanup_timeout: Duration::from_secs(5),
+            admission: None,
         }
     }
 }
-
-#[derive(Clone, serde::Serialize, serde::Deserialize, zeroize::Zeroize, zeroize::ZeroizeOnDrop)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct PersistedOutboxItem {
-    pub out_seq_no: i64,
-    pub random_id: i64,
-    pub identity: [u8; 32],
-    pub frame: Vec<u8>,
-    pub pending: bool,
-    pub service: bool,
-    pub replay_requested: bool,
-    pub acknowledged: bool,
-    pub revision: u64,
+struct Shutdown {
+    generation: u64,
+    result: Mutex<Option<Result<()>>>,
+    notify: Notify,
 }
-
-pub(crate) struct ReceivedBatch<'a> {
-    pub frame_digest: [u8; 32],
-    pub ingress_order: Option<i64>,
-    pub messages: &'a [AcceptedMessage],
+impl Shutdown {
+    async fn wait(&self) -> Result<()> {
+        loop {
+            let notified = self.notify.notified();
+            if let Some(result) = self.result.lock().map_err(|_| Error::Storage)?.clone() {
+                return result;
+            }
+            notified.await;
+        }
+    }
 }
-
-/// Synchronous persistence runs under the chat state lock, before publication.
-pub(crate) trait ChatCheckpoint: Send + Sync {
-    fn commit(
-        &self,
-        chat: &SecretChat,
-        outbox: Vec<PersistedOutboxItem>,
-        received: Option<ReceivedBatch<'_>>,
-    ) -> Result<(), SecretChatError>;
-}
-
-#[derive(Clone, Copy)]
-pub(crate) enum EventRetention {
-    Queue,
-    Discard,
-}
-
-#[derive(Clone)]
-struct OutboundMessage {
-    random_id: i64,
-    identity: [u8; 32],
-    frame: Zeroizing<Vec<u8>>,
-    pending: bool,
-    service: bool,
-    replay_requested: bool,
-    acknowledged: bool,
-    revision: u64,
-}
-
-#[derive(Clone)]
-struct ManagedChat {
-    chat: SecretChat,
-    outbox: BTreeMap<i64, OutboundMessage>,
-}
-
-struct ChatEntry {
-    state: Mutex<ManagedChat>,
-    outbound: Mutex<()>,
-}
-
-/// An in-memory manager. Durable stores are separate APIs, not an automatic restart guarantee.
-/// Per-chat outbound locks serialize RPCs while allowing receive processing during an await.
-pub struct SecretChatManager<T: SecretTransport> {
-    transport: Arc<T>,
-    chats: Mutex<BTreeMap<i64, Arc<ChatEntry>>>,
-    events: EventMutex<Vec<SecretEvent>>,
-    event_retention: EventRetention,
+struct Inner<S: Storage, T: Transport> {
+    protocol: Mutex<Protocol<S>>,
+    transport: T,
+    options: Options,
+    running: AtomicBool,
+    startup_complete: AtomicBool,
+    binding_generation: AtomicU64,
     stopping: AtomicBool,
-    limits: ManagerLimits,
+    generation: AtomicU64,
+    start_lock: AsyncMutex<()>,
+    runtime_state: Mutex<()>,
+    shutdown: Mutex<Option<Arc<Shutdown>>>,
+    stop_callers: Mutex<HashSet<Id>>,
+    outbound: Mutex<BTreeMap<i32, Arc<AsyncMutex<()>>>>,
+    wire: Mutex<BTreeMap<i32, Arc<AsyncMutex<()>>>>,
+    epochs: Mutex<BTreeMap<i32, u64>>,
+    creating: AtomicUsize,
+    creation_generation: AtomicU64,
+    accepting_requests: AtomicBool,
+    diagnosed: Mutex<HashSet<i32>>,
+    expiry: Mutex<Option<JoinHandle<()>>>,
+    expiry_changed: Arc<Notify>,
+    creation_cancel: Mutex<Arc<runtime::Cancellation>>,
+    creation_slots: Mutex<BTreeMap<u64, Option<String>>>,
+    headroom: Mutex<BTreeMap<(i32, u64), runtime::Headroom>>,
+    early: Mutex<BTreeMap<i32, grammers_tl_types::enums::EncryptedChat>>,
+    dispatch: dispatch::Dispatcher,
+    history: Mutex<BTreeMap<i32, VecDeque<MessageReceived>>>,
+    delivering: Mutex<BTreeMap<i32, (Arc<()>, bool)>>,
+    delivered: Mutex<HashSet<(i32, i32)>>,
+    pending_acknowledgements: Mutex<HashSet<(i32, i32, bool)>>,
+    autosave: Mutex<AutoSave>,
+    downloads: saved_downloads::SavedDownloads,
+    archive_io: Arc<crate::media::blocking::IoTracker>,
+    work: Arc<runtime::WorkBudget>,
+    reservation: AtomicU64,
+    cancellations: Mutex<BTreeMap<i32, Arc<runtime::Cancellation>>>,
 }
-
-impl<T: SecretTransport> SecretChatManager<T> {
-    pub fn new(transport: Arc<T>) -> Self {
+/// A clonable handle. Network waits never hold the protocol/storage mutex; an
+/// upload keeps only its chat's outbound-order lock so incoming messages proceed.
+pub struct SecretChatManager<S: Storage + 'static, T: Transport> {
+    inner: Arc<Inner<S, T>>,
+}
+impl<S: Storage + 'static, T: Transport> Clone for SecretChatManager<S, T> {
+    fn clone(&self) -> Self {
         Self {
-            transport,
-            chats: Mutex::new(BTreeMap::new()),
-            events: EventMutex::new(Vec::new()),
-            event_retention: EventRetention::Queue,
-            stopping: AtomicBool::new(false),
-            limits: ManagerLimits::default(),
+            inner: Arc::clone(&self.inner),
         }
     }
-
-    pub fn with_limits(transport: Arc<T>, limits: ManagerLimits) -> Result<Self, SecretChatError> {
-        if limits.max_retained_messages == 0 || limits.max_retained_bytes == 0 {
-            return Err(SecretChatError::ParameterRejected {
-                chat_id: None,
-                reason: "manager retention limits must be positive".into(),
-            });
+}
+impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
+    /// Build without creating a client or sending any request. Storage is explicit.
+    pub fn new(
+        transport: T,
+        storage: S,
+        authorization: String,
+        mut options: Options,
+    ) -> Result<Self> {
+        if options.handler_cleanup_timeout.is_zero()
+            || options.handler_cleanup_timeout > Duration::from_secs(30)
+        {
+            return Err(Error::Capacity);
         }
-        Ok(Self {
-            limits,
-            ..Self::new(transport)
-        })
-    }
-
-    pub(crate) fn with_limits_and_event_retention(
-        transport: Arc<T>,
-        limits: ManagerLimits,
-        event_retention: EventRetention,
-    ) -> Result<Self, SecretChatError> {
-        let mut manager = Self::with_limits(transport, limits)?;
-        manager.event_retention = event_retention;
+        let mut protocol = Protocol::open(storage, authorization)?;
+        let _ = protocol.start()?;
+        if protocol.mode() != crate::storage::StoreMode::Durable {
+            options.history_limit = 0;
+        }
+        let mode = protocol.mode();
+        let work = runtime::WorkBudget::new(protocol.runtime_policy())?;
+        let epochs = protocol
+            .chat_records()
+            .into_iter()
+            .map(|chat| (chat.id, 0))
+            .collect();
+        let manager = Self {
+            inner: Arc::new(Inner {
+                protocol: Mutex::new(protocol),
+                transport,
+                options,
+                running: AtomicBool::new(false),
+                startup_complete: AtomicBool::new(false),
+                binding_generation: AtomicU64::new(u64::MAX),
+                stopping: AtomicBool::new(false),
+                generation: AtomicU64::new(0),
+                start_lock: AsyncMutex::new(()),
+                runtime_state: Mutex::new(()),
+                shutdown: Mutex::new(None),
+                stop_callers: Mutex::new(HashSet::new()),
+                outbound: Mutex::new(BTreeMap::new()),
+                wire: Mutex::new(BTreeMap::new()),
+                epochs: Mutex::new(epochs),
+                creating: AtomicUsize::new(0),
+                creation_generation: AtomicU64::new(0),
+                accepting_requests: AtomicBool::new(true),
+                diagnosed: Mutex::default(),
+                expiry: Mutex::new(None),
+                expiry_changed: Arc::default(),
+                creation_cancel: Mutex::new(Arc::default()),
+                creation_slots: Mutex::default(),
+                headroom: Mutex::default(),
+                early: Mutex::new(BTreeMap::new()),
+                dispatch: dispatch::Dispatcher::new(Arc::clone(&work)),
+                history: Mutex::new(BTreeMap::new()),
+                delivering: Mutex::default(),
+                delivered: Mutex::new(HashSet::new()),
+                pending_acknowledgements: Mutex::default(),
+                autosave: Mutex::new(AutoSave::default()),
+                downloads: Default::default(),
+                archive_io: Arc::default(),
+                work,
+                reservation: AtomicU64::new(1),
+                cancellations: Mutex::new(BTreeMap::new()),
+            }),
+        };
+        let weak = Arc::downgrade(&manager.inner);
+        let payload_owner = weak.clone();
+        manager.inner.dispatch.configure(
+            Arc::as_ptr(&manager.inner) as usize,
+            mode == crate::storage::StoreMode::Protected,
+            move |id, generation| {
+                if let Some(inner) = weak.upgrade()
+                    && inner.generation.load(Ordering::Acquire) == generation
+                {
+                    Self { inner }.runtime_refuse(
+                        Some(id),
+                        crate::storage::RuntimeRefusal::Callback,
+                        false,
+                    );
+                }
+            },
+            move |id, amount| {
+                let inner = payload_owner.upgrade().ok_or(Error::ManagerStopping)?;
+                Self { inner }.reserve_payload(Some(id), amount)
+            },
+        )?;
         Ok(manager)
     }
-
-    pub fn caller_auth_identity(&self) -> &str {
-        self.transport.auth_identity()
+    /// Derive the binding from a verified same-client transport before constructing.
+    pub async fn verified(transport: T, storage: S, options: Options) -> Result<Self> {
+        let digest = transport
+            .authorization_digest()
+            .await?
+            .ok_or(Error::Authorization)?;
+        Self::new(transport, storage, digest, options)
     }
-
-    pub async fn register_established_chat(
-        &self,
-        chat_id: i64,
-        access_hash: i64,
-        peer_user_id: i64,
-        role: ChatRole,
-        shared_key: &[u8],
-    ) -> Result<i64, SecretChatError> {
-        self.ensure_running()?;
-        if self.transport.auth_identity().trim().is_empty() {
-            return Err(SecretChatError::ParameterRejected {
-                chat_id: Some(chat_id),
-                reason: "caller authorization identity must not be empty".into(),
-            });
+    async fn ensure_binding(&self) -> Result<()> {
+        let generation = self.inner.generation.load(Ordering::Acquire);
+        if self.inner.binding_generation.load(Ordering::Acquire) == generation {
+            return Ok(());
         }
-        let mut chats = self.chats.lock().await;
-        self.ensure_running()?;
-        if chats.contains_key(&chat_id) {
-            return Err(SecretChatError::ParameterRejected {
-                chat_id: Some(chat_id),
-                reason: "chat identity is already registered or tombstoned".into(),
-            });
-        }
-        let mut chat = SecretChat::new(
-            chat_id,
-            access_hash,
-            peer_user_id,
-            self.transport.auth_identity(),
-            role,
-        );
-        let fp = chat.adopt_key(shared_key)?;
-        chats.insert(
-            chat_id,
-            Arc::new(ChatEntry {
-                state: Mutex::new(ManagedChat {
-                    chat,
-                    outbox: BTreeMap::new(),
-                }),
-                outbound: Mutex::new(()),
-            }),
-        );
-        self.emit(SecretEvent::ChatReady { chat_id });
-        Ok(fp)
-    }
-
-    /// Retry unsettled transmissions; successful RPCs remain retained until peer acknowledgement.
-    pub async fn retry_pending(&self, chat_id: i64) -> Result<usize, SecretChatError> {
-        self.retry_pending_checkpointed(chat_id, None).await
-    }
-
-    pub(crate) async fn retry_pending_checkpointed(
-        &self,
-        chat_id: i64,
-        checkpoint: Option<&dyn ChatCheckpoint>,
-    ) -> Result<usize, SecretChatError> {
-        self.ensure_running()?;
-        let entry = self.entry(chat_id).await?;
-        let order = entry.outbound.lock().await;
-        self.transmit_pending(chat_id, &entry, Some(order), checkpoint)
-            .await
-    }
-
-    /// Supply the validated original DH parameters before the automatic rekey threshold.
-    pub async fn configure_chat_dh(
-        &self,
-        chat_id: i64,
-        g: i64,
-        p: &[u8],
-    ) -> Result<(), SecretChatError> {
-        self.configure_chat_dh_checkpointed(chat_id, g, p, None)
-            .await
-    }
-
-    pub(crate) async fn configure_chat_dh_checkpointed(
-        &self,
-        chat_id: i64,
-        g: i64,
-        p: &[u8],
-        checkpoint: Option<&dyn ChatCheckpoint>,
-    ) -> Result<(), SecretChatError> {
-        self.ensure_running()?;
-        let entry = self.entry(chat_id).await?;
-        let mut state = entry.state.lock().await;
-        self.ensure_running()?;
-        let mut next = state.clone();
-        next.chat.configure_dh(g, p)?;
-        self.commit_candidate(&mut state, next, checkpoint, None)
-    }
-
-    /// Begin a key exchange, retaining its exact service frame before any network await.
-    pub async fn start_rekey(&self, chat_id: i64) -> Result<bool, SecretChatError> {
-        self.start_rekey_checkpointed(chat_id, None).await
-    }
-
-    pub(crate) async fn start_rekey_checkpointed(
-        &self,
-        chat_id: i64,
-        checkpoint: Option<&dyn ChatCheckpoint>,
-    ) -> Result<bool, SecretChatError> {
-        self.ensure_running()?;
-        let entry = self.entry(chat_id).await?;
-        let order = entry.outbound.lock().await;
-        self.transmit_pending(chat_id, &entry, None, checkpoint)
-            .await?;
-        let started = {
-            let mut state = entry.state.lock().await;
-            self.ensure_running()?;
-            let mut candidate = state.chat.clone();
-            let prepared = match candidate.start_rekey() {
-                Ok(prepared) => prepared,
-                Err(error) => {
-                    self.commit_fatal_state(chat_id, &mut state, &candidate, checkpoint)?;
-                    return Err(error);
-                }
-            };
-            if let Some(prepared) = prepared {
-                self.check_capacity(chat_id, &state, &BTreeSet::new(), 1, prepared.frame.len())?;
-                let mut next = state.clone();
-                self.retain_services(&mut next, vec![prepared]);
-                next.chat = candidate;
-                self.commit_candidate(&mut state, next, checkpoint, None)?;
-                true
-            } else {
-                false
+        let actual = self.inner.transport.authorization_digest().await?;
+        if let Some(actual) = actual {
+            let expected = self.protocol(|p| Ok(p.authorization_digest().to_owned()))?;
+            if actual != expected {
+                return Err(Error::Authorization);
             }
-        };
-        self.transmit_pending(chat_id, &entry, Some(order), checkpoint)
-            .await?;
-        Ok(started)
+        } else if self.inner.transport.requires_verified_binding() {
+            return Err(Error::Authorization);
+        }
+        if self.inner.generation.load(Ordering::Acquire) != generation {
+            return Err(Error::ManagerStopping);
+        }
+        self.inner
+            .binding_generation
+            .store(generation, Ordering::Release);
+        Ok(())
     }
-
-    /// Send a conversation action. Rekey and recovery actions are owned by the state machine.
-    /// TTL, deletion, reading and archive effects remain the application's responsibility.
-    pub async fn send_service_action(
-        &self,
-        chat_id: i64,
-        action: &Value,
-    ) -> Result<Vec<u8>, SecretChatError> {
-        self.send_service_action_checkpointed(chat_id, action, None)
-            .await
+    fn protocol<R>(&self, work: impl FnOnce(&mut Protocol<S>) -> Result<R>) -> Result<R> {
+        work(&mut *self.inner.protocol.lock().map_err(|_| Error::Storage)?)
     }
-
-    pub(crate) async fn send_service_action_checkpointed(
-        &self,
-        chat_id: i64,
-        action: &Value,
-        checkpoint: Option<&dyn ChatCheckpoint>,
-    ) -> Result<Vec<u8>, SecretChatError> {
-        let id = action["id"].as_u64().and_then(|id| u32::try_from(id).ok());
-        if !matches!(
-            id,
-            Some(
-                0xa1733aec
-                    | 0x0c4f40be
-                    | 0x65614304
-                    | 0x8ac1f475
-                    | 0x6719e45c
-                    | 0xf3048883
-                    | 0xccb27641
-                    | 0xa82fdd63
-            )
-        ) || (id == Some(0xa1733aec)
-            && action["fields"]["ttl_seconds"]
-                .as_i64()
-                .is_none_or(|ttl| ttl < 0))
+    fn generation(&self) -> Result<u64> {
+        let generation = self.inner.generation.load(Ordering::Acquire);
+        self.check_generation(generation)?;
+        Ok(generation)
+    }
+    fn check_generation(&self, generation: u64) -> Result<()> {
+        if self.inner.stopping.load(Ordering::Acquire)
+            || self.inner.generation.load(Ordering::Acquire) != generation
         {
-            return Err(SecretChatError::ParameterRejected {
-                chat_id: Some(chat_id),
-                reason: "unsupported or manager-owned service action".into(),
-            });
+            return Err(Error::ManagerStopping);
         }
-        self.ensure_running()?;
-        let entry = self.entry(chat_id).await?;
-        let order = entry.outbound.lock().await;
-        self.transmit_pending(chat_id, &entry, None, checkpoint)
-            .await?;
-        let frame = {
-            let mut state = entry.state.lock().await;
-            self.ensure_running()?;
-            let mut candidate = state.chat.clone();
-            let mut services = Vec::new();
-            if candidate.rekey_due() {
-                match candidate.start_rekey() {
-                    Ok(Some(service)) => services.push(service),
-                    Ok(None) => (),
-                    Err(error) => {
-                        self.commit_fatal_state(chat_id, &mut state, &candidate, checkpoint)?;
-                        return Err(error);
-                    }
-                }
-            }
-            let outgoing_ttl = (action["id"] == 0xa173_3aec_u32)
-                .then(|| action["fields"]["ttl_seconds"].as_i64())
-                .flatten()
-                .and_then(|v| i32::try_from(v).ok())
-                .filter(|v| *v >= 0);
-            let prepared = candidate.prepare_service_action(action)?;
-            let frame = prepared.frame.clone();
-            services.push(prepared);
-            self.stage_due_rekey(
-                chat_id,
-                &mut state,
-                &mut candidate,
-                &mut services,
-                checkpoint,
-            )?;
-            self.check_capacity(
-                chat_id,
-                &state,
-                &BTreeSet::new(),
-                services.len(),
-                services.iter().map(|s| s.frame.len()).sum(),
-            )?;
-            if let Some(ttl) = outgoing_ttl {
-                candidate.set_persisted_ttl(ttl);
-            }
-            let mut next = state.clone();
-            self.retain_services(&mut next, services);
-            next.chat = candidate;
-            self.commit_candidate(&mut state, next, checkpoint, None)?;
-            frame
-        };
-        self.transmit_pending(chat_id, &entry, Some(order), checkpoint)
-            .await?;
-        Ok(frame)
+        Ok(())
     }
-
-    pub(crate) async fn restore_chat(
+    fn witness(&self, id: i32) -> Result<(u64, u64)> {
+        let generation = self.generation()?;
+        self.require_chat(id)?;
+        let epoch = self
+            .inner
+            .epochs
+            .lock()
+            .map_err(|_| Error::Storage)?
+            .get(&id)
+            .copied()
+            .unwrap_or(0);
+        Ok((generation, epoch))
+    }
+    fn check_witness(&self, id: i32, witness: (u64, u64)) -> Result<()> {
+        self.check_generation(witness.0)?;
+        let epoch = self
+            .inner
+            .epochs
+            .lock()
+            .map_err(|_| Error::Storage)?
+            .get(&id)
+            .copied()
+            .unwrap_or(0);
+        if epoch != witness.1 {
+            return Err(Error::ManagerStopping);
+        }
+        self.require_chat(id)?.require_ready()
+    }
+    fn bump_epoch(&self, id: i32) -> Result<()> {
+        let mut epochs = self.inner.epochs.lock().map_err(|_| Error::Storage)?;
+        let epoch = epochs.entry(id).or_default();
+        *epoch = epoch.wrapping_add(1);
+        Ok(())
+    }
+    fn outbound(&self, id: i32) -> Result<Arc<AsyncMutex<()>>> {
+        let mut locks = self.inner.outbound.lock().map_err(|_| Error::Storage)?;
+        Ok(Arc::clone(
+            locks
+                .entry(id)
+                .or_insert_with(|| Arc::new(AsyncMutex::new(()))),
+        ))
+    }
+    fn require_chat(&self, id: i32) -> Result<Chat> {
+        self.protocol(|protocol| {
+            protocol
+                .chat_record(id)
+                .map_err(|_| Error::UnknownChat { chat_id: id })
+        })
+    }
+    fn sendable(&self, id: i32) -> Result<Chat> {
+        self.generation()?;
+        let chat = self.require_chat(id)?;
+        match chat.state {
+            crate::chat::ChatState::Closed => return Err(Error::ChatClosed { chat_id: id }),
+            crate::chat::ChatState::Requested | crate::chat::ChatState::Waiting => {
+                return Err(Error::ChatNotReady { chat_id: id });
+            }
+            _ => {}
+        }
+        chat.require_ready()?;
+        Ok(chat)
+    }
+    /// Register a synchronous Result-returning handler. It runs before emit returns.
+    pub fn on(
         &self,
-        chat: SecretChat,
-        outbox_items: Vec<PersistedOutboxItem>,
-    ) -> Result<(), SecretChatError> {
-        let chat_id = chat.chat_id();
-        if outbox_items.len() > self.limits.max_retained_messages {
-            return Err(SecretChatError::StoreCorrupt {
-                chat_id: Some(chat_id),
-                reason: "persisted outbox exceeds retained message limit".into(),
-            });
+        event: &str,
+        name: &'static str,
+        handler: impl Fn(Event) -> Result<()> + Send + Sync + 'static,
+    ) -> Result<()> {
+        if self.protocol(|p| Ok(p.mode()))? == crate::storage::StoreMode::Protected {
+            return Err(Error::MediaField { field: "handler" });
         }
-        let mut total_bytes = 0usize;
-        let mut seen_random_ids = BTreeSet::new();
-        let mut outbox = BTreeMap::new();
-        for item in outbox_items {
-            if item.out_seq_no < 0 || item.out_seq_no >= chat.out_seq_no() {
-                return Err(SecretChatError::StoreCorrupt {
-                    chat_id: Some(chat_id),
-                    reason: "persisted outbox sequence number is out of range".into(),
-                });
-            }
-            if item.frame.len() > MAX_ENCRYPTED_FRAME_LEN {
-                return Err(SecretChatError::StoreCorrupt {
-                    chat_id: Some(chat_id),
-                    reason: "persisted outbox frame exceeds maximum length".into(),
-                });
-            }
-            total_bytes = total_bytes
-                .checked_add(item.frame.len())
-                .filter(|&sum| sum <= self.limits.max_retained_bytes)
-                .ok_or_else(|| SecretChatError::StoreCorrupt {
-                    chat_id: Some(chat_id),
-                    reason: "persisted outbox exceeds retained byte limit".into(),
-                })?;
-            if !seen_random_ids.insert(item.random_id) {
-                return Err(SecretChatError::StoreCorrupt {
-                    chat_id: Some(chat_id),
-                    reason: "duplicate random_id in persisted outbox".into(),
-                });
-            }
-            if outbox
-                .insert(
-                    item.out_seq_no,
-                    OutboundMessage {
-                        random_id: item.random_id,
-                        identity: item.identity,
-                        frame: Zeroizing::new(item.frame.clone()),
-                        pending: item.pending,
-                        service: item.service,
-                        replay_requested: item.replay_requested,
-                        acknowledged: item.acknowledged,
-                        revision: item.revision,
-                    },
-                )
-                .is_some()
-            {
-                return Err(SecretChatError::StoreCorrupt {
-                    chat_id: Some(chat_id),
-                    reason: "duplicate sequence number in persisted outbox".into(),
-                });
-            }
-        }
-        let mut chats = self.chats.lock().await;
-        chats.insert(
-            chat_id,
-            Arc::new(ChatEntry {
-                state: Mutex::new(ManagedChat { chat, outbox }),
-                outbound: Mutex::new(()),
-            }),
+        self.inner.dispatch.on(event, name, handler)
+    }
+    /// Register an async handler; the manager owns and observes its spawned task.
+    pub fn on_async<F, Fut>(&self, event: &str, name: &'static str, handler: F) -> Result<()>
+    where
+        F: Fn(Event) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = Result<()>> + Send + 'static,
+    {
+        self.inner.dispatch.on_async(event, name, handler)
+    }
+    /// Register a handler that returns an existing Tokio task, retaining ownership.
+    pub fn on_task(
+        &self,
+        event: &str,
+        name: &'static str,
+        handler: impl Fn(Event) -> JoinHandle<Result<()>> + Send + Sync + 'static,
+    ) -> Result<()> {
+        self.inner.dispatch.on_task(event, name, handler)
+    }
+    /// Run an owned async cleanup after cancellation; Rust future Drop cannot await.
+    pub fn on_async_with_cleanup<F, Fut, C, Cut>(
+        &self,
+        event: &str,
+        name: &'static str,
+        handler: F,
+        cleanup: C,
+    ) -> Result<()>
+    where
+        F: Fn(Event) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = Result<()>> + Send + 'static,
+        C: Fn(Event) -> Cut + Send + Sync + 'static,
+        Cut: std::future::Future<Output = Result<()>> + Send + 'static,
+    {
+        self.inner
+            .dispatch
+            .on_async_with_cleanup(event, name, handler, cleanup)
+    }
+    /// Attach cancellation cleanup to an externally created handler task.
+    pub fn on_task_with_cleanup<C, Cut>(
+        &self,
+        event: &str,
+        name: &'static str,
+        handler: impl Fn(Event) -> JoinHandle<Result<()>> + Send + Sync + 'static,
+        cleanup: C,
+    ) -> Result<()>
+    where
+        C: Fn(Event) -> Cut + Send + Sync + 'static,
+        Cut: std::future::Future<Output = Result<()>> + Send + 'static,
+    {
+        self.inner
+            .dispatch
+            .on_task_with_cleanup(event, name, handler, cleanup)
+    }
+    fn emit(&self, event: Event) -> bool {
+        let id = event.chat_id();
+        let admitted = self.inner.dispatch.emit(
+            event,
+            self.inner.stopping.load(Ordering::Acquire),
+            self.inner.generation.load(Ordering::Acquire),
         );
-        Ok(())
-    }
-
-    pub(crate) async fn snapshot_chat(
-        &self,
-        chat_id: i64,
-    ) -> Result<(SecretChat, Vec<PersistedOutboxItem>), SecretChatError> {
-        let entry = self.entry(chat_id).await?;
-        let state = entry.state.lock().await;
-        Ok((state.chat.clone(), Self::snapshot_outbox(&state)))
-    }
-
-    fn snapshot_outbox(state: &ManagedChat) -> Vec<PersistedOutboxItem> {
-        state
-            .outbox
-            .iter()
-            .map(|(seq, msg)| PersistedOutboxItem {
-                out_seq_no: *seq,
-                random_id: msg.random_id,
-                identity: msg.identity,
-                frame: msg.frame.to_vec(),
-                pending: msg.pending,
-                service: msg.service,
-                replay_requested: msg.replay_requested,
-                acknowledged: msg.acknowledged,
-                revision: msg.revision,
-            })
-            .collect()
-    }
-
-    fn commit_candidate(
-        &self,
-        state: &mut ManagedChat,
-        next: ManagedChat,
-        checkpoint: Option<&dyn ChatCheckpoint>,
-        received: Option<ReceivedBatch<'_>>,
-    ) -> Result<(), SecretChatError> {
-        if let Some(checkpoint) = checkpoint {
-            checkpoint.commit(&next.chat, Self::snapshot_outbox(&next), received)?;
+        if !admitted
+            && self
+                .protocol(|p| Ok(p.mode()))
+                .is_ok_and(|mode| mode == crate::storage::StoreMode::Protected)
+        {
+            self.runtime_refuse(Some(id), crate::storage::RuntimeRefusal::Capacity, false);
         }
-        *state = next;
-        Ok(())
+        admitted
     }
-
-    pub(crate) async fn remove_chat(&self, chat_id: i64) -> bool {
-        self.chats.lock().await.remove(&chat_id).is_some()
+    /// Detached snapshots contain no shared keys or retained ciphertext.
+    pub fn list(&self) -> Result<Vec<ChatSnapshot>> {
+        self.protocol(|protocol| Ok(protocol.snapshots()))
     }
+    /// Inspect one detached conversation snapshot.
+    pub fn status(&self, id: i32) -> Result<ChatSnapshot> {
+        Ok(self.require_chat(id)?.snapshot())
+    }
+    /// Read the most recent received messages, oldest first; this cache is volatile.
+    pub fn read_history(&self, id: i32, limit: usize) -> Result<Vec<MessageReceived>> {
+        self.require_chat(id)?;
+        let history = self.inner.history.lock().map_err(|_| Error::Storage)?;
+        Ok(history
+            .get(&id)
+            .map(|items| {
+                items
+                    .iter()
+                    .skip(items.len().saturating_sub(limit))
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default())
+    }
+    /// Number of callback tasks still owned by this manager.
+    pub fn active_handler_tasks(&self) -> usize {
+        self.inner.dispatch.active()
+    }
+    /// Await callbacks already owned at entry; finite modes bound wait and cleanup.
+    pub async fn settle(&self) -> Result<()> {
+        self.inner.dispatch.settle().await
+    }
+}
+fn now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }

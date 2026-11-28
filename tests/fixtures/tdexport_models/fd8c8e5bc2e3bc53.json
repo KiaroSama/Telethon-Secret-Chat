@@ -1,0 +1,544 @@
+{
+  "legacy_case": "tests/test_tdexport_rich_parse.py::test_data_and_leaf_texts",
+  "traces": [
+    {
+      "function": "model_rich_parse.parse_rich_text",
+      "args": [
+        {
+          "_": "TextUrl",
+          "text": {
+            "_": "TextPlain",
+            "text": "x"
+          },
+          "url": "https://u",
+          "webpage_id": 9
+        }
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": {
+        "text": "",
+        "data": "https://u",
+        "custom_emoji_data": "",
+        "children": [
+          {
+            "text": "x",
+            "data": "",
+            "custom_emoji_data": "",
+            "children": [],
+            "old_children": [],
+            "button": null,
+            "id": 0,
+            "date": 0,
+            "width": 0,
+            "height": 0,
+            "type": "Plain",
+            "relative": false,
+            "short_time": false,
+            "long_time": false,
+            "short_date": false,
+            "long_date": false,
+            "day_of_week": false,
+            "unsupported": false
+          }
+        ],
+        "old_children": [],
+        "button": null,
+        "id": 9,
+        "date": 0,
+        "width": 0,
+        "height": 0,
+        "type": "Url",
+        "relative": false,
+        "short_time": false,
+        "long_time": false,
+        "short_date": false,
+        "long_date": false,
+        "day_of_week": false,
+        "unsupported": false
+      },
+      "after": [
+        {
+          "_": "TextUrl",
+          "text": {
+            "_": "TextPlain",
+            "text": "x"
+          },
+          "url": "https://u",
+          "webpage_id": 9
+        }
+      ]
+    },
+    {
+      "function": "model_rich_parse.parse_rich_text",
+      "args": [
+        {
+          "_": "TextEmail",
+          "text": {
+            "_": "TextPlain",
+            "text": "x"
+          },
+          "email": "a@b"
+        }
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": {
+        "text": "",
+        "data": "a@b",
+        "custom_emoji_data": "",
+        "children": [
+          {
+            "text": "x",
+            "data": "",
+            "custom_emoji_data": "",
+            "children": [],
+            "old_children": [],
+            "button": null,
+            "id": 0,
+            "date": 0,
+            "width": 0,
+            "height": 0,
+            "type": "Plain",
+            "relative": false,
+            "short_time": false,
+            "long_time": false,
+            "short_date": false,
+            "long_date": false,
+            "day_of_week": false,
+            "unsupported": false
+          }
+        ],
+        "old_children": [],
+        "button": null,
+        "id": 0,
+        "date": 0,
+        "width": 0,
+        "height": 0,
+        "type": "Email",
+        "relative": false,
+        "short_time": false,
+        "long_time": false,
+        "short_date": false,
+        "long_date": false,
+        "day_of_week": false,
+        "unsupported": false
+      },
+      "after": [
+        {
+          "_": "TextEmail",
+          "text": {
+            "_": "TextPlain",
+            "text": "x"
+          },
+          "email": "a@b"
+        }
+      ]
+    },
+    {
+      "function": "model_rich_parse.parse_rich_text",
+      "args": [
+        {
+          "_": "TextPhone",
+          "text": {
+            "_": "TextPlain",
+            "text": "x"
+          },
+          "phone": "+1"
+        }
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": {
+        "text": "",
+        "data": "+1",
+        "custom_emoji_data": "",
+        "children": [
+          {
+            "text": "x",
+            "data": "",
+            "custom_emoji_data": "",
+            "children": [],
+            "old_children": [],
+            "button": null,
+            "id": 0,
+            "date": 0,
+            "width": 0,
+            "height": 0,
+            "type": "Plain",
+            "relative": false,
+            "short_time": false,
+            "long_time": false,
+            "short_date": false,
+            "long_date": false,
+            "day_of_week": false,
+            "unsupported": false
+          }
+        ],
+        "old_children": [],
+        "button": null,
+        "id": 0,
+        "date": 0,
+        "width": 0,
+        "height": 0,
+        "type": "Phone",
+        "relative": false,
+        "short_time": false,
+        "long_time": false,
+        "short_date": false,
+        "long_date": false,
+        "day_of_week": false,
+        "unsupported": false
+      },
+      "after": [
+        {
+          "_": "TextPhone",
+          "text": {
+            "_": "TextPlain",
+            "text": "x"
+          },
+          "phone": "+1"
+        }
+      ]
+    },
+    {
+      "function": "model_rich_parse.parse_rich_text",
+      "args": [
+        {
+          "_": "TextAnchor",
+          "text": {
+            "_": "TextPlain",
+            "text": "x"
+          },
+          "name": "n"
+        }
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": {
+        "text": "",
+        "data": "n",
+        "custom_emoji_data": "",
+        "children": [
+          {
+            "text": "x",
+            "data": "",
+            "custom_emoji_data": "",
+            "children": [],
+            "old_children": [],
+            "button": null,
+            "id": 0,
+            "date": 0,
+            "width": 0,
+            "height": 0,
+            "type": "Plain",
+            "relative": false,
+            "short_time": false,
+            "long_time": false,
+            "short_date": false,
+            "long_date": false,
+            "day_of_week": false,
+            "unsupported": false
+          }
+        ],
+        "old_children": [],
+        "button": null,
+        "id": 0,
+        "date": 0,
+        "width": 0,
+        "height": 0,
+        "type": "Anchor",
+        "relative": false,
+        "short_time": false,
+        "long_time": false,
+        "short_date": false,
+        "long_date": false,
+        "day_of_week": false,
+        "unsupported": false
+      },
+      "after": [
+        {
+          "_": "TextAnchor",
+          "text": {
+            "_": "TextPlain",
+            "text": "x"
+          },
+          "name": "n"
+        }
+      ]
+    },
+    {
+      "function": "model_rich_parse.parse_rich_text",
+      "args": [
+        {
+          "_": "TextConcat",
+          "texts": [
+            {
+              "_": "TextPlain",
+              "text": "a"
+            },
+            {
+              "_": "TextEmpty"
+            }
+          ]
+        }
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": {
+        "text": "",
+        "data": "",
+        "custom_emoji_data": "",
+        "children": [
+          {
+            "text": "a",
+            "data": "",
+            "custom_emoji_data": "",
+            "children": [],
+            "old_children": [],
+            "button": null,
+            "id": 0,
+            "date": 0,
+            "width": 0,
+            "height": 0,
+            "type": "Plain",
+            "relative": false,
+            "short_time": false,
+            "long_time": false,
+            "short_date": false,
+            "long_date": false,
+            "day_of_week": false,
+            "unsupported": false
+          },
+          {
+            "text": "",
+            "data": "",
+            "custom_emoji_data": "",
+            "children": [],
+            "old_children": [],
+            "button": null,
+            "id": 0,
+            "date": 0,
+            "width": 0,
+            "height": 0,
+            "type": "Empty",
+            "relative": false,
+            "short_time": false,
+            "long_time": false,
+            "short_date": false,
+            "long_date": false,
+            "day_of_week": false,
+            "unsupported": false
+          }
+        ],
+        "old_children": [],
+        "button": null,
+        "id": 0,
+        "date": 0,
+        "width": 0,
+        "height": 0,
+        "type": "Concat",
+        "relative": false,
+        "short_time": false,
+        "long_time": false,
+        "short_date": false,
+        "long_date": false,
+        "day_of_week": false,
+        "unsupported": false
+      },
+      "after": [
+        {
+          "_": "TextConcat",
+          "texts": [
+            {
+              "_": "TextPlain",
+              "text": "a"
+            },
+            {
+              "_": "TextEmpty"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "function": "model_rich_parse.parse_rich_text",
+      "args": [
+        {
+          "_": "TextImage",
+          "document_id": 5,
+          "w": 16,
+          "h": 8
+        }
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": {
+        "text": "",
+        "data": "",
+        "custom_emoji_data": "",
+        "children": [],
+        "old_children": [],
+        "button": null,
+        "id": 5,
+        "date": 0,
+        "width": 16,
+        "height": 8,
+        "type": "InlineImage",
+        "relative": false,
+        "short_time": false,
+        "long_time": false,
+        "short_date": false,
+        "long_date": false,
+        "day_of_week": false,
+        "unsupported": false
+      },
+      "after": [
+        {
+          "_": "TextImage",
+          "document_id": 5,
+          "w": 16,
+          "h": 8
+        }
+      ]
+    },
+    {
+      "function": "model_rich_parse.parse_rich_text",
+      "args": [
+        {
+          "_": "TextMath",
+          "source": "x^2"
+        }
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": {
+        "text": "",
+        "data": "x^2",
+        "custom_emoji_data": "",
+        "children": [],
+        "old_children": [],
+        "button": null,
+        "id": 0,
+        "date": 0,
+        "width": 0,
+        "height": 0,
+        "type": "Math",
+        "relative": false,
+        "short_time": false,
+        "long_time": false,
+        "short_date": false,
+        "long_date": false,
+        "day_of_week": false,
+        "unsupported": false
+      },
+      "after": [
+        {
+          "_": "TextMath",
+          "source": "x^2"
+        }
+      ]
+    },
+    {
+      "function": "model_rich_parse.parse_rich_text",
+      "args": [
+        {
+          "_": "TextMentionName",
+          "text": {
+            "_": "TextPlain",
+            "text": "x"
+          },
+          "user_id": 7
+        }
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": {
+        "text": "",
+        "data": "",
+        "custom_emoji_data": "",
+        "children": [
+          {
+            "text": "x",
+            "data": "",
+            "custom_emoji_data": "",
+            "children": [],
+            "old_children": [],
+            "button": null,
+            "id": 0,
+            "date": 0,
+            "width": 0,
+            "height": 0,
+            "type": "Plain",
+            "relative": false,
+            "short_time": false,
+            "long_time": false,
+            "short_date": false,
+            "long_date": false,
+            "day_of_week": false,
+            "unsupported": false
+          }
+        ],
+        "old_children": [],
+        "button": null,
+        "id": 7,
+        "date": 0,
+        "width": 0,
+        "height": 0,
+        "type": "MentionName",
+        "relative": false,
+        "short_time": false,
+        "long_time": false,
+        "short_date": false,
+        "long_date": false,
+        "day_of_week": false,
+        "unsupported": false
+      },
+      "after": [
+        {
+          "_": "TextMentionName",
+          "text": {
+            "_": "TextPlain",
+            "text": "x"
+          },
+          "user_id": 7
+        }
+      ]
+    },
+    {
+      "function": "model_rich_parse.parse_rich_text",
+      "args": [
+        {
+          "_": "TextEmpty"
+        }
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": {
+        "text": "",
+        "data": "",
+        "custom_emoji_data": "",
+        "children": [],
+        "old_children": [],
+        "button": null,
+        "id": 0,
+        "date": 0,
+        "width": 0,
+        "height": 0,
+        "type": "Empty",
+        "relative": false,
+        "short_time": false,
+        "long_time": false,
+        "short_date": false,
+        "long_date": false,
+        "day_of_week": false,
+        "unsupported": false
+      },
+      "after": [
+        {
+          "_": "TextEmpty"
+        }
+      ]
+    }
+  ]
+}

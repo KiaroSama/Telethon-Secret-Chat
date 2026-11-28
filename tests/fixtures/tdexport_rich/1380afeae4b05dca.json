@@ -1,0 +1,68 @@
+{
+  "legacy_case": "tests/test_tdexport_html_rich.py::test_layout_geometry_variants[sizes4-expected4]",
+  "traces": [
+    {
+      "function": "html_layout.layout_media_group_geometry",
+      "args": [
+        [
+          [
+            200,
+            100
+          ],
+          [
+            100,
+            100
+          ],
+          [
+            100,
+            100
+          ]
+        ],
+        430,
+        100,
+        4
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": [
+        [
+          0,
+          0,
+          430,
+          215
+        ],
+        [
+          0,
+          219,
+          213,
+          211
+        ],
+        [
+          217,
+          219,
+          213,
+          211
+        ]
+      ],
+      "after": [
+        [
+          [
+            200,
+            100
+          ],
+          [
+            100,
+            100
+          ],
+          [
+            100,
+            100
+          ]
+        ],
+        430,
+        100,
+        4
+      ]
+    }
+  ]
+}

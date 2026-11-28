@@ -1,6 +1,6 @@
 [package]
 name = "kiaro-secret-chat"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 rust-version = "1.95"
 license = "GPL-3.0-or-later"
@@ -16,6 +16,7 @@ include = [
     "data/**",
     "assets/**",
     "migration/**",
+    "build.rs",
     "Cargo.toml",
     "Cargo.lock",
     "README.md",
@@ -56,6 +57,18 @@ path = "src/bin/check-test-matrix.rs"
 name = "generate-schema"
 path = "src/bin/generate-schema.rs"
 
+[[bin]]
+name = "matrix-evidence"
+path = "src/bin/matrix-evidence.rs"
+
+[[bin]]
+name = "migration-audit"
+path = "src/bin/migration-audit.rs"
+
+[[bin]]
+name = "prepare-sdk"
+path = "src/bin/prepare-sdk.rs"
+
 [dependencies]
 aes = { version = "0.9", features = ["zeroize"] }
 aes-gcm = "0.11.1"
@@ -63,32 +76,54 @@ base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 crypto-bigint = { version = "0.7", features = ["alloc", "zeroize"] }
 getrandom = "0.4.3"
+glass_pumpkin = { version = "=2.0.0", features = ["getrandom"] }
 grammers-client = { version = "=0.12.0", path = "vendor/grammers/grammers-client", features = ["markdown", "html"] }
 grammers-crypto = { version = "=0.12.0", git = "https://codeberg.org/Lonami/grammers.git", rev = "11e13a989a754f9cf01a798480a2e20ce9e5b1fd" }
 grammers-mtsender = { version = "=0.12.0", path = "vendor/grammers/grammers-mtsender" }
 grammers-session = { version = "=0.12.0", path = "vendor/grammers/grammers-session", default-features = false }
+grammers-tl-gen = { version = "=0.12.0", git = "https://codeberg.org/Lonami/grammers.git", rev = "11e13a989a754f9cf01a798480a2e20ce9e5b1fd" }
+grammers-tl-parser = { version = "=2.0.0", git = "https://codeberg.org/Lonami/grammers.git", rev = "11e13a989a754f9cf01a798480a2e20ce9e5b1fd" }
 grammers-tl-types = { version = "=0.12.0", git = "https://codeberg.org/Lonami/grammers.git", rev = "11e13a989a754f9cf01a798480a2e20ce9e5b1fd", features = ["impl-serde"] }
 hex = "0.4"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp", "bmp", "tiff"] }
 jiff = { version = "1.0.2", default-features = false, features = ["std"] }
+md-5 = "0.11.0"
+mime_guess = "2"
 mozjpeg = "=0.10.13"
 mozjpeg-sys = { version = "=2.2.3", features = ["jpeg80_abi"] }
 num-bigint = "0.5"
+num-traits = "0.2"
 punycode = "0.4"
+quote = "1"
 roxmltree = "0.21"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip", "unbounded_depth"] }
+serde_path_to_error = "=0.1.20"
 sha1 = "0.11.0"
 sha2 = "0.11.1"
 stringprep = "0.1"
 subtle = "2.6"
+syn = { version = "2", features = ["full"] }
+tempfile = "3"
 thiserror = "2"
-tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync", "time", "io-util"] }
+tracing = "0.1"
 unicode-general-category = "1"
 unicode-normalization = "0.1"
 zeroize = { version = "1.9", features = ["derive"] }
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
+proc-macro2 = "1"
+proptest = "1"
+syn = { version = "2", features = ["full", "visit"] }
 tempfile = "3"
+
+[build-dependencies]
+grammers-tl-gen = { version = "=0.12.0", git = "https://codeberg.org/Lonami/grammers.git", rev = "11e13a989a754f9cf01a798480a2e20ce9e5b1fd" }
+grammers-tl-parser = { version = "=2.0.0", git = "https://codeberg.org/Lonami/grammers.git", rev = "11e13a989a754f9cf01a798480a2e20ce9e5b1fd" }
 
 [lints.rust]
 unsafe_code = "forbid"

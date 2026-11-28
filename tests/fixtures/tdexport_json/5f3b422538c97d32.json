@@ -1,0 +1,415 @@
+{
+  "legacy_case": "tests/test_tdexport_json_actions.py::test_service_action_json[action51-fields51-pairs51]",
+  "traces": [
+    {
+      "function": "json_message.serialize_message",
+      "args": [
+        {
+          "nesting": [
+            true,
+            false
+          ]
+        },
+        {
+          "id": 7,
+          "date": 1705053605,
+          "edited": 0,
+          "from_id": 0,
+          "peer_id": 0,
+          "self_id": 0,
+          "forwarded_from_id": 0,
+          "forwarded_from_name": "",
+          "forwarded_date": 0,
+          "forwarded": false,
+          "show_forwarded_as_original": false,
+          "saved_from_chat_id": 0,
+          "signature": "",
+          "via_bot_id": 0,
+          "reply_to_msg_id": 0,
+          "reply_to_peer_id": 0,
+          "text": [],
+          "reactions": [],
+          "media": {
+            "content": null,
+            "ttl": 0
+          },
+          "action": {
+            "content": {
+              "GiftPremium": {
+                "cost": "",
+                "days": 0
+              }
+            }
+          },
+          "out": false,
+          "inline_button_rows": [],
+          "rich_message": null
+        },
+        {
+          "100": {
+            "User": {
+              "bare_id": 100,
+              "info": {
+                "user_id": 100,
+                "first_name": "Ann",
+                "last_name": "",
+                "phone_number": "",
+                "date": 0,
+                "color_index": 0
+              },
+              "username": "",
+              "color_index": 0,
+              "is_bot": false,
+              "is_self": false,
+              "is_replies": false,
+              "is_verify_codes": false,
+              "input": {
+                "_": "InputUserEmpty"
+              }
+            }
+          },
+          "300": {
+            "User": {
+              "bare_id": 300,
+              "info": {
+                "user_id": 300,
+                "first_name": "Bot",
+                "last_name": "",
+                "phone_number": "",
+                "date": 0,
+                "color_index": 0
+              },
+              "username": "",
+              "color_index": 0,
+              "is_bot": false,
+              "is_self": false,
+              "is_replies": false,
+              "is_verify_codes": false,
+              "input": {
+                "_": "InputUserEmpty"
+              }
+            }
+          },
+          "562949953421321": {
+            "Chat": {
+              "bare_id": 9,
+              "migrated_to_channel_id": 0,
+              "title": "News",
+              "username": "",
+              "color_index": 0,
+              "is_monoforum": false,
+              "is_broadcast": true,
+              "is_supergroup": false,
+              "is_monoforum_admin": false,
+              "has_monoforum_admin_rights": false,
+              "is_monoforum_of_public_broadcast": false,
+              "monoforum_link_id": 0,
+              "input": {
+                "_": "InputPeerEmpty"
+              },
+              "monoforum_broadcast_input": {
+                "_": "InputPeerEmpty"
+              }
+            }
+          }
+        },
+        ""
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": [
+        123,
+        10,
+        32,
+        32,
+        32,
+        34,
+        105,
+        100,
+        34,
+        58,
+        32,
+        55,
+        44,
+        10,
+        32,
+        32,
+        32,
+        34,
+        116,
+        121,
+        112,
+        101,
+        34,
+        58,
+        32,
+        34,
+        115,
+        101,
+        114,
+        118,
+        105,
+        99,
+        101,
+        34,
+        44,
+        10,
+        32,
+        32,
+        32,
+        34,
+        100,
+        97,
+        116,
+        101,
+        34,
+        58,
+        32,
+        34,
+        50,
+        48,
+        50,
+        52,
+        45,
+        48,
+        49,
+        45,
+        49,
+        50,
+        84,
+        49,
+        48,
+        58,
+        48,
+        48,
+        58,
+        48,
+        53,
+        34,
+        44,
+        10,
+        32,
+        32,
+        32,
+        34,
+        100,
+        97,
+        116,
+        101,
+        95,
+        117,
+        110,
+        105,
+        120,
+        116,
+        105,
+        109,
+        101,
+        34,
+        58,
+        32,
+        34,
+        49,
+        55,
+        48,
+        53,
+        48,
+        53,
+        51,
+        54,
+        48,
+        53,
+        34,
+        44,
+        10,
+        32,
+        32,
+        32,
+        34,
+        97,
+        99,
+        116,
+        105,
+        111,
+        110,
+        34,
+        58,
+        32,
+        34,
+        115,
+        101,
+        110,
+        100,
+        95,
+        112,
+        114,
+        101,
+        109,
+        105,
+        117,
+        109,
+        95,
+        103,
+        105,
+        102,
+        116,
+        34,
+        44,
+        10,
+        32,
+        32,
+        32,
+        34,
+        116,
+        101,
+        120,
+        116,
+        34,
+        58,
+        32,
+        34,
+        34,
+        44,
+        10,
+        32,
+        32,
+        32,
+        34,
+        116,
+        101,
+        120,
+        116,
+        95,
+        101,
+        110,
+        116,
+        105,
+        116,
+        105,
+        101,
+        115,
+        34,
+        58,
+        32,
+        91,
+        93,
+        10,
+        32,
+        32,
+        125
+      ],
+      "after": [
+        {
+          "nesting": [
+            true,
+            false
+          ]
+        },
+        {
+          "id": 7,
+          "date": 1705053605,
+          "edited": 0,
+          "from_id": 0,
+          "peer_id": 0,
+          "self_id": 0,
+          "forwarded_from_id": 0,
+          "forwarded_from_name": "",
+          "forwarded_date": 0,
+          "forwarded": false,
+          "show_forwarded_as_original": false,
+          "saved_from_chat_id": 0,
+          "signature": "",
+          "via_bot_id": 0,
+          "reply_to_msg_id": 0,
+          "reply_to_peer_id": 0,
+          "text": [],
+          "reactions": [],
+          "media": {
+            "content": null,
+            "ttl": 0
+          },
+          "action": {
+            "content": {
+              "GiftPremium": {
+                "cost": "",
+                "days": 0
+              }
+            }
+          },
+          "out": false,
+          "inline_button_rows": [],
+          "rich_message": null
+        },
+        {
+          "100": {
+            "User": {
+              "bare_id": 100,
+              "info": {
+                "user_id": 100,
+                "first_name": "Ann",
+                "last_name": "",
+                "phone_number": "",
+                "date": 0,
+                "color_index": 0
+              },
+              "username": "",
+              "color_index": 0,
+              "is_bot": false,
+              "is_self": false,
+              "is_replies": false,
+              "is_verify_codes": false,
+              "input": {
+                "_": "InputUserEmpty"
+              }
+            }
+          },
+          "300": {
+            "User": {
+              "bare_id": 300,
+              "info": {
+                "user_id": 300,
+                "first_name": "Bot",
+                "last_name": "",
+                "phone_number": "",
+                "date": 0,
+                "color_index": 0
+              },
+              "username": "",
+              "color_index": 0,
+              "is_bot": false,
+              "is_self": false,
+              "is_replies": false,
+              "is_verify_codes": false,
+              "input": {
+                "_": "InputUserEmpty"
+              }
+            }
+          },
+          "562949953421321": {
+            "Chat": {
+              "bare_id": 9,
+              "migrated_to_channel_id": 0,
+              "title": "News",
+              "username": "",
+              "color_index": 0,
+              "is_monoforum": false,
+              "is_broadcast": true,
+              "is_supergroup": false,
+              "is_monoforum_admin": false,
+              "has_monoforum_admin_rights": false,
+              "is_monoforum_of_public_broadcast": false,
+              "monoforum_link_id": 0,
+              "input": {
+                "_": "InputPeerEmpty"
+              },
+              "monoforum_broadcast_input": {
+                "_": "InputPeerEmpty"
+              }
+            }
+          }
+        },
+        ""
+      ]
+    }
+  ]
+}

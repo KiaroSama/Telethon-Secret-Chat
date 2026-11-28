@@ -1,0 +1,73 @@
+//! Telegram Desktop-compatible offline export. All text I/O is UTF-8.
+#![forbid(unsafe_code)]
+pub use qt_jpeg::DecodedImageBudget;
+mod compat;
+pub use compat::*;
+pub mod assets;
+pub mod error;
+pub mod files;
+pub mod format;
+pub mod html_countries;
+pub mod html_layout;
+mod html_links;
+pub mod html_media;
+pub mod html_media_extra;
+pub mod html_message;
+pub mod html_qurl;
+pub mod html_rich;
+pub mod html_rich_media;
+pub mod html_rich_support;
+pub mod html_rich_text;
+pub mod html_safe;
+pub mod html_service;
+pub mod html_text;
+pub mod html_writer;
+#[allow(dead_code)]
+mod jpeg_decoder;
+pub mod json_actions;
+pub mod json_message;
+pub mod json_rich;
+pub mod json_rich_block;
+pub mod json_rich_metadata;
+pub mod json_serialize;
+pub mod json_values;
+pub mod json_writer;
+mod mime_globs;
+pub mod model;
+pub mod model_actions;
+pub mod model_dialogs;
+pub mod model_document;
+pub mod model_media;
+pub mod model_message;
+pub mod model_peers;
+pub mod model_rich;
+pub mod output_file;
+pub mod parse_actions;
+pub mod parse_media;
+pub mod parse_rich;
+pub mod parse_rich_block;
+pub mod parse_rich_text;
+pub mod qt_icc;
+pub mod qt_jpeg;
+pub mod qt_scale;
+pub mod settings;
+pub mod thumbnail;
+pub mod writer;
+pub use error::{ExportError, Result};
+pub use model::User;
+pub use settings::{Format, MediaSettings, Settings};
+
+pub use writer::{ExportResult, ExportWriter, HtmlAndJsonWriter};
+pub mod saved;
+pub mod saved_parse;
+pub use saved::export_saved_records;
+pub mod fetch;
+pub mod fetch_client;
+pub mod fetch_files;
+pub mod grammers_client;
+pub mod tl_value;
+
+mod format_money;
+mod html_rich_state;
+
+mod tl_names;

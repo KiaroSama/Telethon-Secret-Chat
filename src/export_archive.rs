@@ -10,6 +10,8 @@ use std::{
 use chrono::{DateTime, Utc};
 use serde_json::{Map, Value, json};
 
+pub use crate::export::DecodedImageBudget;
+
 use crate::{
     autosave::{SavedMediaRecord, SavedSecretMessage},
     errors::SecretChatError,
@@ -135,10 +137,29 @@ pub fn export_saved_chat(
     export_saved_chat_with(messages, options, |_| Ok(()))
 }
 
+/// Export an archive with an opt-in JPEG thumbnail budget.
+/// An image outside the budget is copied as usual but gets no thumbnail.
+pub fn export_saved_chat_with_image_budget(
+    messages: &[SavedSecretMessage],
+    options: &ExportOptions,
+    budget: DecodedImageBudget,
+) -> Result<ExportReport, SecretChatError> {
+    export_saved_chat_inner(messages, options, |_| Ok(()), Some(budget))
+}
+
 pub(crate) fn export_saved_chat_with(
     messages: &[SavedSecretMessage],
     options: &ExportOptions,
     write_extra: impl FnOnce(&Path) -> Result<(), SecretChatError>,
+) -> Result<ExportReport, SecretChatError> {
+    export_saved_chat_inner(messages, options, write_extra, None)
+}
+
+fn export_saved_chat_inner(
+    messages: &[SavedSecretMessage],
+    options: &ExportOptions,
+    write_extra: impl FnOnce(&Path) -> Result<(), SecretChatError>,
+    budget: Option<DecodedImageBudget>,
 ) -> Result<ExportReport, SecretChatError> {
     let html = options.format != ExportFormat::Json;
     if html && options.messages_per_page == 0 {
@@ -200,7 +221,7 @@ pub(crate) fn export_saved_chat_with(
     }
     for entry in &mut entries {
         if let Some(media) = &entry.message.media {
-            entry.attachment = copy_media(media, &staged_options, entry.message.id, html)?;
+            entry.attachment = copy_media(media, &staged_options, entry.message.id, html, budget)?;
             match entry.attachment {
                 Attachment::Copied { .. } => report.copied_media += 1,
                 Attachment::Skipped(_) => report.skipped_media += 1,
@@ -388,6 +409,7 @@ fn copy_media(
     options: &ExportOptions,
     id: i64,
     html: bool,
+    budget: Option<DecodedImageBudget>,
 ) -> Result<Attachment, SecretChatError> {
     const FILE_UNAVAILABLE: &str = "(File unavailable, please try again later)";
     const OVER_LIMIT: &str =
@@ -444,7 +466,7 @@ fn copy_media(
     })
     .map_err(|_| parameter("could not copy saved media atomically"))?;
     let thumb = if html {
-        attach_thumbnail(&path, media, folder, id)?
+        attach_thumbnail(&path, media, folder, id, budget)?
     } else {
         None
     };
@@ -467,6 +489,7 @@ fn attach_thumbnail(
     media: &SavedMediaRecord,
     folder: &str,
     id: i64,
+    budget: Option<DecodedImageBudget>,
 ) -> Result<Option<String>, SecretChatError> {
     let (Some(width), Some(height)) = (media.width, media.height) else {
         return Ok(None);
@@ -486,8 +509,12 @@ fn attach_thumbnail(
         return Ok(None);
     }
     let longest = u64::from(width.max(height)).max(320);
-    let target = |size: u32| ((u64::from(size) * 320 / longest).max(1)) as i64;
-    let Some(bytes) = desktop_thumb(source, target(width), target(height), None)
+    let target = |size: u32| ((u64::from(size) * 320 / longest).max(1)) as u32;
+    let (width, height) = (target(width), target(height));
+    if budget.is_some_and(|budget| !budget.allows_jpeg(&source, (width, height))) {
+        return Ok(None);
+    }
+    let Some(bytes) = desktop_thumb(source, i64::from(width), i64::from(height), None)
         .ok()
         .flatten()
     else {

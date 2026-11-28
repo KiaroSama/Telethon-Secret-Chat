@@ -48,22 +48,22 @@ jobs:
         run: |
           cargo test --locked --test protocol_vectors --test transport_establishment --test parity_rekey_restart_audit
 
-      - name: Check controlled credentials for live tiers
+      - name: Run the selected live harness
         if: inputs.mode != 'offline-vectors'
         shell: bash
         env:
-          HAS_API_ID: ${{ secrets.TELEGRAM_INTEROP_API_ID != '' }}
-          HAS_API_HASH: ${{ secrets.TELEGRAM_INTEROP_API_HASH != '' }}
-          HAS_ACCOUNT_A: ${{ secrets.TELEGRAM_INTEROP_SESSION_A != '' }}
-          HAS_ACCOUNT_B: ${{ secrets.TELEGRAM_INTEROP_SESSION_B != '' }}
+          INTEROP_MODE: ${{ inputs.mode }}
+          TELEGRAM_INTEROP_API_ID: ${{ secrets.TELEGRAM_INTEROP_API_ID }}
+          TELEGRAM_INTEROP_API_HASH: ${{ secrets.TELEGRAM_INTEROP_API_HASH }}
+          TELEGRAM_INTEROP_SESSION_A: ${{ secrets.TELEGRAM_INTEROP_SESSION_A }}
+          TELEGRAM_INTEROP_SESSION_B: ${{ secrets.TELEGRAM_INTEROP_SESSION_B }}
+          TELEGRAM_INTEROP_PEER_USER_ID: ${{ secrets.TELEGRAM_INTEROP_PEER_USER_ID }}
         run: |
-          if [ "$HAS_API_ID" != "true" ] || [ "$HAS_API_HASH" != "true" ] || [ "$HAS_ACCOUNT_A" != "true" ]; then
-            echo "::error::Controlled interoperability secrets are not configured in GitHub Actions Secrets. Refusing to fabricate a passing live run."
-            exit 1
-          fi
-          if [ "${{ inputs.mode }}" = "same-library-pair" ] && [ "$HAS_ACCOUNT_B" != "true" ]; then
-            echo "::error::same-library-pair mode requires both TELEGRAM_INTEROP_SESSION_A and TELEGRAM_INTEROP_SESSION_B."
-            exit 1
-          fi
-          echo "Controlled secrets detected (values redacted); executing non-destructive harness validation."
-          cargo test --locked --test transport_establishment --test parity_transport_audit
+          case "$INTEROP_MODE" in
+            same-library-pair) test=same_library_pair ;;
+            official-client-interop) test=official_client_interop ;;
+            *) exit 2 ;;
+          esac
+          listing=$(cargo test --locked --test live_interop_harness -- --ignored --list "$test" --exact)
+          printf '%s\n' "$listing" | grep -Fx "$test: test" > /dev/null
+          cargo test --locked --test live_interop_harness -- --ignored --nocapture "$test" --exact

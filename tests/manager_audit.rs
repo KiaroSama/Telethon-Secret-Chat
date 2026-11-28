@@ -5,7 +5,7 @@ use std::task::Poll;
 
 use kiaro_secret_chat::errors::SecretChatError;
 use kiaro_secret_chat::manager::{
-    BoxFuture, ManagerLimits, SecretChatManager, SecretEvent, SecretTransport,
+    BoxFuture, CoreSecretChatManager, ManagerLimits, SecretEvent, SecretTransport,
 };
 use kiaro_secret_chat::protocol::{ChatRole, ChatState, decrypt_frame, unwrap_frame};
 use tokio::sync::{Mutex, Notify};
@@ -68,10 +68,10 @@ impl SecretTransport for ControlledTransport {
 
 async fn ready() -> (
     Arc<ControlledTransport>,
-    Arc<SecretChatManager<ControlledTransport>>,
+    Arc<CoreSecretChatManager<ControlledTransport>>,
 ) {
     let transport = Arc::new(ControlledTransport::default());
-    let manager = Arc::new(SecretChatManager::new(Arc::clone(&transport)));
+    let manager = Arc::new(CoreSecretChatManager::new(Arc::clone(&transport)));
     manager
         .register_established_chat(10, 20, 30, ChatRole::Initiator, &KEY)
         .await
@@ -140,7 +140,7 @@ async fn uncertain_transport_failure_reserves_sequence_and_retries_identical_cip
 #[tokio::test]
 async fn peer_acknowledgement_settles_a_send_even_if_its_rpc_later_fails() {
     let (transport, alice) = ready().await;
-    let bob = SecretChatManager::new(Arc::new(ControlledTransport::default()));
+    let bob = CoreSecretChatManager::new(Arc::new(ControlledTransport::default()));
     bob.register_established_chat(10, 20, 40, ChatRole::Acceptor, &KEY)
         .await
         .unwrap();
@@ -214,7 +214,7 @@ async fn retry_identity_cannot_be_reused_for_different_plaintext() {
 #[tokio::test]
 async fn recovering_a_gap_delivers_every_buffered_message_in_order() {
     let (_, alice) = ready().await;
-    let bob = SecretChatManager::new(Arc::new(ControlledTransport::default()));
+    let bob = CoreSecretChatManager::new(Arc::new(ControlledTransport::default()));
     bob.register_established_chat(10, 20, 40, ChatRole::Acceptor, &KEY)
         .await
         .unwrap();
@@ -256,7 +256,7 @@ async fn an_unrelated_chat_can_send_while_another_transport_call_waits() {
 #[tokio::test]
 async fn retention_refuses_new_sends_until_peer_acknowledgement_releases_capacity() {
     let transport = Arc::new(ControlledTransport::default());
-    let alice = SecretChatManager::with_limits(
+    let alice = CoreSecretChatManager::with_limits(
         Arc::clone(&transport),
         ManagerLimits {
             max_retained_messages: 1,
@@ -268,7 +268,7 @@ async fn retention_refuses_new_sends_until_peer_acknowledgement_releases_capacit
         .register_established_chat(10, 20, 30, ChatRole::Initiator, &KEY)
         .await
         .unwrap();
-    let bob = SecretChatManager::new(Arc::new(ControlledTransport::default()));
+    let bob = CoreSecretChatManager::new(Arc::new(ControlledTransport::default()));
     bob.register_established_chat(10, 20, 40, ChatRole::Acceptor, &KEY)
         .await
         .unwrap();

@@ -6,7 +6,7 @@ use std::{
 
 use kiaro_secret_chat::{
     autosave::{AutoSaveStore, SavedSecretMessage},
-    custody::{CustodyBackend, CustodyLimits, CustodyMode, CustodyRecord},
+    custody::{CustodyBackend, CustodyMode, CustodyRecord, StoreCustodyLimits},
     errors::SecretChatError,
     export_archive::{ExportFormat, ExportMediaFilter, ExportOptions},
     manager::{BoxFuture, SecretTransport},
@@ -358,7 +358,7 @@ fn failed_rich_export_does_not_publish_or_leave_staging() {
 #[test]
 #[rustfmt::skip]
 fn custody_pause_preserves_obligations_until_consumer_settles_them() {
-    let limits = CustodyLimits { max_retained_messages: 2, max_stored_bytes: 5 };
+    let limits = StoreCustodyLimits { max_retained_messages: 2, max_stored_bytes: 5 };
     let mut custody = BoundedCustodySettlement::new(limits).unwrap();
     custody.record_obligation(CHAT, 7, vec![7; 2]).unwrap();
     custody.record_obligation(CHAT, 1, vec![1; 3]).unwrap();
@@ -386,7 +386,7 @@ fn custody_pause_preserves_obligations_until_consumer_settles_them() {
 
 #[test]
 fn manager_missed_ingress_cannot_be_reversed_by_clearing_local_obligations() {
-    let limits = CustodyLimits::default();
+    let limits = StoreCustodyLimits::default();
     let mut custody = BoundedCustodySettlement::new(limits).unwrap();
     custody.record_obligation(CHAT, 1, vec![1]).unwrap();
     let mut manager_status = CustodyRecord::new(
@@ -406,4 +406,96 @@ fn manager_missed_ingress_cannot_be_reversed_by_clearing_local_obligations() {
     assert!(custody.resume_if_under_limits(CHAT).is_err());
     assert!(custody.settlement_status(CHAT).paused);
     custody.record_obligation(CHAT + 1, 1, vec![1]).unwrap();
+}
+
+#[tokio::test]
+async fn lifecycle_subscription_retains_only_the_events_selected_by_its_policy() {
+    use kiaro_secret_chat::orchestration::{
+        BackpressurePolicy::{DropNewest, DropOldest, Refuse},
+        BoundedLifecycleSubscription, LifecycleEvent, LifecyclePublishError,
+    };
+    use std::time::Duration;
+
+    assert!(BoundedLifecycleSubscription::new(0, DropOldest).is_err());
+    let first = LifecycleEvent::ChatPaused { chat_id: 7 };
+    let second = LifecycleEvent::ChatResumed { chat_id: 7 };
+    for (policy, expected, drops) in [
+        (DropOldest, second, 1),
+        (DropNewest, first, 1),
+        (Refuse, first, 0),
+    ] {
+        let subscription = BoundedLifecycleSubscription::new(1, policy).unwrap();
+        subscription.publish(first).unwrap();
+        let result = subscription.publish(second);
+        if policy == Refuse {
+            assert_eq!(result, Err(LifecyclePublishError::Full(second)));
+        } else {
+            assert_eq!(result, Ok(()));
+        }
+        assert_eq!(subscription.dropped_count(), drops);
+        subscription.close();
+        assert_eq!(
+            subscription.publish(second),
+            Err(LifecyclePublishError::Closed(second))
+        );
+        tokio::time::timeout(Duration::from_secs(1), async {
+            assert_eq!(subscription.recv().await, Some(expected));
+            assert_eq!(subscription.recv().await, None);
+        })
+        .await
+        .unwrap();
+    }
+}
+
+#[tokio::test]
+async fn lifecycle_subscription_wakes_a_receiver_and_unsubscribe_discards_backlog() {
+    use kiaro_secret_chat::orchestration::{
+        BackpressurePolicy, BoundedLifecycleSubscription, LifecycleEvent,
+    };
+    use std::{
+        future::{Future, poll_fn},
+        task::Poll,
+        time::Duration,
+    };
+
+    let subscription = BoundedLifecycleSubscription::new(2, BackpressurePolicy::Refuse).unwrap();
+    let event = LifecycleEvent::ChatClosed { chat_id: 7 };
+    let mut receive = std::pin::pin!(subscription.recv());
+    poll_fn(|cx| {
+        assert!(receive.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    subscription.publish(event).unwrap();
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(1), receive)
+            .await
+            .unwrap(),
+        Some(event)
+    );
+    assert!(
+        subscription
+            .publish_manager_event(&kiaro_secret_chat::manager::Event::ChatClosed {
+                chat_id: 7,
+                reason: "fixture",
+                history_deleted: false,
+            })
+            .unwrap()
+    );
+    assert!(
+        !subscription
+            .publish_manager_event(&kiaro_secret_chat::manager::Event::MessageAcknowledged {
+                chat_id: 7,
+                seq_no: 0,
+                random_ids: vec![5],
+            })
+            .unwrap()
+    );
+    subscription.unsubscribe();
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(1), subscription.recv())
+            .await
+            .unwrap(),
+        None
+    );
 }

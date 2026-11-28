@@ -10,8 +10,8 @@ use zeroize::{Zeroize, Zeroizing};
 
 use crate::errors::SecretChatError;
 use crate::manager::{
-    BoxFuture, ChatCheckpoint, EventRetention, ManagerLimits, PersistedOutboxItem, ReceivedBatch,
-    SecretChatManager, SecretTransport, TextTtl,
+    BoxFuture, ChatCheckpoint, CoreSecretChatManager, EventRetention, ManagerLimits,
+    PersistedOutboxItem, ReceivedBatch, SecretTransport, TextTtl,
 };
 use crate::protocol::{AcceptedMessage, ChatState, SecretChat};
 use crate::storage_backend::{
@@ -301,7 +301,7 @@ impl<T: SecretTransport, S: SecretChatStore> SecretTransport for CheckpointTrans
 }
 
 pub struct PersistentSecretChatManager<T: SecretTransport, S: SecretChatStore> {
-    inner: Arc<SecretChatManager<CheckpointTransport<T, S>>>,
+    inner: Arc<CoreSecretChatManager<CheckpointTransport<T, S>>>,
     checkpoint: Arc<CheckpointTransport<T, S>>,
     registration: Mutex<()>,
 }
@@ -316,7 +316,7 @@ impl<T: SecretTransport, S: SecretChatStore> PersistentSecretChatManager<T, S> {
             records: RecordMutex::new(snapshot.chats),
             limits,
         });
-        let inner = Arc::new(SecretChatManager::with_limits_and_event_retention(
+        let inner = Arc::new(CoreSecretChatManager::with_limits_and_event_retention(
             checkpoint.clone(),
             limits,
             EventRetention::Discard,

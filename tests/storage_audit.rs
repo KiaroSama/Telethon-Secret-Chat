@@ -3,7 +3,7 @@ use std::path::Path;
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use kiaro_secret_chat::custody::{
-    CustodyBackend, CustodyLimits, CustodyMode, CustodyRecord, CustodyStore,
+    CustodyBackend, CustodyMode, CustodyRecord, CustodyStore, StoreCustodyLimits,
 };
 use kiaro_secret_chat::ingress::{
     CommitReplayStatus, DurableIngressController, DurableIngressRecord, EncryptedIngressStore,
@@ -19,7 +19,7 @@ fn custody(chat_id: i64, owner: &str) -> CustodyRecord {
         owner,
         CustodyMode::Bounded,
         CustodyBackend::EncryptedFile,
-        CustodyLimits {
+        StoreCustodyLimits {
             max_retained_messages: 2,
             max_stored_bytes: 16,
         },
@@ -146,7 +146,8 @@ fn custody_refuses_persisting_memory_only_and_transient_payloads() {
     ] {
         let path = dir.path().join(format!("{index}.enc"));
         let mut store = CustodyStore::open_durable(&path, KEY).unwrap();
-        let mut record = CustodyRecord::new(7, "owner", mode, backend, CustodyLimits::default());
+        let mut record =
+            CustodyRecord::new(7, "owner", mode, backend, StoreCustodyLimits::default());
         record.push_payload(b"volatile").unwrap();
         assert!(store.save_record(&record).is_err());
         assert!(!path.exists());
@@ -261,7 +262,7 @@ fn invalid_zero_limits_and_empty_owner_fail_closed() {
         "",
         CustodyMode::Bounded,
         CustodyBackend::EncryptedFile,
-        CustodyLimits::default(),
+        StoreCustodyLimits::default(),
     );
     assert!(record.push_payload(b"payload").is_err());
     let mut zero = CustodyRecord::new(
@@ -269,7 +270,7 @@ fn invalid_zero_limits_and_empty_owner_fail_closed() {
         "owner",
         CustodyMode::Bounded,
         CustodyBackend::EncryptedFile,
-        CustodyLimits {
+        StoreCustodyLimits {
             max_retained_messages: 1,
             max_stored_bytes: 0,
         },

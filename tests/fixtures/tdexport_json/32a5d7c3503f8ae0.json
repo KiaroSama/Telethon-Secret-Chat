@@ -1,0 +1,154 @@
+{
+  "legacy_case": "tests/test_tdexport_json_actions.py::test_todo_items_array_of_objects",
+  "traces": [
+    {
+      "function": "json_actions.serialize_todo_items",
+      "args": [
+        {
+          "nesting": [
+            true
+          ]
+        },
+        [
+          {
+            "text": [
+              {
+                "text": "a",
+                "additional": "",
+                "kind": "text"
+              }
+            ],
+            "id": 1
+          },
+          {
+            "text": [],
+            "id": 2
+          }
+        ]
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": [
+        91,
+        10,
+        32,
+        32,
+        123,
+        10,
+        32,
+        32,
+        32,
+        34,
+        116,
+        101,
+        120,
+        116,
+        34,
+        58,
+        32,
+        34,
+        97,
+        34,
+        44,
+        10,
+        32,
+        32,
+        32,
+        34,
+        105,
+        100,
+        34,
+        58,
+        32,
+        49,
+        10,
+        32,
+        32,
+        125,
+        44,
+        10,
+        32,
+        32,
+        123,
+        10,
+        32,
+        32,
+        32,
+        34,
+        116,
+        101,
+        120,
+        116,
+        34,
+        58,
+        32,
+        34,
+        34,
+        44,
+        10,
+        32,
+        32,
+        32,
+        34,
+        105,
+        100,
+        34,
+        58,
+        32,
+        50,
+        10,
+        32,
+        32,
+        125,
+        10,
+        32,
+        93
+      ],
+      "after": [
+        {
+          "nesting": [
+            true
+          ]
+        },
+        [
+          {
+            "text": [
+              {
+                "text": "a",
+                "additional": "",
+                "kind": "text"
+              }
+            ],
+            "id": 1
+          },
+          {
+            "text": [],
+            "id": 2
+          }
+        ]
+      ]
+    },
+    {
+      "function": "json_actions.serialize_todo_items",
+      "args": [
+        {
+          "nesting": []
+        },
+        []
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": [
+        91,
+        10,
+        93
+      ],
+      "after": [
+        {
+          "nesting": []
+        },
+        []
+      ]
+    }
+  ]
+}

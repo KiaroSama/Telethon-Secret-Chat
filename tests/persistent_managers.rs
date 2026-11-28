@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use kiaro_secret_chat::custody::{CustodyLimits, CustodyStore};
+use kiaro_secret_chat::custody::{CustodyStore, StoreCustodyLimits};
 use kiaro_secret_chat::errors::SecretChatError;
 use kiaro_secret_chat::ingress::{
     DurableIngressController, EncryptedIngressStore, IngressLimits, IngressOrigin, IngressUpdate,
@@ -216,7 +216,7 @@ async fn bounded_pause_survives_a_sweep_and_missed_ingress_blocks_resume() {
     let bounded = BoundedSecretChatManager::new(
         durable,
         CustodyStore::open_durable(dir.path().join("custody"), KEY).unwrap(),
-        CustodyLimits {
+        StoreCustodyLimits {
             max_retained_messages: 1,
             max_stored_bytes: 2048,
         },

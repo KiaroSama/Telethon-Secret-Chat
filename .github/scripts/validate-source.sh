@@ -44,7 +44,7 @@ while IFS= read -r -d '' path; do
 done < "$inventory"
 
 required=(
-  Cargo.toml Cargo.lock LICENSE NOTICE README.md schema/end-to-end.tl
+  Cargo.toml Cargo.lock build.rs LICENSE NOTICE README.md schema/end-to-end.tl
   migration/019-rust-anything-receipt.json docs/signing/publisher.json
   vendor/grammers/upstream-hashes.json vendor/grammers/local-patches.json
   vendor/grammers/grammers-client/Cargo.toml
@@ -101,10 +101,13 @@ log INFO 'Resolving a downstream Git dependency at the exact tested commit'
 cargo generate-lockfile --manifest-path "$consumer/Cargo.toml"
 cargo check --locked --manifest-path "$consumer/Cargo.toml"
 
-log INFO 'Installing both maintenance commands from the exact Git revision'
+log INFO 'Installing maintenance commands from the exact Git revision'
 install="$work/installed-tools"
 cargo install --locked --git "$git_url" --rev "$revision" --root "$install" --debug --bins kiaro-secret-chat
 "$install/bin/check-test-matrix" --help
+"$install/bin/matrix-evidence" --help
+"$install/bin/migration-audit" --help
+"$install/bin/prepare-sdk" --help
 "$install/bin/generate-schema" --schema "$extracted/schema/end-to-end.tl" --out "$work/schema.json"
 "$install/bin/generate-schema" --check --schema "$extracted/schema/end-to-end.tl" --out "$work/schema.json"
 (

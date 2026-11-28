@@ -8,7 +8,9 @@ use std::task::Poll;
 use std::time::Duration;
 
 use kiaro_secret_chat::errors::SecretChatError;
-use kiaro_secret_chat::manager::{BoxFuture, ManagerLimits, SecretChatManager, SecretTransport};
+use kiaro_secret_chat::manager::{
+    BoxFuture, CoreSecretChatManager, ManagerLimits, SecretTransport,
+};
 use kiaro_secret_chat::protocol::{
     ChatRole, KeyLifecycleState, SecretChat, decrypt_frame, key_fingerprint,
 };
@@ -251,7 +253,7 @@ async fn persistent_same_id_retry_preserves_original_ttl_after_update_and_restar
 
 #[tokio::test]
 async fn explicit_ram_ttl_and_retry_identity_remain_explicit() {
-    let manager = SecretChatManager::new(Arc::new(Transport::default()));
+    let manager = CoreSecretChatManager::new(Arc::new(Transport::default()));
     manager
         .register_established_chat(i64::from(CHAT_ID), 92, 103, ChatRole::Acceptor, &CHAT_KEY)
         .await

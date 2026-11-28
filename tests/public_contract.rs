@@ -110,7 +110,9 @@ fn restored_manager_storage_media_and_establishment_capabilities_are_native() {
 #[test]
 fn concrete_native_items_are_checked_by_the_compiler() {
     use kiaro_secret_chat::autosave::AutoSaveStore;
-    use kiaro_secret_chat::custody::{CustodyBackend, CustodyLimits, CustodyMode, CustodyRecord};
+    use kiaro_secret_chat::custody::{
+        CustodyBackend, CustodyMode, CustodyRecord, StoreCustodyLimits,
+    };
     use kiaro_secret_chat::errors::SecretChatError;
     use kiaro_secret_chat::establishment::{KeyPicture, render_key_visualization_png};
     use kiaro_secret_chat::export_archive::{ExportFormat, ExportOptions, export_saved_chat};
@@ -146,7 +148,7 @@ fn concrete_native_items_are_checked_by_the_compiler() {
         "owner",
         CustodyMode::Bounded,
         CustodyBackend::EncryptedFile,
-        CustodyLimits::default(),
+        StoreCustodyLimits::default(),
     );
     let chat = SecretChat::new(7, 8, 9, "owner", ChatRole::Initiator);
     assert_eq!(record.chat_id(), chat.chat_id());

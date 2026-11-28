@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::future::Future;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use grammers_client::{Client, media::Downloadable};
 use grammers_tl_types::{
@@ -14,16 +14,25 @@ use crate::manager::SecretTransport;
 
 use super::*;
 
+mod bf_adapter;
 mod binding;
 use binding::{authorization_identity, authorization_key_snapshot, query_authorization};
 
 #[derive(Clone)]
 pub struct GrammersTransport {
     client: Client,
-    authorization: Authorization,
-    identity: String,
+    core_binding: Option<Arc<CoreBinding>>,
+    managed_authorization: Arc<OnceLock<Authorization>>,
+    io: Arc<crate::media::blocking::IoTracker>,
+    ingress: Option<(Arc<crate::ingress::DurableIngress>, bool)>,
     chats: Arc<Mutex<BTreeMap<i32, i64>>>,
     dh: Arc<Mutex<Option<CachedDh>>>,
+}
+
+struct CoreBinding {
+    authorization: Authorization,
+    identity: String,
+    generation: String,
 }
 
 struct CachedDh {
@@ -41,19 +50,19 @@ struct Authorization {
 
 impl GrammersTransport {
     /// Bind an already authorized client; the caller continues to own its update stream.
-    pub async fn new(client: Client, generation: &str) -> Result<Self, SecretChatError> {
+    pub async fn connect(client: Client, generation: &str) -> Result<Self, SecretChatError> {
         if generation.trim().is_empty() || generation.len() > 128 {
             return Err(rejected(None, "invalid transport generation"));
         }
         let authorization = query_authorization(&client).await?;
         let identity = authorization_identity(&authorization, generation);
-        Ok(Self {
-            client,
+        let mut transport = Self::new(client);
+        transport.core_binding = Some(Arc::new(CoreBinding {
             authorization,
             identity,
-            chats: Arc::default(),
-            dh: Arc::default(),
-        })
+            generation: generation.to_owned(),
+        }));
+        Ok(transport)
     }
 
     pub fn client(&self) -> &Client {
@@ -61,12 +70,13 @@ impl GrammersTransport {
     }
 
     /// Confirm that the supplied client still belongs to the original account, device and DC.
-    pub async fn verified_binding(&self) -> Result<&str, SecretChatError> {
+    pub async fn verified_binding_id(&self) -> Result<&str, SecretChatError> {
+        let binding = self.core_binding()?;
         self.require_current_key()?;
-        if query_authorization(&self.client).await? != self.authorization {
+        if query_authorization(&self.client).await? != binding.authorization {
             return Err(rejected(None, "caller authorization binding changed"));
         }
-        Ok(&self.identity)
+        Ok(&binding.identity)
     }
 
     /// Register the access hash when restoring a chat or handling a caller-owned update.
@@ -138,7 +148,7 @@ impl GrammersTransport {
     }
 
     async fn bound<R: tl::RemoteCall>(&self, request: &R) -> Result<R::Return, SecretChatError> {
-        self.verified_binding().await?;
+        self.verified_binding_id().await?;
         self.invoke(request).await
     }
 
@@ -158,9 +168,15 @@ impl GrammersTransport {
         result.map_err(|_| rejected(None, failure))
     }
 
+    fn core_binding(&self) -> Result<&CoreBinding, SecretChatError> {
+        self.core_binding
+            .as_deref()
+            .ok_or_else(|| rejected(None, "core transport requires GrammersTransport::connect"))
+    }
+
     fn require_current_key(&self) -> Result<(), SecretChatError> {
-        if authorization_key_snapshot(&self.client)?
-            != (self.authorization.dc_id, self.authorization.key_tag)
+        let authorization = &self.core_binding()?.authorization;
+        if authorization_key_snapshot(&self.client)? != (authorization.dc_id, authorization.key_tag)
         {
             return Err(rejected(None, "caller authorization binding changed"));
         }
@@ -170,7 +186,9 @@ impl GrammersTransport {
 
 impl SecretTransport for GrammersTransport {
     fn auth_identity(&self) -> &str {
-        &self.identity
+        self.core_binding
+            .as_deref()
+            .map_or("", |binding| binding.identity.as_str())
     }
 
     fn send_encrypted(&self, chat_id: i64, random_id: i64, data: Vec<u8>) -> Rpc<'_, ()> {
@@ -298,7 +316,9 @@ impl EstablishmentTransport for GrammersTransport {
                 ..
             } = wire
             {
-                if (admin_id, participant_id) != (self.authorization.user_id, peer_user_id) {
+                if (admin_id, participant_id)
+                    != (self.core_binding()?.authorization.user_id, peer_user_id)
+                {
                     return Err(rejected(
                         Some(i64::from(chat_id)),
                         "requested chat returned unexpected participants",
@@ -334,7 +354,12 @@ impl EstablishmentTransport for GrammersTransport {
                 ..
             } = wire
             {
-                if (id, hash, participant_id) != (chat_id, access_hash, self.authorization.user_id)
+                if (id, hash, participant_id)
+                    != (
+                        chat_id,
+                        access_hash,
+                        self.core_binding()?.authorization.user_id,
+                    )
                 {
                     return Err(rejected(
                         Some(i64::from(chat_id)),
@@ -456,7 +481,7 @@ impl EstablishmentTransport for GrammersTransport {
     ) -> Rpc<'_, EncryptedFileUpload> {
         Box::pin(async move {
             check_file_size(ciphertext.len() as u64)?;
-            self.verified_binding().await?;
+            self.verified_binding_id().await?;
             let mut random = [0; 8];
             getrandom::fill(&mut random).map_err(|_| SecretChatError::EntropyUnavailable {
                 reason: "could not generate an upload ID".into(),
@@ -513,7 +538,7 @@ impl EstablishmentTransport for GrammersTransport {
             if file.dc_id <= 0 || file.id == 0 {
                 return Err(rejected(None, "invalid encrypted file location"));
             }
-            self.verified_binding().await?;
+            self.verified_binding_id().await?;
             // The existing client handles upload.getFile and the account's DC routing.
             let mut download = self.client.iter_download(&file);
             let mut bytes = Vec::new();

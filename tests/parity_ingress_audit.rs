@@ -7,7 +7,9 @@ use kiaro_secret_chat::errors::SecretChatError;
 use kiaro_secret_chat::ingress::{
     DurableIngressController, EncryptedIngressStore, IngressLimits, IngressOrigin, IngressUpdate,
 };
-use kiaro_secret_chat::manager::{BoxFuture, ManagerLimits, SecretChatManager, SecretTransport};
+use kiaro_secret_chat::manager::{
+    BoxFuture, CoreSecretChatManager, ManagerLimits, SecretTransport,
+};
 use kiaro_secret_chat::protocol::ChatRole;
 use kiaro_secret_chat::runtime_modes::{PersistentSecretChatManager, StrongSecretChatManager};
 use kiaro_secret_chat::storage_backend::{FileStorage, PersistedChatRecord};
@@ -84,8 +86,8 @@ async fn register(mode: &Mode) {
     .unwrap();
 }
 
-async fn sender() -> SecretChatManager<Transport> {
-    let sender = SecretChatManager::new(Arc::new(Transport));
+async fn sender() -> CoreSecretChatManager<Transport> {
+    let sender = CoreSecretChatManager::new(Arc::new(Transport));
     sender
         .register_established_chat(7, 101, 202, ChatRole::Initiator, &CHAT_KEY)
         .await

@@ -1,0 +1,1246 @@
+{
+  "legacy_case": "tests/test_tdexport_rules.py::test_dialog_info_rules",
+  "traces": [
+    {
+      "function": "model_dialogs.parse_dialogs_info_users",
+      "args": [
+        {
+          "_": "InputPeerUser",
+          "user_id": 5,
+          "access_hash": 1
+        },
+        [
+          {
+            "_": "User",
+            "id": 5,
+            "is_self": null,
+            "contact": null,
+            "mutual_contact": null,
+            "deleted": null,
+            "bot": null,
+            "bot_chat_history": null,
+            "bot_nochats": null,
+            "verified": null,
+            "restricted": null,
+            "min": null,
+            "bot_inline_geo": null,
+            "support": null,
+            "scam": null,
+            "apply_min_photo": null,
+            "fake": null,
+            "bot_attach_menu": null,
+            "premium": null,
+            "attach_menu_enabled": null,
+            "bot_can_edit": null,
+            "close_friend": null,
+            "stories_hidden": null,
+            "stories_unavailable": null,
+            "contact_require_premium": null,
+            "bot_business": null,
+            "bot_has_main_app": null,
+            "bot_forum_view": null,
+            "bot_forum_can_manage_topics": null,
+            "bot_can_manage_bots": null,
+            "bot_guestchat": null,
+            "bot_guard": null,
+            "access_hash": null,
+            "first_name": "A",
+            "last_name": "B",
+            "username": null,
+            "phone": null,
+            "photo": null,
+            "status": null,
+            "bot_info_version": null,
+            "restriction_reason": null,
+            "bot_inline_placeholder": null,
+            "lang_code": null,
+            "emoji_status": null,
+            "usernames": null,
+            "stories_max_id": null,
+            "color": null,
+            "profile_color": null,
+            "bot_active_users": null,
+            "bot_verification_icon": null,
+            "send_paid_messages_stars": null,
+            "linked_community_id": null
+          },
+          {
+            "_": "User",
+            "id": 6,
+            "is_self": true,
+            "contact": null,
+            "mutual_contact": null,
+            "deleted": null,
+            "bot": null,
+            "bot_chat_history": null,
+            "bot_nochats": null,
+            "verified": null,
+            "restricted": null,
+            "min": null,
+            "bot_inline_geo": null,
+            "support": null,
+            "scam": null,
+            "apply_min_photo": null,
+            "fake": null,
+            "bot_attach_menu": null,
+            "premium": null,
+            "attach_menu_enabled": null,
+            "bot_can_edit": null,
+            "close_friend": null,
+            "stories_hidden": null,
+            "stories_unavailable": null,
+            "contact_require_premium": null,
+            "bot_business": null,
+            "bot_has_main_app": null,
+            "bot_forum_view": null,
+            "bot_forum_can_manage_topics": null,
+            "bot_can_manage_bots": null,
+            "bot_guestchat": null,
+            "bot_guard": null,
+            "access_hash": null,
+            "first_name": null,
+            "last_name": null,
+            "username": null,
+            "phone": null,
+            "photo": null,
+            "status": null,
+            "bot_info_version": null,
+            "restriction_reason": null,
+            "bot_inline_placeholder": null,
+            "lang_code": null,
+            "emoji_status": null,
+            "usernames": null,
+            "stories_max_id": null,
+            "color": null,
+            "profile_color": null,
+            "bot_active_users": null,
+            "bot_verification_icon": null,
+            "send_paid_messages_stars": null,
+            "linked_community_id": null
+          }
+        ]
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": {
+        "chats": [
+          {
+            "type": "Personal",
+            "name": "A",
+            "last_name": "B",
+            "input": {
+              "_": "InputPeerUser",
+              "user_id": 5,
+              "access_hash": 0
+            },
+            "top_message_id": 0,
+            "top_message_date": 0,
+            "peer_id": 5,
+            "color_index": 0,
+            "migrated_from_input": {
+              "_": "InputPeerEmpty"
+            },
+            "migrated_to_channel_id": 0,
+            "monoforum_broadcast_input": {
+              "_": "InputPeerEmpty"
+            },
+            "splits": [],
+            "only_my_messages": false,
+            "is_left_channel": false,
+            "is_monoforum": false,
+            "relative_path": "",
+            "messages_count_per_split": []
+          }
+        ],
+        "left": []
+      },
+      "after": [
+        {
+          "_": "InputPeerUser",
+          "user_id": 5,
+          "access_hash": 1
+        },
+        [
+          {
+            "_": "User",
+            "id": 5,
+            "is_self": null,
+            "contact": null,
+            "mutual_contact": null,
+            "deleted": null,
+            "bot": null,
+            "bot_chat_history": null,
+            "bot_nochats": null,
+            "verified": null,
+            "restricted": null,
+            "min": null,
+            "bot_inline_geo": null,
+            "support": null,
+            "scam": null,
+            "apply_min_photo": null,
+            "fake": null,
+            "bot_attach_menu": null,
+            "premium": null,
+            "attach_menu_enabled": null,
+            "bot_can_edit": null,
+            "close_friend": null,
+            "stories_hidden": null,
+            "stories_unavailable": null,
+            "contact_require_premium": null,
+            "bot_business": null,
+            "bot_has_main_app": null,
+            "bot_forum_view": null,
+            "bot_forum_can_manage_topics": null,
+            "bot_can_manage_bots": null,
+            "bot_guestchat": null,
+            "bot_guard": null,
+            "access_hash": null,
+            "first_name": "A",
+            "last_name": "B",
+            "username": null,
+            "phone": null,
+            "photo": null,
+            "status": null,
+            "bot_info_version": null,
+            "restriction_reason": null,
+            "bot_inline_placeholder": null,
+            "lang_code": null,
+            "emoji_status": null,
+            "usernames": null,
+            "stories_max_id": null,
+            "color": null,
+            "profile_color": null,
+            "bot_active_users": null,
+            "bot_verification_icon": null,
+            "send_paid_messages_stars": null,
+            "linked_community_id": null
+          },
+          {
+            "_": "User",
+            "id": 6,
+            "is_self": true,
+            "contact": null,
+            "mutual_contact": null,
+            "deleted": null,
+            "bot": null,
+            "bot_chat_history": null,
+            "bot_nochats": null,
+            "verified": null,
+            "restricted": null,
+            "min": null,
+            "bot_inline_geo": null,
+            "support": null,
+            "scam": null,
+            "apply_min_photo": null,
+            "fake": null,
+            "bot_attach_menu": null,
+            "premium": null,
+            "attach_menu_enabled": null,
+            "bot_can_edit": null,
+            "close_friend": null,
+            "stories_hidden": null,
+            "stories_unavailable": null,
+            "contact_require_premium": null,
+            "bot_business": null,
+            "bot_has_main_app": null,
+            "bot_forum_view": null,
+            "bot_forum_can_manage_topics": null,
+            "bot_can_manage_bots": null,
+            "bot_guestchat": null,
+            "bot_guard": null,
+            "access_hash": null,
+            "first_name": null,
+            "last_name": null,
+            "username": null,
+            "phone": null,
+            "photo": null,
+            "status": null,
+            "bot_info_version": null,
+            "restriction_reason": null,
+            "bot_inline_placeholder": null,
+            "lang_code": null,
+            "emoji_status": null,
+            "usernames": null,
+            "stories_max_id": null,
+            "color": null,
+            "profile_color": null,
+            "bot_active_users": null,
+            "bot_verification_icon": null,
+            "send_paid_messages_stars": null,
+            "linked_community_id": null
+          }
+        ]
+      ]
+    },
+    {
+      "function": "model_dialogs.parse_dialogs_info_users",
+      "args": [
+        {
+          "_": "InputPeerSelf"
+        },
+        [
+          {
+            "_": "User",
+            "id": 5,
+            "is_self": null,
+            "contact": null,
+            "mutual_contact": null,
+            "deleted": null,
+            "bot": null,
+            "bot_chat_history": null,
+            "bot_nochats": null,
+            "verified": null,
+            "restricted": null,
+            "min": null,
+            "bot_inline_geo": null,
+            "support": null,
+            "scam": null,
+            "apply_min_photo": null,
+            "fake": null,
+            "bot_attach_menu": null,
+            "premium": null,
+            "attach_menu_enabled": null,
+            "bot_can_edit": null,
+            "close_friend": null,
+            "stories_hidden": null,
+            "stories_unavailable": null,
+            "contact_require_premium": null,
+            "bot_business": null,
+            "bot_has_main_app": null,
+            "bot_forum_view": null,
+            "bot_forum_can_manage_topics": null,
+            "bot_can_manage_bots": null,
+            "bot_guestchat": null,
+            "bot_guard": null,
+            "access_hash": null,
+            "first_name": "A",
+            "last_name": "B",
+            "username": null,
+            "phone": null,
+            "photo": null,
+            "status": null,
+            "bot_info_version": null,
+            "restriction_reason": null,
+            "bot_inline_placeholder": null,
+            "lang_code": null,
+            "emoji_status": null,
+            "usernames": null,
+            "stories_max_id": null,
+            "color": null,
+            "profile_color": null,
+            "bot_active_users": null,
+            "bot_verification_icon": null,
+            "send_paid_messages_stars": null,
+            "linked_community_id": null
+          },
+          {
+            "_": "User",
+            "id": 6,
+            "is_self": true,
+            "contact": null,
+            "mutual_contact": null,
+            "deleted": null,
+            "bot": null,
+            "bot_chat_history": null,
+            "bot_nochats": null,
+            "verified": null,
+            "restricted": null,
+            "min": null,
+            "bot_inline_geo": null,
+            "support": null,
+            "scam": null,
+            "apply_min_photo": null,
+            "fake": null,
+            "bot_attach_menu": null,
+            "premium": null,
+            "attach_menu_enabled": null,
+            "bot_can_edit": null,
+            "close_friend": null,
+            "stories_hidden": null,
+            "stories_unavailable": null,
+            "contact_require_premium": null,
+            "bot_business": null,
+            "bot_has_main_app": null,
+            "bot_forum_view": null,
+            "bot_forum_can_manage_topics": null,
+            "bot_can_manage_bots": null,
+            "bot_guestchat": null,
+            "bot_guard": null,
+            "access_hash": null,
+            "first_name": null,
+            "last_name": null,
+            "username": null,
+            "phone": null,
+            "photo": null,
+            "status": null,
+            "bot_info_version": null,
+            "restriction_reason": null,
+            "bot_inline_placeholder": null,
+            "lang_code": null,
+            "emoji_status": null,
+            "usernames": null,
+            "stories_max_id": null,
+            "color": null,
+            "profile_color": null,
+            "bot_active_users": null,
+            "bot_verification_icon": null,
+            "send_paid_messages_stars": null,
+            "linked_community_id": null
+          }
+        ]
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": {
+        "chats": [
+          {
+            "type": "Self",
+            "name": "",
+            "last_name": "",
+            "input": {
+              "_": "InputPeerUser",
+              "user_id": 6,
+              "access_hash": 0
+            },
+            "top_message_id": 0,
+            "top_message_date": 0,
+            "peer_id": 6,
+            "color_index": 0,
+            "migrated_from_input": {
+              "_": "InputPeerEmpty"
+            },
+            "migrated_to_channel_id": 0,
+            "monoforum_broadcast_input": {
+              "_": "InputPeerEmpty"
+            },
+            "splits": [],
+            "only_my_messages": false,
+            "is_left_channel": false,
+            "is_monoforum": false,
+            "relative_path": "",
+            "messages_count_per_split": []
+          }
+        ],
+        "left": []
+      },
+      "after": [
+        {
+          "_": "InputPeerSelf"
+        },
+        [
+          {
+            "_": "User",
+            "id": 5,
+            "is_self": null,
+            "contact": null,
+            "mutual_contact": null,
+            "deleted": null,
+            "bot": null,
+            "bot_chat_history": null,
+            "bot_nochats": null,
+            "verified": null,
+            "restricted": null,
+            "min": null,
+            "bot_inline_geo": null,
+            "support": null,
+            "scam": null,
+            "apply_min_photo": null,
+            "fake": null,
+            "bot_attach_menu": null,
+            "premium": null,
+            "attach_menu_enabled": null,
+            "bot_can_edit": null,
+            "close_friend": null,
+            "stories_hidden": null,
+            "stories_unavailable": null,
+            "contact_require_premium": null,
+            "bot_business": null,
+            "bot_has_main_app": null,
+            "bot_forum_view": null,
+            "bot_forum_can_manage_topics": null,
+            "bot_can_manage_bots": null,
+            "bot_guestchat": null,
+            "bot_guard": null,
+            "access_hash": null,
+            "first_name": "A",
+            "last_name": "B",
+            "username": null,
+            "phone": null,
+            "photo": null,
+            "status": null,
+            "bot_info_version": null,
+            "restriction_reason": null,
+            "bot_inline_placeholder": null,
+            "lang_code": null,
+            "emoji_status": null,
+            "usernames": null,
+            "stories_max_id": null,
+            "color": null,
+            "profile_color": null,
+            "bot_active_users": null,
+            "bot_verification_icon": null,
+            "send_paid_messages_stars": null,
+            "linked_community_id": null
+          },
+          {
+            "_": "User",
+            "id": 6,
+            "is_self": true,
+            "contact": null,
+            "mutual_contact": null,
+            "deleted": null,
+            "bot": null,
+            "bot_chat_history": null,
+            "bot_nochats": null,
+            "verified": null,
+            "restricted": null,
+            "min": null,
+            "bot_inline_geo": null,
+            "support": null,
+            "scam": null,
+            "apply_min_photo": null,
+            "fake": null,
+            "bot_attach_menu": null,
+            "premium": null,
+            "attach_menu_enabled": null,
+            "bot_can_edit": null,
+            "close_friend": null,
+            "stories_hidden": null,
+            "stories_unavailable": null,
+            "contact_require_premium": null,
+            "bot_business": null,
+            "bot_has_main_app": null,
+            "bot_forum_view": null,
+            "bot_forum_can_manage_topics": null,
+            "bot_can_manage_bots": null,
+            "bot_guestchat": null,
+            "bot_guard": null,
+            "access_hash": null,
+            "first_name": null,
+            "last_name": null,
+            "username": null,
+            "phone": null,
+            "photo": null,
+            "status": null,
+            "bot_info_version": null,
+            "restriction_reason": null,
+            "bot_inline_placeholder": null,
+            "lang_code": null,
+            "emoji_status": null,
+            "usernames": null,
+            "stories_max_id": null,
+            "color": null,
+            "profile_color": null,
+            "bot_active_users": null,
+            "bot_verification_icon": null,
+            "send_paid_messages_stars": null,
+            "linked_community_id": null
+          }
+        ]
+      ]
+    },
+    {
+      "function": "model_dialogs.parse_dialogs_info_chats",
+      "args": [
+        {
+          "_": "InputPeerChannel",
+          "channel_id": 3,
+          "access_hash": 2
+        },
+        [
+          {
+            "_": "Channel",
+            "id": 3,
+            "title": "S",
+            "photo": null,
+            "date": null,
+            "creator": null,
+            "left": null,
+            "broadcast": null,
+            "verified": null,
+            "megagroup": true,
+            "restricted": null,
+            "signatures": null,
+            "min": null,
+            "scam": null,
+            "has_link": null,
+            "has_geo": null,
+            "slowmode_enabled": null,
+            "call_active": null,
+            "call_not_empty": null,
+            "fake": null,
+            "gigagroup": null,
+            "noforwards": null,
+            "join_to_send": null,
+            "join_request": null,
+            "forum": null,
+            "stories_hidden": null,
+            "stories_hidden_min": null,
+            "stories_unavailable": null,
+            "signature_profiles": null,
+            "autotranslation": null,
+            "broadcast_messages_allowed": null,
+            "monoforum": null,
+            "forum_tabs": null,
+            "access_hash": 2,
+            "username": null,
+            "restriction_reason": null,
+            "admin_rights": null,
+            "banned_rights": null,
+            "default_banned_rights": null,
+            "participants_count": null,
+            "usernames": null,
+            "stories_max_id": null,
+            "color": null,
+            "profile_color": null,
+            "emoji_status": null,
+            "level": null,
+            "subscription_until_date": null,
+            "bot_verification_icon": null,
+            "send_paid_messages_stars": null,
+            "linked_monoforum_id": null,
+            "linked_community_id": null
+          }
+        ]
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": {
+        "chats": [
+          {
+            "type": "PrivateSupergroup",
+            "name": "S",
+            "last_name": "",
+            "input": {
+              "_": "InputPeerChannel",
+              "channel_id": 3,
+              "access_hash": 2
+            },
+            "top_message_id": 0,
+            "top_message_date": 0,
+            "peer_id": 562949953421315,
+            "color_index": 0,
+            "migrated_from_input": {
+              "_": "InputPeerEmpty"
+            },
+            "migrated_to_channel_id": 0,
+            "monoforum_broadcast_input": {
+              "_": "InputPeerEmpty"
+            },
+            "splits": [],
+            "only_my_messages": false,
+            "is_left_channel": false,
+            "is_monoforum": false,
+            "relative_path": "",
+            "messages_count_per_split": []
+          }
+        ],
+        "left": []
+      },
+      "after": [
+        {
+          "_": "InputPeerChannel",
+          "channel_id": 3,
+          "access_hash": 2
+        },
+        [
+          {
+            "_": "Channel",
+            "id": 3,
+            "title": "S",
+            "photo": null,
+            "date": null,
+            "creator": null,
+            "left": null,
+            "broadcast": null,
+            "verified": null,
+            "megagroup": true,
+            "restricted": null,
+            "signatures": null,
+            "min": null,
+            "scam": null,
+            "has_link": null,
+            "has_geo": null,
+            "slowmode_enabled": null,
+            "call_active": null,
+            "call_not_empty": null,
+            "fake": null,
+            "gigagroup": null,
+            "noforwards": null,
+            "join_to_send": null,
+            "join_request": null,
+            "forum": null,
+            "stories_hidden": null,
+            "stories_hidden_min": null,
+            "stories_unavailable": null,
+            "signature_profiles": null,
+            "autotranslation": null,
+            "broadcast_messages_allowed": null,
+            "monoforum": null,
+            "forum_tabs": null,
+            "access_hash": 2,
+            "username": null,
+            "restriction_reason": null,
+            "admin_rights": null,
+            "banned_rights": null,
+            "default_banned_rights": null,
+            "participants_count": null,
+            "usernames": null,
+            "stories_max_id": null,
+            "color": null,
+            "profile_color": null,
+            "emoji_status": null,
+            "level": null,
+            "subscription_until_date": null,
+            "bot_verification_icon": null,
+            "send_paid_messages_stars": null,
+            "linked_monoforum_id": null,
+            "linked_community_id": null
+          }
+        ]
+      ]
+    },
+    {
+      "function": "model_peers.parse_chat",
+      "args": [
+        {
+          "_": "Channel",
+          "id": 3,
+          "title": "S",
+          "photo": null,
+          "date": null,
+          "creator": null,
+          "left": null,
+          "broadcast": null,
+          "verified": null,
+          "megagroup": true,
+          "restricted": null,
+          "signatures": null,
+          "min": null,
+          "scam": null,
+          "has_link": null,
+          "has_geo": null,
+          "slowmode_enabled": null,
+          "call_active": null,
+          "call_not_empty": null,
+          "fake": null,
+          "gigagroup": null,
+          "noforwards": null,
+          "join_to_send": null,
+          "join_request": null,
+          "forum": null,
+          "stories_hidden": null,
+          "stories_hidden_min": null,
+          "stories_unavailable": null,
+          "signature_profiles": null,
+          "autotranslation": null,
+          "broadcast_messages_allowed": null,
+          "monoforum": null,
+          "forum_tabs": null,
+          "access_hash": 2,
+          "username": null,
+          "restriction_reason": null,
+          "admin_rights": null,
+          "banned_rights": null,
+          "default_banned_rights": null,
+          "participants_count": null,
+          "usernames": null,
+          "stories_max_id": null,
+          "color": null,
+          "profile_color": null,
+          "emoji_status": null,
+          "level": null,
+          "subscription_until_date": null,
+          "bot_verification_icon": null,
+          "send_paid_messages_stars": null,
+          "linked_monoforum_id": null,
+          "linked_community_id": null
+        }
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": {
+        "bare_id": 3,
+        "migrated_to_channel_id": 0,
+        "title": "S",
+        "username": "",
+        "color_index": 1,
+        "is_monoforum": false,
+        "is_broadcast": false,
+        "is_supergroup": true,
+        "is_monoforum_admin": false,
+        "has_monoforum_admin_rights": false,
+        "is_monoforum_of_public_broadcast": false,
+        "monoforum_link_id": 0,
+        "input": {
+          "_": "InputPeerChannel",
+          "channel_id": 3,
+          "access_hash": 2
+        },
+        "monoforum_broadcast_input": {
+          "_": "InputPeerEmpty"
+        }
+      },
+      "after": [
+        {
+          "_": "Channel",
+          "id": 3,
+          "title": "S",
+          "photo": null,
+          "date": null,
+          "creator": null,
+          "left": null,
+          "broadcast": null,
+          "verified": null,
+          "megagroup": true,
+          "restricted": null,
+          "signatures": null,
+          "min": null,
+          "scam": null,
+          "has_link": null,
+          "has_geo": null,
+          "slowmode_enabled": null,
+          "call_active": null,
+          "call_not_empty": null,
+          "fake": null,
+          "gigagroup": null,
+          "noforwards": null,
+          "join_to_send": null,
+          "join_request": null,
+          "forum": null,
+          "stories_hidden": null,
+          "stories_hidden_min": null,
+          "stories_unavailable": null,
+          "signature_profiles": null,
+          "autotranslation": null,
+          "broadcast_messages_allowed": null,
+          "monoforum": null,
+          "forum_tabs": null,
+          "access_hash": 2,
+          "username": null,
+          "restriction_reason": null,
+          "admin_rights": null,
+          "banned_rights": null,
+          "default_banned_rights": null,
+          "participants_count": null,
+          "usernames": null,
+          "stories_max_id": null,
+          "color": null,
+          "profile_color": null,
+          "emoji_status": null,
+          "level": null,
+          "subscription_until_date": null,
+          "bot_verification_icon": null,
+          "send_paid_messages_stars": null,
+          "linked_monoforum_id": null,
+          "linked_community_id": null
+        }
+      ]
+    },
+    {
+      "function": "model_dialogs.dialog_type_from_chat",
+      "args": [
+        {
+          "bare_id": 3,
+          "migrated_to_channel_id": 0,
+          "title": "S",
+          "username": "",
+          "color_index": 1,
+          "is_monoforum": false,
+          "is_broadcast": false,
+          "is_supergroup": true,
+          "is_monoforum_admin": false,
+          "has_monoforum_admin_rights": false,
+          "is_monoforum_of_public_broadcast": false,
+          "monoforum_link_id": 0,
+          "input": {
+            "_": "InputPeerChannel",
+            "channel_id": 3,
+            "access_hash": 2
+          },
+          "monoforum_broadcast_input": {
+            "_": "InputPeerEmpty"
+          }
+        }
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": "PrivateSupergroup",
+      "after": [
+        {
+          "bare_id": 3,
+          "migrated_to_channel_id": 0,
+          "title": "S",
+          "username": "",
+          "color_index": 1,
+          "is_monoforum": false,
+          "is_broadcast": false,
+          "is_supergroup": true,
+          "is_monoforum_admin": false,
+          "has_monoforum_admin_rights": false,
+          "is_monoforum_of_public_broadcast": false,
+          "monoforum_link_id": 0,
+          "input": {
+            "_": "InputPeerChannel",
+            "channel_id": 3,
+            "access_hash": 2
+          },
+          "monoforum_broadcast_input": {
+            "_": "InputPeerEmpty"
+          }
+        }
+      ]
+    },
+    {
+      "function": "model.peer_from_chat",
+      "args": [
+        4
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": 281474976710660,
+      "after": [
+        4
+      ]
+    },
+    {
+      "function": "model_dialogs.add_migrate_from_slice",
+      "args": [
+        {
+          "type": "PrivateSupergroup",
+          "name": "S",
+          "last_name": "",
+          "input": {
+            "_": "InputPeerChannel",
+            "channel_id": 3,
+            "access_hash": 2
+          },
+          "top_message_id": 0,
+          "top_message_date": 0,
+          "peer_id": 562949953421315,
+          "color_index": 0,
+          "migrated_from_input": {
+            "_": "InputPeerEmpty"
+          },
+          "migrated_to_channel_id": 0,
+          "monoforum_broadcast_input": {
+            "_": "InputPeerEmpty"
+          },
+          "splits": [
+            1
+          ],
+          "only_my_messages": false,
+          "is_left_channel": false,
+          "is_monoforum": false,
+          "relative_path": "",
+          "messages_count_per_split": [
+            0
+          ]
+        },
+        {
+          "type": "Unknown",
+          "name": "",
+          "last_name": "",
+          "input": {
+            "_": "InputPeerChat",
+            "chat_id": 4
+          },
+          "top_message_id": 0,
+          "top_message_date": 0,
+          "peer_id": 281474976710660,
+          "color_index": 0,
+          "migrated_from_input": {
+            "_": "InputPeerEmpty"
+          },
+          "migrated_to_channel_id": 0,
+          "monoforum_broadcast_input": {
+            "_": "InputPeerEmpty"
+          },
+          "splits": [
+            0
+          ],
+          "only_my_messages": false,
+          "is_left_channel": false,
+          "is_monoforum": false,
+          "relative_path": "",
+          "messages_count_per_split": [
+            3
+          ]
+        },
+        1,
+        2
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": true,
+      "after": [
+        {
+          "type": "PrivateSupergroup",
+          "name": "S",
+          "last_name": "",
+          "input": {
+            "_": "InputPeerChannel",
+            "channel_id": 3,
+            "access_hash": 2
+          },
+          "top_message_id": 0,
+          "top_message_date": 0,
+          "peer_id": 562949953421315,
+          "color_index": 0,
+          "migrated_from_input": {
+            "_": "InputPeerChat",
+            "chat_id": 4
+          },
+          "migrated_to_channel_id": 0,
+          "monoforum_broadcast_input": {
+            "_": "InputPeerEmpty"
+          },
+          "splits": [
+            1,
+            -2,
+            -1
+          ],
+          "only_my_messages": false,
+          "is_left_channel": false,
+          "is_monoforum": false,
+          "relative_path": "",
+          "messages_count_per_split": [
+            0,
+            3,
+            0
+          ]
+        },
+        {
+          "type": "Unknown",
+          "name": "",
+          "last_name": "",
+          "input": {
+            "_": "InputPeerChat",
+            "chat_id": 4
+          },
+          "top_message_id": 0,
+          "top_message_date": 0,
+          "peer_id": 281474976710660,
+          "color_index": 0,
+          "migrated_from_input": {
+            "_": "InputPeerEmpty"
+          },
+          "migrated_to_channel_id": 0,
+          "monoforum_broadcast_input": {
+            "_": "InputPeerEmpty"
+          },
+          "splits": [
+            0
+          ],
+          "only_my_messages": false,
+          "is_left_channel": false,
+          "is_monoforum": false,
+          "relative_path": "",
+          "messages_count_per_split": [
+            3
+          ]
+        },
+        1,
+        2
+      ]
+    },
+    {
+      "function": "model_dialogs.finalize_dialogs_info",
+      "args": [
+        {
+          "chats": [
+            {
+              "type": "PrivateSupergroup",
+              "name": "S",
+              "last_name": "",
+              "input": {
+                "_": "InputPeerChannel",
+                "channel_id": 3,
+                "access_hash": 2
+              },
+              "top_message_id": 0,
+              "top_message_date": 0,
+              "peer_id": 562949953421315,
+              "color_index": 0,
+              "migrated_from_input": {
+                "_": "InputPeerChat",
+                "chat_id": 4
+              },
+              "migrated_to_channel_id": 0,
+              "monoforum_broadcast_input": {
+                "_": "InputPeerEmpty"
+              },
+              "splits": [
+                1,
+                -2,
+                -1
+              ],
+              "only_my_messages": false,
+              "is_left_channel": false,
+              "is_monoforum": false,
+              "relative_path": "",
+              "messages_count_per_split": [
+                0,
+                3,
+                0
+              ]
+            }
+          ],
+          "left": []
+        },
+        {
+          "path": "",
+          "force_sub_path": false,
+          "format": "html",
+          "types": 2016,
+          "full_chats": 2016,
+          "media": {
+            "types": 1,
+            "size_limit": 8388608
+          },
+          "single_peer": 0,
+          "single_peer_from": 0,
+          "single_peer_till": 0,
+          "single_topic_root_id": 0,
+          "single_topic_peer_id": 0,
+          "single_topic_title": "",
+          "available_at": 0,
+          "time_zone": null
+        }
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": null,
+      "after": [
+        {
+          "chats": [
+            {
+              "type": "PrivateSupergroup",
+              "name": "S",
+              "last_name": "",
+              "input": {
+                "_": "InputPeerChannel",
+                "channel_id": 3,
+                "access_hash": 2
+              },
+              "top_message_id": 0,
+              "top_message_date": 0,
+              "peer_id": 562949953421315,
+              "color_index": 0,
+              "migrated_from_input": {
+                "_": "InputPeerChat",
+                "chat_id": 4
+              },
+              "migrated_to_channel_id": 0,
+              "monoforum_broadcast_input": {
+                "_": "InputPeerEmpty"
+              },
+              "splits": [
+                -2,
+                -1,
+                1
+              ],
+              "only_my_messages": false,
+              "is_left_channel": false,
+              "is_monoforum": false,
+              "relative_path": "",
+              "messages_count_per_split": [
+                0,
+                3,
+                0
+              ]
+            }
+          ],
+          "left": []
+        },
+        {
+          "path": "",
+          "force_sub_path": false,
+          "format": "html",
+          "types": 2016,
+          "full_chats": 2016,
+          "media": {
+            "types": 1,
+            "size_limit": 8388608
+          },
+          "single_peer": 0,
+          "single_peer_from": 0,
+          "single_peer_till": 0,
+          "single_topic_root_id": 0,
+          "single_topic_peer_id": 0,
+          "single_topic_title": "",
+          "available_at": 0,
+          "time_zone": null
+        }
+      ],
+      "current_after": [
+        {
+          "chats": [
+            {
+              "type": "PrivateSupergroup",
+              "name": "S",
+              "last_name": "",
+              "input": {
+                "_": "InputPeerChannel",
+                "channel_id": 3,
+                "access_hash": 2
+              },
+              "top_message_id": 0,
+              "top_message_date": 0,
+              "peer_id": 562949953421315,
+              "color_index": 0,
+              "migrated_from_input": {
+                "_": "InputPeerChat",
+                "chat_id": 4
+              },
+              "migrated_to_channel_id": 0,
+              "monoforum_broadcast_input": {
+                "_": "InputPeerEmpty"
+              },
+              "splits": [
+                -2,
+                -1,
+                1
+              ],
+              "only_my_messages": false,
+              "is_left_channel": false,
+              "is_monoforum": false,
+              "relative_path": "",
+              "messages_count_per_split": [
+                3,
+                0,
+                0
+              ]
+            }
+          ],
+          "left": []
+        },
+        {
+          "path": "",
+          "force_sub_path": false,
+          "format": "html",
+          "types": 2016,
+          "full_chats": 2016,
+          "media": {
+            "types": 1,
+            "size_limit": 8388608
+          },
+          "single_peer": 0,
+          "single_peer_from": 0,
+          "single_peer_till": 0,
+          "single_topic_root_id": 0,
+          "single_topic_peer_id": 0,
+          "single_topic_title": "",
+          "available_at": 0,
+          "time_zone": null
+        }
+      ],
+      "current_reference": {
+        "kind": "verified project runtime correction; original baseline preserved",
+        "review_ids": [
+          79
+        ]
+      }
+    }
+  ]
+}

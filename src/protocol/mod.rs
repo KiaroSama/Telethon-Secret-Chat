@@ -1,10 +1,13 @@
 mod helpers;
+mod machine;
 mod receive_guard;
 mod retained_text;
 mod snapshot;
 pub mod typed_state;
 
 pub use helpers::*;
+pub use machine::{Effects, Event, Protocol, SendEffect, ServiceEvent};
+pub(crate) use machine::{prepare_action, rewrite_retained_as_deletes};
 pub(crate) use snapshot::PersistedProtocolState;
 
 use serde::{Deserialize, Serialize};

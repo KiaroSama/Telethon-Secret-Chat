@@ -4,7 +4,9 @@ use std::time::Duration;
 
 use tokio::sync::Mutex;
 
-use crate::custody::{CustodyBackend, CustodyLimits, CustodyMode, CustodyRecord, CustodyStore};
+use crate::custody::{
+    CustodyBackend, CustodyMode, CustodyRecord, CustodyStore, StoreCustodyLimits,
+};
 use crate::errors::SecretChatError;
 use crate::ingress::{
     DurableIngressController, DurableIngressRecord, IngressOrigin, IngressUpdate,
@@ -18,7 +20,7 @@ use super::*;
 pub struct BoundedSecretChatManager<T: SecretTransport, S: SecretChatStore> {
     persistent: PersistentSecretChatManager<T, S>,
     custody: Mutex<CustodyStore>,
-    limits: CustodyLimits,
+    limits: StoreCustodyLimits,
     max_age: Duration,
 }
 
@@ -26,7 +28,7 @@ impl<T: SecretTransport, S: SecretChatStore> BoundedSecretChatManager<T, S> {
     pub fn new(
         persistent: PersistentSecretChatManager<T, S>,
         custody: CustodyStore,
-        limits: CustodyLimits,
+        limits: StoreCustodyLimits,
         max_age: Duration,
     ) -> Self {
         Self {
@@ -160,7 +162,7 @@ impl<T: SecretTransport, S: SecretChatStore> BoundedSecretChatManager<T, S> {
 }
 
 pub struct TransientSecretChatManager<T: SecretTransport, S: SecretChatStore> {
-    inner: SecretChatManager<T>,
+    inner: CoreSecretChatManager<T>,
     transport: Arc<T>,
     markers: S,
     active_chats: Mutex<BTreeSet<i32>>,
@@ -175,7 +177,7 @@ impl<T: SecretTransport, S: SecretChatStore> TransientSecretChatManager<T, S> {
         markers.load_all()?.validate(transport.auth_identity())?;
         let transport = Arc::new(transport);
         Ok(Self {
-            inner: SecretChatManager::with_limits_and_event_retention(
+            inner: CoreSecretChatManager::with_limits_and_event_retention(
                 transport.clone(),
                 limits,
                 EventRetention::Discard,
@@ -537,7 +539,7 @@ mod event_retention_tests {
     #[tokio::test]
     async fn public_ram_manager_preserves_all_consumer_event_categories() {
         let key = [0x63; 256];
-        let manager = SecretChatManager::new(Arc::new(Transport));
+        let manager = CoreSecretChatManager::new(Arc::new(Transport));
         manager
             .register_established_chat(7, 8, 9, ChatRole::Acceptor, &key)
             .await

@@ -1,5 +1,10 @@
 //! Caller-owned coordination for secret media, local history, and delivery settlement.
 
+mod lifecycle;
+pub use lifecycle::{
+    BackpressurePolicy, BoundedLifecycleSubscription, LifecycleEvent, LifecyclePublishError,
+};
+
 use std::{
     collections::BTreeMap,
     fmt, fs,
@@ -14,7 +19,7 @@ use zeroize::Zeroizing;
 
 use crate::{
     autosave::{AutoSaveStore, SavedSecretMessage},
-    custody::{CustodyLimits, CustodyMode, CustodyRecord},
+    custody::{CustodyMode, CustodyRecord, StoreCustodyLimits},
     errors::SecretChatError,
     export::{escape_html_text, safe_http_href},
     export_archive::{ExportFormat, ExportOptions, ExportReport, export_saved_chat_with},
@@ -503,14 +508,14 @@ impl Pause {
 /// Caller-owned in-memory ledger for one bounded manager. Limits apply across chats.
 /// Settlement leaves durable raw frames intact and sends no transport acknowledgment.
 pub struct BoundedCustodySettlement {
-    limits: CustodyLimits,
+    limits: StoreCustodyLimits,
     pending: BTreeMap<(i32, u64), Zeroizing<Box<[u8]>>>,
     pauses: BTreeMap<i32, Pause>,
     bytes: usize,
 }
 
 impl BoundedCustodySettlement {
-    pub fn new(limits: CustodyLimits) -> Result<Self, SecretChatError> {
+    pub fn new(limits: StoreCustodyLimits) -> Result<Self, SecretChatError> {
         if !(1..=4096).contains(&limits.max_retained_messages)
             || !(1..=MAX_STORE_BYTES).contains(&limits.max_stored_bytes)
         {

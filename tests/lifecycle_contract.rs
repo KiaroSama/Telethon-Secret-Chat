@@ -6,7 +6,7 @@ use kiaro_secret_chat::lifecycle::{
     build_service_action, check_lock_guard, ogg_looks_like_voice, receive_history_projection,
     remember_early_update, retained_outbox_content_ids, temporary_owned_roundtrip,
 };
-use kiaro_secret_chat::manager::{BoxFuture, SecretChatManager, SecretEvent, SecretTransport};
+use kiaro_secret_chat::manager::{BoxFuture, CoreSecretChatManager, SecretEvent, SecretTransport};
 use kiaro_secret_chat::protocol::{ChatRole, ChatState};
 use tokio::sync::Mutex;
 
@@ -73,8 +73,8 @@ async fn offline_peers_exchange_encrypted_messages_handle_transport_failure_and_
     let alice_tx = Arc::new(FakeTransport::new("caller-auth-alice"));
     let bob_tx = Arc::new(FakeTransport::new("caller-auth-bob"));
 
-    let alice = SecretChatManager::new(Arc::clone(&alice_tx));
-    let bob = SecretChatManager::new(Arc::clone(&bob_tx));
+    let alice = CoreSecretChatManager::new(Arc::clone(&alice_tx));
+    let bob = CoreSecretChatManager::new(Arc::clone(&bob_tx));
 
     assert_eq!(alice.caller_auth_identity(), "caller-auth-alice");
     assert_eq!(bob.caller_auth_identity(), "caller-auth-bob");

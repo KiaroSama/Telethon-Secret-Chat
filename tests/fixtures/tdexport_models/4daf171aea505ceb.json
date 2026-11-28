@@ -1,0 +1,51 @@
+{
+  "legacy_case": "tests/test_tdexport_model.py::test_parse_text_formatted_date_entity_is_unknown",
+  "traces": [
+    {
+      "function": "model.parse_text",
+      "args": [
+        "today",
+        [
+          {
+            "_": "MessageEntityFormattedDate",
+            "offset": 0,
+            "length": 5,
+            "date": 1,
+            "relative": null,
+            "short_time": null,
+            "long_time": null,
+            "short_date": null,
+            "long_date": null,
+            "day_of_week": null
+          }
+        ]
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": [
+        {
+          "text": "today",
+          "additional": "",
+          "kind": "unknown"
+        }
+      ],
+      "after": [
+        "today",
+        [
+          {
+            "_": "MessageEntityFormattedDate",
+            "offset": 0,
+            "length": 5,
+            "date": 1,
+            "relative": null,
+            "short_time": null,
+            "long_time": null,
+            "short_date": null,
+            "long_date": null,
+            "day_of_week": null
+          }
+        ]
+      ]
+    }
+  ]
+}

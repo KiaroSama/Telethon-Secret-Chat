@@ -3,7 +3,7 @@ use std::path::Path;
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use kiaro_secret_chat::custody::{
-    CustodyBackend, CustodyLimits, CustodyMode, CustodyRecord, CustodyStore,
+    CustodyBackend, CustodyMode, CustodyRecord, CustodyStore, StoreCustodyLimits,
 };
 use kiaro_secret_chat::ingress::{
     CommitReplayStatus, DurableIngressController, EncryptedIngressStore, IngressLimits,
@@ -19,7 +19,7 @@ fn record(chat_id: i64, owner: &str) -> CustodyRecord {
         owner,
         CustodyMode::Bounded,
         CustodyBackend::EncryptedFile,
-        CustodyLimits::default(),
+        StoreCustodyLimits::default(),
     );
     record.push_payload(b"retained obligation").unwrap();
     record

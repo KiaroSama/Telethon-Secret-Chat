@@ -8,13 +8,16 @@ use std::{fmt, path::Path};
 
 use aes_gcm::aead::{Aead, KeyInit, Payload};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
-use serde::{Serialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, Zeroizing};
 
-use crate::custody::CustodyRecord;
+use crate::binding::AuthorizationBinding;
+use crate::custody::{CustodyRecord, transient::validate_protected};
 use crate::errors::SecretChatError;
-use crate::ingress::PersistedIngressState;
+use crate::ingress::{PersistedIngressState, encrypted};
+use crate::storage::{FileStorage, Storage, StoreMode};
 use crate::storage_backend::PersistedStoreSnapshot;
 use crate::storage_file::{
     MAX_STORE_BYTES, absolute_store_path, atomic_replace, lock_store, read_store,
@@ -80,8 +83,98 @@ impl BindingOwnershipProof {
     }
 }
 
-/// Reports only the binding digests and the number of records actually rewritten.
-/// An already migrated file reports zero records. Ingress counts pending records.
+/// Historical binding parts for explicit offline migration only. A v1 management
+/// hash or truncated key ID does not establish a relationship to a v2 key tag.
+/// The caller must independently verify that both bindings identify the same
+/// original authorization before calling either historical migration function.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LegacyAuthorizationBinding {
+    user_id: i64,
+    authorization_hash: i64,
+    dc_id: i32,
+    generation: String,
+    #[serde(default)]
+    session_key: bool,
+}
+
+impl LegacyAuthorizationBinding {
+    pub fn from_parts(
+        user_id: i64,
+        authorization_hash: i64,
+        dc_id: i32,
+        generation: impl Into<String>,
+    ) -> Result<Self> {
+        let proof = Self {
+            user_id,
+            authorization_hash,
+            dc_id,
+            generation: generation.into(),
+            session_key: false,
+        };
+        proof.validate()?;
+        Ok(proof)
+    }
+
+    pub fn from_session_parts(
+        user_id: i64,
+        auth_key_id: i64,
+        dc_id: i32,
+        generation: impl Into<String>,
+    ) -> Result<Self> {
+        let mut proof = Self::from_parts(user_id, auth_key_id, dc_id, generation)?;
+        proof.session_key = true;
+        Ok(proof)
+    }
+
+    fn validate(&self) -> Result<()> {
+        if self.user_id <= 0
+            || self.authorization_hash == 0
+            || !(1..=1000).contains(&self.dc_id)
+            || self.generation.is_empty()
+            || self.generation.len() > 128
+        {
+            return Err(corrupt("invalid historical authorization binding"));
+        }
+        Ok(())
+    }
+
+    pub fn fingerprint(&self) -> String {
+        let mut hash = Sha256::new();
+        hash.update(b"kiaro-grammers-binding-v1\0");
+        if self.session_key {
+            hash.update(b"session-key\0");
+        }
+        hash.update(self.user_id.to_le_bytes());
+        hash.update(self.authorization_hash.to_le_bytes());
+        hash.update(self.dc_id.to_le_bytes());
+        hash.update(self.generation.as_bytes());
+        hex::encode(hash.finalize())
+    }
+
+    fn migration_summary(&self, new: &AuthorizationBinding) -> Result<MigrationSummary> {
+        self.validate()?;
+        new.validate()
+            .map_err(|_| corrupt("invalid v2 authorization binding"))?;
+        if self.user_id != new.user_id()
+            || self.dc_id != new.dc_id()
+            || self.generation != new.generation()
+        {
+            return Err(corrupt(
+                "historical and current authorization metadata do not match",
+            ));
+        }
+        Ok(MigrationSummary {
+            from_binding: self.fingerprint(),
+            to_binding: new.fingerprint(),
+            migrated_records: 0,
+            already_migrated: false,
+        })
+    }
+}
+
+/// Reports binding digests and a record count. An already migrated file reports
+/// zero. Historical whole-state stores count chats; core ingress counts pending updates.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MigrationSummary {
     pub migrated_records: usize,
@@ -90,8 +183,92 @@ pub struct MigrationSummary {
     pub already_migrated: bool,
 }
 
-/// Rebind an existing `FileStorage` snapshot and its associated data.
-/// `ProtectedFileStorage` has a different envelope and is not accepted here.
+/// Rebind a historical AES-GCM ingress snapshot in place, regardless of suffix.
+/// The caller must supply the old storage key and independently establish that
+/// `old` and `new` describe the same original authorization. The file is locked
+/// for the entire read and replacement; no migration runs on ordinary open.
+pub fn migrate_v1_enc_store_to_v2(
+    path: &Path,
+    key: [u8; 32],
+    old: &LegacyAuthorizationBinding,
+    new: &AuthorizationBinding,
+    max_bytes: usize,
+) -> Result<MigrationSummary> {
+    let key = Zeroizing::new(key);
+    let mut summary = old.migration_summary(new)?;
+    let mut backend = encrypted::open_backend(path, max_bytes)
+        .map_err(|_| corrupt("historical ingress store is unavailable"))?;
+    let outer = backend
+        .load()
+        .map_err(|_| corrupt("invalid historical ingress envelope"))?
+        .ok_or_else(|| corrupt("cannot migrate a missing store"))?;
+    summary.already_migrated = binding_matches(
+        &outer.authorization,
+        &summary.from_binding,
+        &summary.to_binding,
+    )?;
+    let binding = if summary.already_migrated {
+        &summary.to_binding
+    } else {
+        &summary.from_binding
+    };
+    let mut state = encrypted::unseal(&outer, &key, binding, max_bytes)
+        .map_err(|_| corrupt("historical ingress snapshot failed authentication or validation"))?;
+    if !summary.already_migrated {
+        state.authorization.clone_from(&summary.to_binding);
+        let replacement = encrypted::seal(&state, &key, &summary.to_binding, max_bytes)
+            .map_err(|_| corrupt("could not re-encrypt historical ingress snapshot"))?;
+        backend.commit(&replacement).map_err(|_| {
+            corrupt("could not confirm historical ingress replacement; reopen before retrying")
+        })?;
+        summary.migrated_records = state.chats.len();
+    }
+    Ok(summary)
+}
+
+/// Rebind a historical plaintext durable, bounded, or protected JSON snapshot.
+/// These files carry a binding but have no cryptographic integrity check. The
+/// caller must establish the file's provenance as well as authorization ownership.
+pub fn migrate_v1_json_store_to_v2(
+    path: &Path,
+    old: &LegacyAuthorizationBinding,
+    new: &AuthorizationBinding,
+) -> Result<MigrationSummary> {
+    let mut summary = old.migration_summary(new)?;
+    let mut backend =
+        FileStorage::open(path).map_err(|_| corrupt("historical store is unavailable"))?;
+    // Skip ordinary-load repair so migration cannot drop persisted protocol fields.
+    let mut state = backend
+        .read_snapshot()
+        .map_err(|_| corrupt("invalid historical JSON snapshot"))?
+        .ok_or_else(|| corrupt("cannot migrate a missing store"))?;
+    summary.already_migrated = binding_matches(
+        &state.authorization,
+        &summary.from_binding,
+        &summary.to_binding,
+    )?;
+    match state.mode {
+        StoreMode::Ingress => {
+            return Err(corrupt(
+                "encrypted ingress requires authenticated migration",
+            ));
+        }
+        StoreMode::Protected => validate_protected(&state),
+        StoreMode::Durable | StoreMode::Bounded => state.validate_restored(),
+    }
+    .map_err(|_| corrupt("invalid historical JSON snapshot"))?;
+    if !summary.already_migrated {
+        state.authorization.clone_from(&summary.to_binding);
+        backend.commit(&state).map_err(|_| {
+            corrupt("could not confirm historical JSON replacement; reopen before retrying")
+        })?;
+        summary.migrated_records = state.chats.len();
+    }
+    Ok(summary)
+}
+
+/// Rebind an existing core `FileStorage` snapshot and its associated data.
+/// Core `ProtectedFileStorage` has a different envelope and is not accepted here.
 pub fn migrate_chat_store_v1_to_v2(
     path: &Path,
     key: [u8; 32],

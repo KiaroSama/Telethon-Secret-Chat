@@ -223,7 +223,7 @@ jobs:
           stage="$RUNNER_TEMP/native-tools"
           dist="$RUNNER_TEMP/native-dist"
           mkdir -p "$stage/schema" "$dist"
-          for tool in check-test-matrix generate-schema; do
+          for tool in check-test-matrix generate-schema matrix-evidence migration-audit prepare-sdk; do
             cp "target/release/$tool" "$stage/$tool"
           done
           cp README.md LICENSE NOTICE "$stage/"
@@ -232,13 +232,13 @@ jobs:
           compiler=$(rustc --version)
           printf '{"target":"%s","toolchain":"%s","compiler":"%s","commit":"%s"}\n' \
             "$NATIVE_TARGET" "$RUSTUP_TOOLCHAIN" "$compiler" "$GITHUB_SHA" > "$stage/build-info.json"
-          (cd "$stage" && sha256sum check-test-matrix generate-schema README.md LICENSE NOTICE build-info.json schema/end-to-end.tl schema/secret_tl.generated.json > SHA256SUMS)
+          (cd "$stage" && sha256sum check-test-matrix generate-schema matrix-evidence migration-audit prepare-sdk README.md LICENSE NOTICE build-info.json schema/end-to-end.tl schema/secret_tl.generated.json > SHA256SUMS)
           tar -czf "$dist/native-$NATIVE_TARGET.tar.gz" -C "$stage" .
           (cd "$dist" && sha256sum "native-$NATIVE_TARGET.tar.gz" > SHA256SUMS)
           verify="$RUNNER_TEMP/native-verify"
           mkdir -p "$verify"
           tar -xzf "$dist/native-$NATIVE_TARGET.tar.gz" -C "$verify"
-          (cd "$verify" && sha256sum --strict --check SHA256SUMS && ./generate-schema --check && ./check-test-matrix --help)
+          (cd "$verify" && sha256sum --strict --check SHA256SUMS && ./generate-schema --check && ./check-test-matrix --help && ./matrix-evidence --help && ./migration-audit --help && ./prepare-sdk --help)
       - name: Package native release binaries (Windows)
         if: matrix.profile == 'release' && runner.os == 'Windows'
         shell: pwsh
@@ -250,7 +250,7 @@ jobs:
           $stage = Join-Path $env:RUNNER_TEMP 'native-tools'
           $dist = Join-Path $env:RUNNER_TEMP 'native-dist'
           New-Item -ItemType Directory -Force -Path $stage, $dist | Out-Null
-          foreach ($tool in 'check-test-matrix', 'generate-schema') {
+          foreach ($tool in 'check-test-matrix', 'generate-schema', 'matrix-evidence', 'migration-audit', 'prepare-sdk') {
             Copy-Item (Join-Path 'target/release' "$tool.exe") (Join-Path $stage "$tool.exe")
           }
           Copy-Item README.md, LICENSE, NOTICE $stage
@@ -286,8 +286,10 @@ jobs:
           try {
             & ./generate-schema.exe --check
             if ($LASTEXITCODE -ne 0) { throw 'Packaged schema manifest check failed' }
-            & ./check-test-matrix.exe --help
-            if ($LASTEXITCODE -ne 0) { throw 'Packaged matrix tool failed to start' }
+            foreach ($tool in 'check-test-matrix', 'matrix-evidence', 'migration-audit', 'prepare-sdk') {
+              & "./$tool.exe" --help
+              if ($LASTEXITCODE -ne 0) { throw "Packaged tool $tool failed to start" }
+            }
           } finally { Pop-Location }
       - name: Upload native release package
         if: matrix.profile == 'release'

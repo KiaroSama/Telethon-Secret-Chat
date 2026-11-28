@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use kiaro_secret_chat::errors::SecretChatError;
 use kiaro_secret_chat::manager::{
-    BoxFuture, ManagerLimits, SecretChatManager, SecretEvent, SecretTransport,
+    BoxFuture, CoreSecretChatManager, ManagerLimits, SecretEvent, SecretTransport,
 };
 use kiaro_secret_chat::protocol::{ChatRole, ChatState, SecretChat};
 use serde_json::json;
@@ -63,9 +63,14 @@ impl SecretTransport for CaptureTransport {
     }
 }
 
-async fn manager(role: ChatRole) -> (Arc<CaptureTransport>, SecretChatManager<CaptureTransport>) {
+async fn manager(
+    role: ChatRole,
+) -> (
+    Arc<CaptureTransport>,
+    CoreSecretChatManager<CaptureTransport>,
+) {
     let transport = Arc::new(CaptureTransport::default());
-    let manager = SecretChatManager::new(transport.clone());
+    let manager = CoreSecretChatManager::new(transport.clone());
     manager
         .register_established_chat(7, 8, 9, role, &KEY)
         .await
@@ -198,7 +203,7 @@ async fn service_failure_retains_exact_frame_and_sequence_for_retry() {
 #[tokio::test]
 async fn service_capacity_refusal_does_not_consume_sequence_or_exchange() {
     let transport = Arc::new(CaptureTransport::default());
-    let alice = SecretChatManager::with_limits(
+    let alice = CoreSecretChatManager::with_limits(
         transport,
         ManagerLimits {
             max_retained_messages: 1,
@@ -262,7 +267,7 @@ async fn missing_rekey_parameters_fail_closed() {
 #[tokio::test]
 async fn receive_capacity_failure_leaves_gap_and_sequence_retryable() {
     let at = Arc::new(CaptureTransport::default());
-    let alice = SecretChatManager::with_limits(
+    let alice = CoreSecretChatManager::with_limits(
         at.clone(),
         ManagerLimits {
             max_retained_messages: 1,

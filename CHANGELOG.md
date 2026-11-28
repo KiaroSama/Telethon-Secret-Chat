@@ -5,10 +5,41 @@ package by commit and reads this file before moving its pin. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/) with the pre-1.0 rule that a minor bump may break.
 
-## [Unreleased]
+## [0.5.0] - 2026-11-28
 
 ### Added
 
+- Full managed API and `bf0fc26` feature parity restored on top of `v0.4.0` audit hardening:
+  - Generated Layer-202 Rust secret-chat TL `types::*`, `enums::*`, `LAYER`, `name_for_id`,
+    `deserialize::*`, `wire::{validate, validate_at_depth, constructor_count}`, `build.rs`,
+    and `schema_generator`.
+  - Full `manager::SecretChatManager<S, T>` and `manager::StrongSecretChatManager` with
+    `send_message`, `send_message_with_options` (entities, replies, per-message TTL, silent),
+    encrypted media transfer (`send_file`, `forward_file`, `forward_message_file`,
+    `receive_file`, `receive_file_with_limit`, `receive_message_file`, `save_file`,
+    `save_message_file`), chat actions (`delete_messages`, `flush_history`, `screenshot`,
+    `set_typing`, `rekey`, `retry_pending`, `close`, `forget`, `delete_secret_chat`,
+    `delete_secret_chat_both_sides`), direct establishment (`create`, `accept`,
+    `handle_encryption`, `set_accepting_requests`), custody/pause/inspection (`list`,
+    `status`, `read_history`, `settle`, `pause_chat`, `pause_status`, `resume_chat`,
+    `check_custody`, `is_suspended`), autosave management, typed `Event`/`MessageReceived`
+    callback registries, and proof-gated `grammers_mtsender::DurableIngressHook` wiring.
+  - Standalone public modules `actions`, `binding` (upgraded to `v2` `AuthorizationBinding::v2`
+    using `Client::authorization_key_tag()`), `chat`, `crypto`, `dh`, `entities`, `error`,
+    `files`, `framing`, `ogg`, `rekey`, `sequence`, `storage`, `temporary`, `visualization`,
+    and `wire`.
+  - Full Telegram Desktop-compatible rich HTML/JSON exporter (`src/export/*`) with embedded
+    assets and packed-buffer ICC/JPEG thumbnail scaling reusing `mozjpeg = "=0.10.13"`.
+  - Explicit offline migration for historical encrypted `aead/ingress-v1` and plaintext JSON
+    stores (`binding_migration::{LegacyAuthorizationBinding, migrate_v1_enc_store_to_v2,
+    migrate_v1_json_store_to_v2}`) alongside `v0.4.0` store migrators.
+  - Opt-in decoded-image working budget (`export_archive::{DecodedImageBudget,
+    export_saved_chat_with_image_budget}`), opt-in bounded async lifecycle subscription
+    (`orchestration::{BoundedLifecycleSubscription, BackpressurePolicy}`), and opt-in ignored
+    live-interop test harness (`tests/live_interop_harness.rs`).
+  - Restored auxiliary maintenance binaries `prepare-sdk`, `matrix-evidence`, and
+    `migration-audit` alongside `check-test-matrix` and `generate-schema` in the 4-target
+    signed release archives.
 - Deterministic property-based state-machine tests (`tests/property_state_machine.rs`)
   covering message reordering, replays, gap filling, PFS rekey cutovers, restart
   checkpoints, and Strong-mode contiguous acknowledgement invariants.

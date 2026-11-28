@@ -143,6 +143,15 @@ fn run_bounded(test_name: &str, case: &str) {
                 assert_thumbnail(&thumbnail);
             }
             "archive" => exercise_archive(Path::new(&env::var_os(CHILD_ROOT).unwrap()), &jpeg),
+            "rich" => {
+                let thumbnail = kiaro_secret_chat::export::qt_jpeg::desktop_thumb(
+                    &jpeg,
+                    (THUMB_WIDTH as u32, THUMB_HEIGHT as u32),
+                    None,
+                )
+                .unwrap();
+                assert_thumbnail(&thumbnail);
+            }
             _ => panic!("unknown thumbnail resource case"),
         }
         log(
@@ -196,4 +205,124 @@ fn archive_thumbnail_handles_a_normal_photo_with_bounded_memory() {
         "archive_thumbnail_handles_a_normal_photo_with_bounded_memory",
         "archive",
     );
+}
+
+#[test]
+fn rich_thumbnail_handles_a_normal_photo_with_bounded_memory() {
+    run_bounded(
+        "rich_thumbnail_handles_a_normal_photo_with_bounded_memory",
+        "rich",
+    );
+}
+
+#[test]
+fn opt_in_budget_limits_decoded_jpeg_without_skipping_the_original() {
+    use kiaro_secret_chat::export_archive::{
+        DecodedImageBudget, export_saved_chat_with_image_budget,
+    };
+
+    let root = tempdir().unwrap();
+    let media_root = root.path().join("media");
+    fs::create_dir(&media_root).unwrap();
+    let mut encoder = Compress::new(ColorSpace::JCS_RGB);
+    encoder.set_size(96, 64);
+    let mut encoder = encoder.start_compress(Vec::new()).unwrap();
+    encoder
+        .write_scanlines(&[90, 140, 200].repeat(96 * 64))
+        .unwrap();
+    let jpeg = encoder.finish().unwrap();
+    fs::write(media_root.join("photo.jpg"), &jpeg).unwrap();
+    let messages = [SavedSecretMessage {
+        id: 1,
+        chat_id: 7,
+        sender_id: 9,
+        sender_name: "Fixture".into(),
+        outgoing: false,
+        date_unix: 1_700_000_000,
+        text: String::new(),
+        reply_to_msg_id: None,
+        ttl_seconds: None,
+        media: Some(SavedMediaRecord {
+            kind: SecretMediaKind::Photo,
+            mime_type: "image/jpeg".into(),
+            file_name: "photo.jpg".into(),
+            size_bytes: jpeg.len() as u64,
+            local_rel_path: Some("photo.jpg".into()),
+            width: Some(48),
+            height: Some(32),
+            duration_secs: None,
+        }),
+    }];
+    let allowed = DecodedImageBudget {
+        max_decoded_bytes: 1024 * 1024,
+        max_pixels: 96 * 64,
+        max_dimension: 96,
+    };
+    let cases = [
+        ("allowed", allowed, true),
+        (
+            "pixels",
+            DecodedImageBudget {
+                max_pixels: 96 * 64 - 1,
+                ..allowed
+            },
+            false,
+        ),
+        (
+            "dimension",
+            DecodedImageBudget {
+                max_dimension: 95,
+                ..allowed
+            },
+            false,
+        ),
+        (
+            "bytes",
+            DecodedImageBudget {
+                max_decoded_bytes: 96 * 64 * 4 - 1,
+                ..allowed
+            },
+            false,
+        ),
+    ];
+    for (case, budget, included) in cases {
+        let output_dir = root.path().join(case);
+        let options = ExportOptions {
+            chat_id: 7,
+            chat_title: "Decoded budget".into(),
+            peer_id: 9,
+            format: ExportFormat::HtmlAndJson,
+            output_dir: output_dir.clone(),
+            assets_dir: None,
+            media_root: Some(media_root.clone()),
+            media_filter: ExportMediaFilter {
+                photos: true,
+                videos: false,
+                voice_messages: false,
+                video_messages: false,
+                stickers: false,
+                gifs: false,
+                files: false,
+                size_limit_bytes: SOURCE_LIMIT,
+            },
+            date_from_unix: None,
+            date_to_unix: None,
+            messages_per_page: 10,
+        };
+        let report = export_saved_chat_with_image_budget(&messages, &options, budget).unwrap();
+        assert_eq!((report.copied_media, report.skipped_media), (1, 0));
+        assert_eq!(fs::read(output_dir.join("photos/photo.jpg")).unwrap(), jpeg);
+        assert_eq!(
+            output_dir.join("photos/photo_1_thumb.jpg").exists(),
+            included,
+            "{case}"
+        );
+        assert_eq!(
+            fs::read_to_string(&report.html_pages[0])
+                .unwrap()
+                .contains("photos/photo_1_thumb.jpg"),
+            included,
+            "{case}"
+        );
+    }
 }

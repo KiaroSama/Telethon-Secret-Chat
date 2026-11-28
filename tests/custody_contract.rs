@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use kiaro_secret_chat::custody::{
-    CustodyBackend, CustodyLimits, CustodyMode, CustodyRecord, CustodyStore,
+    CustodyBackend, CustodyMode, CustodyRecord, CustodyStore, StoreCustodyLimits,
 };
 use kiaro_secret_chat::errors::SecretChatError;
 
@@ -22,7 +22,7 @@ fn custody_modes_enforce_explicit_selection_and_reject_cwd_fallback() {
         "auth-owner-1",
         CustodyMode::Durable,
         CustodyBackend::EncryptedFile,
-        CustodyLimits::default(),
+        StoreCustodyLimits::default(),
     );
     store.save_record(&record).expect("save durable record");
 
@@ -47,7 +47,7 @@ fn pause_resume_corruption_bounds_and_cleanup_preserve_unrelated_files() {
     let store_path = dir.path().join("bounded.enc");
     let mut store = CustodyStore::open_durable(&store_path, [0x44; 32]).expect("open");
 
-    let limits = CustodyLimits {
+    let limits = StoreCustodyLimits {
         max_retained_messages: 2,
         max_stored_bytes: 128,
     };

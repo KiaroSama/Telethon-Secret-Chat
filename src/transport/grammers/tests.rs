@@ -37,17 +37,16 @@ async fn transport_fixture() -> (Arc<MemorySession>, SenderPool, GrammersTranspo
     let pool = SenderPool::new(session.clone(), 1);
     let client = Client::new(pool.handle.clone());
     let (_, key_tag) = client.authorization_key_tag().unwrap().unwrap();
-    let transport = GrammersTransport {
-        client,
+    let mut transport = GrammersTransport::new(client);
+    transport.core_binding = Some(Arc::new(CoreBinding {
         authorization: Authorization {
             user_id: 10,
             key_tag,
             dc_id,
         },
         identity: "synthetic-client-binding".into(),
-        chats: Arc::default(),
-        dh: Arc::default(),
-    };
+        generation: "fixture".into(),
+    }));
     (session, pool, transport)
 }
 
@@ -119,7 +118,7 @@ async fn replaced_client_authorization_is_rejected_before_any_rpc() {
     let mut option = session.dc_option(dc_id).unwrap().unwrap();
     option.auth_key = Some([0x32; 256]);
     session.set_dc_option(&option).await.unwrap();
-    let result = tokio::time::timeout(Duration::from_millis(100), transport.verified_binding())
+    let result = tokio::time::timeout(Duration::from_millis(100), transport.verified_binding_id())
         .await
         .expect("a changed local authorization must be rejected before an RPC");
     assert!(matches!(
@@ -142,9 +141,10 @@ async fn removed_key_or_changed_home_dc_is_rejected_before_any_rpc() {
             option.auth_key = None;
             session.set_dc_option(&option).await.unwrap();
         }
-        let result = tokio::time::timeout(Duration::from_millis(100), transport.verified_binding())
-            .await
-            .expect("an invalid local binding must be rejected before an RPC");
+        let result =
+            tokio::time::timeout(Duration::from_millis(100), transport.verified_binding_id())
+                .await
+                .expect("an invalid local binding must be rejected before an RPC");
         assert!(matches!(
             result,
             Err(SecretChatError::ParameterRejected { .. })
@@ -153,10 +153,31 @@ async fn removed_key_or_changed_home_dc_is_rejected_before_any_rpc() {
 }
 
 #[tokio::test]
+async fn native_manager_rejects_key_replacement_on_the_next_rpc() {
+    let (session, _pool, core) = transport_fixture().await;
+    let transport = GrammersTransport::new(core.client().clone());
+    let original = core.core_binding().unwrap().authorization.clone();
+    assert!(
+        transport
+            .managed_authorization
+            .set(original.clone())
+            .is_ok()
+    );
+    let mut option = session.dc_option(original.dc_id).unwrap().unwrap();
+    option.auth_key = Some([0x32; 256]);
+    session.set_dc_option(&option).await.unwrap();
+
+    let result = tokio::time::timeout(Duration::from_millis(100), transport.dh_config())
+        .await
+        .expect("changed local key must be rejected before dispatch");
+    assert!(matches!(result, Err(crate::error::Error::Transport)));
+}
+
+#[tokio::test]
 async fn unchanged_client_authorization_proceeds_to_remote_verification() {
     let (_session, _pool, transport) = transport_fixture().await;
     assert!(
-        tokio::time::timeout(Duration::from_millis(100), transport.verified_binding())
+        tokio::time::timeout(Duration::from_millis(100), transport.verified_binding_id())
             .await
             .is_err(),
         "an unchanged local key still requires remote authorization verification"

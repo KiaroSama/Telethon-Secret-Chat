@@ -1,0 +1,69 @@
+{
+  "legacy_case": "tests/test_tdexport_model.py::test_parse_text_splits_entities_on_utf16_offsets",
+  "traces": [
+    {
+      "function": "model.parse_text",
+      "args": [
+        "😀 bold end",
+        [
+          {
+            "_": "MessageEntityBold",
+            "offset": 3,
+            "length": 4
+          },
+          {
+            "_": "MessageEntityBold",
+            "offset": 2,
+            "length": 1
+          },
+          {
+            "_": "MessageEntityCustomEmoji",
+            "offset": 0,
+            "length": 2,
+            "document_id": 77
+          }
+        ]
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": [
+        {
+          "text": "😀 ",
+          "additional": "",
+          "kind": "text"
+        },
+        {
+          "text": "bold",
+          "additional": "",
+          "kind": "bold"
+        },
+        {
+          "text": " end",
+          "additional": "",
+          "kind": "text"
+        }
+      ],
+      "after": [
+        "😀 bold end",
+        [
+          {
+            "_": "MessageEntityBold",
+            "offset": 3,
+            "length": 4
+          },
+          {
+            "_": "MessageEntityBold",
+            "offset": 2,
+            "length": 1
+          },
+          {
+            "_": "MessageEntityCustomEmoji",
+            "offset": 0,
+            "length": 2,
+            "document_id": 77
+          }
+        ]
+      ]
+    }
+  ]
+}

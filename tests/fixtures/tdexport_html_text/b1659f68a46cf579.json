@@ -1,0 +1,17 @@
+{
+  "legacy_case": "tests/test_tdexport_html_text.py::test_safe_message_href_follows_qurl[https://a.com/%7e%3f%d8%a7-https://a.com/~%3F%D8%A7]",
+  "traces": [
+    {
+      "function": "html_safe.safe_message_href",
+      "args": [
+        "https://a.com/%7e%3f%d8%a7"
+      ],
+      "kwargs": {},
+      "timezone": "UTC",
+      "result": "https://a.com/~%3F%D8%A7",
+      "after": [
+        "https://a.com/%7e%3f%d8%a7"
+      ]
+    }
+  ]
+}

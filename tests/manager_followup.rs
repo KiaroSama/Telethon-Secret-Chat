@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use kiaro_secret_chat::errors::SecretChatError;
-use kiaro_secret_chat::manager::{BoxFuture, SecretChatManager, SecretEvent, SecretTransport};
+use kiaro_secret_chat::manager::{BoxFuture, CoreSecretChatManager, SecretEvent, SecretTransport};
 use kiaro_secret_chat::protocol::{ChatRole, SecretChat};
 use serde_json::json;
 use tokio::sync::{Mutex, Notify};
@@ -63,7 +63,7 @@ impl SecretTransport for ScheduledTransport {
 
 async fn replay_while_sending(fail_original: bool, duplicate_during_replay: bool) {
     let transport = Arc::new(ScheduledTransport::default());
-    let alice = Arc::new(SecretChatManager::new(transport.clone()));
+    let alice = Arc::new(CoreSecretChatManager::new(transport.clone()));
     alice
         .register_established_chat(9, 10, 11, ChatRole::Initiator, &KEY)
         .await
