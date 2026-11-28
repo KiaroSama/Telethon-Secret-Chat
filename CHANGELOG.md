@@ -5,6 +5,17 @@ package by commit and reads this file before moving its pin. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/) with the pre-1.0 rule that a minor bump may break.
 
+## [Unreleased]
+
+### Fixed
+
+- Revisit deferred durable ingress after a later batch establishes its chat.
+  Strong-mode `accept`, `create`, and `resume_chat` also wake retained input after
+  completion, failure, or cancellation. Replay stops when no row progresses,
+  preserves paused and uncertain-creation custody, and remains owned by the
+  manager for shutdown.
+  See the [readiness recheck](docs/audits/2026-11-28-v060-readiness.md).
+
 ## [0.6.0] - 2026-11-28
 
 ### Changed (Breaking on 0.x)

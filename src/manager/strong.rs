@@ -159,53 +159,55 @@ impl<T: Transport> StrongSecretChatManager<T> {
     }
     /// Share one owned, finite replay task across concurrent wakeups.
     pub async fn drain_ingress(&self) -> Result<()> {
+        let runtime =
+            tokio::runtime::Handle::try_current().map_err(|_| Error::IngressUnavailable)?;
+        self.enqueue_replay(&runtime)?.wait().await
+    }
+    fn enqueue_replay(&self, runtime: &tokio::runtime::Handle) -> Result<Arc<Shutdown>> {
+        let mut slot = self.inner.replay.lock().map_err(|_| Error::Storage)?;
+        // Shutdown either fences admission first or owns the task published here.
         self.ready()?;
-        let job = {
-            let mut slot = self.inner.replay.lock().map_err(|_| Error::Storage)?;
-            if let Some(replay) = slot.as_mut().filter(|replay| !done(&replay.completion)) {
-                replay.requested = true;
-                Arc::clone(&replay.completion)
-            } else {
-                let job = completion(self.inner.manager.inner.generation.load(Ordering::Acquire));
-                let finished = Arc::clone(&job);
-                let manager = self.clone();
-                let seconds = self.inner.ingress.limits()?.operation_seconds;
-                let task = tokio::spawn(async move {
-                    let result = match tokio::time::timeout(
-                        Duration::from_secs_f64(seconds),
-                        manager.replay_requested(&finished),
-                    )
-                    .await
-                    {
-                        Ok(result) => result,
-                        Err(_) => Err(Error::IngressUnavailable),
-                    };
-                    if result.is_err() {
-                        tracing::warn!("Committed ingress replay awaits recovery");
-                    }
-                    complete(&finished, result);
-                });
-                let id = task.id();
-                *slot = Some(Replay {
-                    completion: Arc::clone(&job),
-                    task: Some(task),
-                    id,
-                    requested: false,
-                });
-                job
+        if let Some(replay) = slot.as_mut().filter(|replay| !done(&replay.completion)) {
+            replay.requested = true;
+            return Ok(Arc::clone(&replay.completion));
+        }
+        let job = completion(self.inner.manager.inner.generation.load(Ordering::Acquire));
+        let finished = Arc::clone(&job);
+        let manager = self.clone();
+        let seconds = self.inner.ingress.limits()?.operation_seconds;
+        let task = runtime.spawn(async move {
+            let result = match tokio::time::timeout(
+                Duration::from_secs_f64(seconds),
+                manager.replay_requested(&finished),
+            )
+            .await
+            {
+                Ok(result) => result,
+                Err(_) => Err(Error::IngressUnavailable),
+            };
+            if result.is_err() {
+                tracing::warn!("Committed ingress replay awaits recovery");
             }
-        };
-        job.wait().await
+            complete(&finished, result);
+        });
+        let id = task.id();
+        *slot = Some(Replay {
+            completion: Arc::clone(&job),
+            task: Some(task),
+            id,
+            requested: false,
+        });
+        Ok(job)
     }
     async fn replay_requested(&self, job: &Arc<Shutdown>) -> Result<()> {
         loop {
-            self.replay().await?;
+            let progressed = self.replay().await?;
             let mut slot = self.inner.replay.lock().map_err(|_| Error::Storage)?;
             let replay = slot
                 .as_mut()
                 .filter(|replay| Arc::ptr_eq(&replay.completion, job))
                 .ok_or(Error::ManagerStopping)?;
-            if std::mem::take(&mut replay.requested) {
+            if std::mem::take(&mut replay.requested) || progressed {
                 drop(slot);
                 continue;
             }
@@ -225,22 +227,14 @@ impl<T: Transport> StrongSecretChatManager<T> {
             !slots.is_empty() || manager.creating.load(Ordering::Acquire) > 0,
         )
     }
-    async fn replay(&self) -> Result<()> {
+    async fn replay(&self) -> Result<bool> {
         self.ready()?;
+        let mut progressed = false;
         for batch in self.inner.ingress.pending_batches()? {
             let output = batch.updates()?;
             for (index, (update, _peers)) in output.0.into_iter().enumerate() {
                 self.ready()?;
-                let Some(row) = self
-                    .inner
-                    .ingress
-                    .pending_batches()?
-                    .into_iter()
-                    .find(|row| row.id == batch.id)
-                else {
-                    break;
-                };
-                if index < row.cursor || row.applied.contains(&index) {
+                if self.inner.ingress.row_applied(batch.id, index)? {
                     continue;
                 }
                 let id = match &update {
@@ -253,6 +247,7 @@ impl<T: Transport> StrongSecretChatManager<T> {
                 };
                 let Some(id) = id else {
                     self.inner.ingress.acknowledge_nonsecret(batch.id, index)?;
+                    progressed = true;
                     continue;
                 };
                 if id == 0 {
@@ -261,6 +256,7 @@ impl<T: Transport> StrongSecretChatManager<T> {
                 let is_message = matches!(&update, tl::enums::Update::NewEncryptedMessage(_));
                 if is_message {
                     if !self.message_ready(batch.id, index)? {
+                        progressed |= self.inner.ingress.row_applied(batch.id, index)?;
                         continue;
                     }
                 } else if self.inner.manager.status(id).is_ok()
@@ -290,6 +286,7 @@ impl<T: Transport> StrongSecretChatManager<T> {
                             .acknowledge_unknown_discarded(batch.id, index, false)?;
                         Ok(true)
                     })?;
+                    progressed |= settled;
                     if !settled && let tl::enums::Update::Encryption(update) = update {
                         // A request RPC may still reveal this chat ID. Keep its terminal
                         // update unacknowledged, while allowing healthy later rows to run.
@@ -328,17 +325,12 @@ impl<T: Transport> StrongSecretChatManager<T> {
                         }
                     })
                     .await?;
-                let applied = self
-                    .inner
-                    .ingress
-                    .pending_batches()?
-                    .into_iter()
-                    .find(|row| row.id == batch.id)
-                    .is_none_or(|row| index < row.cursor || row.applied.contains(&index));
+                let applied = self.inner.ingress.row_applied(batch.id, index)?;
                 if is_message && matches!(result, Err(Error::Storage | Error::InvalidState)) {
-                    return result;
+                    return result.map(|()| progressed);
                 }
                 if applied {
+                    progressed = true;
                     continue;
                 }
                 let deferred = if is_message {
@@ -350,13 +342,16 @@ impl<T: Transport> StrongSecretChatManager<T> {
                         .is_ok_and(|status| status.paused)
                 };
                 if deferred {
+                    if is_message {
+                        progressed |= self.inner.ingress.row_applied(batch.id, index)?;
+                    }
                     continue;
                 }
                 return Err(result.err().unwrap_or(Error::IngressUnavailable));
             }
             self.inner.ingress.prune_completed()?;
         }
-        Ok(())
+        Ok(progressed)
     }
     /// Fence ACKs, cancel and join replay, then release the protocol writer.
     pub async fn stop(&self) -> Result<()> {
@@ -438,6 +433,57 @@ impl<T: Transport> StrongSecretChatManager<T> {
             complete(&job, Err(Error::IngressUnavailable));
         }
         self.inner.manager.stop().await
+    }
+}
+struct ReplayWake<'a, T: Transport> {
+    manager: &'a StrongSecretChatManager<T>,
+    runtime: tokio::runtime::Handle,
+    nested: bool,
+    armed: bool,
+}
+impl<'a, T: Transport> ReplayWake<'a, T> {
+    fn new(manager: &'a StrongSecretChatManager<T>) -> Result<Self> {
+        Ok(Self {
+            manager,
+            runtime: tokio::runtime::Handle::try_current()
+                .map_err(|_| Error::IngressUnavailable)?,
+            nested: runtime::nested(Arc::as_ptr(&manager.inner.manager.inner) as usize),
+            armed: true,
+        })
+    }
+    async fn finish<R>(mut self, result: Result<R>) -> Result<R> {
+        self.armed = false;
+        let replay = match self.manager.enqueue_replay(&self.runtime) {
+            // An inline callback can still hold the outer operation's guards.
+            Ok(_) if self.nested => Ok(()),
+            Ok(job) => job.wait().await,
+            Err(error) => {
+                if result.is_err() {
+                    self.log_refused();
+                }
+                Err(error)
+            }
+        };
+        match result {
+            Err(error) => Err(error),
+            Ok(value) => replay.map(|()| value),
+        }
+    }
+    fn log_refused(&self) {
+        if self.manager.inner.stopping.load(Ordering::Acquire) {
+            tracing::debug!("Ingress replay wake refused during shutdown");
+        } else {
+            tracing::warn!("Ingress replay wake refused; committed work awaits recovery");
+        }
+    }
+}
+impl<T: Transport> Drop for ReplayWake<'_, T> {
+    fn drop(&mut self) {
+        // The base future drops its guards first. Fenced shutdown refuses
+        // this wake; otherwise the existing replay slot owns the new task.
+        if self.armed && self.manager.enqueue_replay(&self.runtime).is_err() {
+            self.log_refused();
+        }
     }
 }
 struct StrongStopCaller<'a> {
