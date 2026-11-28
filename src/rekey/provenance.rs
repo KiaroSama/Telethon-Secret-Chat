@@ -112,7 +112,7 @@ pub(crate) fn validate_provenance(chat: &Chat) -> Result<()> {
     let preceding = chat
         .previous_key
         .as_ref()
-        .or_else(|| if accepted { chat.key.as_ref() } else { None });
+        .or(if accepted { chat.key.as_ref() } else { None });
     for &raw in chat.gaps.keys() {
         let fingerprint = buffered_fingerprint(chat, raw)?;
         if select_key(chat, fingerprint).is_none() {

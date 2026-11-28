@@ -177,11 +177,11 @@ jobs:
           log INFO 'Building and executing native targets plus documentation tests'
           if [ "$BUILD_PROFILE" = release ]; then
             cargo build --locked --all-targets --release
-            cargo test --locked --all-targets --release -- --test-threads=2 2>&1 | tee rust-tests.txt
+            cargo test --locked --all-targets --release --no-fail-fast -- --test-threads=2 2>&1 | tee rust-tests.txt
             cargo test --locked --doc --release 2>&1 | tee -a rust-tests.txt
           else
             cargo build --locked --all-targets
-            cargo test --locked --all-targets -- --test-threads=2 2>&1 | tee rust-tests.txt
+            cargo test --locked --all-targets --no-fail-fast -- --test-threads=2 2>&1 | tee rust-tests.txt
             cargo test --locked --doc 2>&1 | tee -a rust-tests.txt
           fi
       - name: Build and test (Windows)
@@ -193,7 +193,7 @@ jobs:
           Write-CiLog INFO 'Building and executing native targets plus documentation tests'
           cargo build --locked --all-targets --release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo test --locked --all-targets --release -- --test-threads=2 2>&1 | Tee-Object -FilePath rust-tests.txt
+          cargo test --locked --all-targets --release --no-fail-fast -- --test-threads=2 2>&1 | Tee-Object -FilePath rust-tests.txt
           $cargoStatus = $LASTEXITCODE
           if ($cargoStatus -ne 0) { exit $cargoStatus }
           cargo test --locked --doc --release 2>&1 | Tee-Object -FilePath rust-tests.txt -Append

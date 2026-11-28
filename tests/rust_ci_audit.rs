@@ -3,7 +3,7 @@
 #[path = "../src/bin/matrix-evidence.rs"]
 mod gate;
 #[allow(dead_code)]
-#[path = "../src/bin/migration-audit.rs"]
+#[path = "../src/bin/migration-audit/partitions.rs"]
 mod migration;
 #[allow(dead_code)]
 #[path = "../tools/secret-scan/src/main.rs"]

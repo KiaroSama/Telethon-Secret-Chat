@@ -89,8 +89,10 @@ fn smooth_scale_down_x_only() {
 }
 #[test]
 fn smooth_scale_up_interpolates_and_truncates() {
-    // A one-byte source must be refused before a multi-gigabyte expansion.
-    assert!(smooth_scale(&[0], 1, 1, 1, 10000, 10000).is_err());
+    // A small wide source must be refused before a multi-gigabyte intermediate.
+    // Direct final-byte output makes the former one-byte grayscale case fit.
+    let wide_source = vec![0; 10000 * 4];
+    assert!(smooth_scale(&wide_source, 10000, 1, 4, 10000, 10000).is_err());
 
     assert_eq!(
         smooth_scale(&[0, 0, 0, 200, 200, 200], 2, 1, 3, 4, 1).unwrap(),

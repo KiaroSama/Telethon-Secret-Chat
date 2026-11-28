@@ -41,8 +41,19 @@ fn queued_echo_commits_in_sequence_order() {
 fn drained_gap_rechecks_predecessor_echo() {
     let mut c = chat(true, 5);
     sequence::accept(&mut c, envelope(2, 1, 144, true)).unwrap();
-    sequence::accept(&mut c, envelope(0, 2, 144, true)).unwrap();
-    assert!(sequence::accept(&mut c, envelope(1, 2, 144, true)).is_err());
+    let before = serde_json::to_value(&c).unwrap();
+    // Reject the contradiction before committing its predecessor, not only at drain.
+    assert!(sequence::accept(&mut c, envelope(0, 2, 144, true)).is_err());
+    assert!(serde_json::to_value(&c).unwrap() == before);
+    sequence::accept(&mut c, envelope(0, 1, 144, true)).unwrap();
+    assert_eq!(
+        sequence::accept(&mut c, envelope(1, 1, 144, true))
+            .unwrap()
+            .ready
+            .len(),
+        2
+    );
+    assert_eq!(c.peer_in_seq_no, 1);
 }
 #[test]
 fn second_hole_gets_new_wire_span() {
