@@ -215,6 +215,16 @@ impl<T: Transport> StrongSecretChatManager<T> {
             return Ok(());
         }
     }
+    fn message_ready(&self, batch: u64, index: usize) -> Result<bool> {
+        let manager = &self.inner.manager.inner;
+        // Keep creation admission locked until the journal makes its decision.
+        let slots = manager.creation_slots.lock().map_err(|_| Error::Storage)?;
+        self.inner.ingress.message_ready(
+            batch,
+            index,
+            !slots.is_empty() || manager.creating.load(Ordering::Acquire) > 0,
+        )
+    }
     async fn replay(&self) -> Result<()> {
         self.ready()?;
         for batch in self.inner.ingress.pending_batches()? {
@@ -248,7 +258,12 @@ impl<T: Transport> StrongSecretChatManager<T> {
                 if id == 0 {
                     return Err(Error::IngressUnavailable);
                 }
-                if self.inner.manager.status(id).is_ok()
+                let is_message = matches!(&update, tl::enums::Update::NewEncryptedMessage(_));
+                if is_message {
+                    if !self.message_ready(batch.id, index)? {
+                        continue;
+                    }
+                } else if self.inner.manager.status(id).is_ok()
                     && self.inner.manager.pause_status(id)?.paused
                 {
                     continue;
@@ -320,15 +335,24 @@ impl<T: Transport> StrongSecretChatManager<T> {
                     .into_iter()
                     .find(|row| row.id == batch.id)
                     .is_none_or(|row| index < row.cursor || row.applied.contains(&index));
-                if !applied
-                    && !self
-                        .inner
+                if is_message && matches!(result, Err(Error::Storage | Error::InvalidState)) {
+                    return result;
+                }
+                if applied {
+                    continue;
+                }
+                let deferred = if is_message {
+                    !self.message_ready(batch.id, index)?
+                } else {
+                    self.inner
                         .manager
                         .pause_status(id)
                         .is_ok_and(|status| status.paused)
-                {
-                    return Err(result.err().unwrap_or(Error::IngressUnavailable));
+                };
+                if deferred {
+                    continue;
                 }
+                return Err(result.err().unwrap_or(Error::IngressUnavailable));
             }
             self.inner.ingress.prune_completed()?;
         }

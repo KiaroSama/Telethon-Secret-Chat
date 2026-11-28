@@ -15,6 +15,8 @@ mod compile_boundary;
 use crate::test_support::support as fake;
 mod fixture;
 pub(super) mod review;
+#[path = "strong_replay_tests.rs"]
+mod strong_replay_tests;
 mod surface;
 use compile_boundary::compile_api;
 use fixture::*;

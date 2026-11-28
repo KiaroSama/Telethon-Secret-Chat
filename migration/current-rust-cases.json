@@ -2092,6 +2092,8 @@
     "unittests src/lib.rs::ingress::strong_tests::signed_secret_chat_id_for_strong_replay_must_be_nonzero",
     "unittests src/lib.rs::ingress::strong_tests::signed_secret_chat_id_for_unknown_discard_must_be_nonzero",
     "unittests src/lib.rs::ingress::strong_tests::stop_joins_replay_before_unlock_and_refuses_replay_self_join",
+    "unittests src/lib.rs::ingress::strong_tests::strong_replay_tests::startup_replay_defers_nonready_rows_until_chat_is_ready",
+    "unittests src/lib.rs::ingress::strong_tests::strong_replay_tests::startup_replay_retires_terminal_rows_and_recovers_healthy_chat",
     "unittests src/lib.rs::ingress::strong_tests::unprepared_original_client_cannot_construct_strong_manager",
     "unittests src/lib.rs::ingress::tests::caller_difference_is_captured_before_result_and_delivered_by_existing_receiver",
     "unittests src/lib.rs::ingress::tests::caller_difference_wakes_receiver_already_waiting_for_live_input",

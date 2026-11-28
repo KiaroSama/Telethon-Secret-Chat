@@ -4,6 +4,7 @@ use super::{
 };
 use crate::{
     binding::AuthorizationBinding,
+    chat::ChatState,
     crypto::random_bytes,
     custody::IngressLimits,
     error::{Error, Result},
@@ -62,6 +63,20 @@ impl Core {
         self.state = state;
         self.ledger = ledger;
         Ok(())
+    }
+    fn mark_row(&mut self, batch: u64, index: usize, update: &tl::enums::Update) -> Result<()> {
+        let hash = sha2::Sha256::digest(update.to_bytes()).into();
+        let mut ledger = self.ledger.clone();
+        ledger.mark(batch, index, &hash)?;
+        self.persist(self.state.clone(), ledger)
+    }
+    fn creation_pending(&self, creating: bool) -> bool {
+        creating
+            || self
+                .state
+                .private_records
+                .keys()
+                .any(|name| name.starts_with("pending-create/"))
     }
     pub(super) fn capture(
         &mut self,
@@ -282,6 +297,43 @@ impl DurableIngress {
     pub fn limits(&self) -> Result<IngressLimits> {
         Ok(self.core.lock().map_err(|_| Error::Storage)?.limits.clone())
     }
+    /// Check a committed encrypted message and retire it atomically if terminal.
+    pub(crate) fn message_ready(&self, batch: u64, index: usize, creating: bool) -> Result<bool> {
+        let mut core = self.core.lock().map_err(|_| Error::Storage)?;
+        if core.stopped || core.released || core.failed {
+            return Err(Error::IngressUnavailable);
+        }
+        let row = core
+            .ledger
+            .batches
+            .iter()
+            .find(|row| row.id == batch)
+            .ok_or(Error::InvalidState)?;
+        let output = row.updates()?;
+        let update = &output.0.get(index).ok_or(Error::InvalidState)?.0;
+        let tl::enums::Update::NewEncryptedMessage(message) = update else {
+            return Err(Error::IngressUnavailable);
+        };
+        let id = match &message.message {
+            tl::enums::EncryptedMessage::Message(message) => message.chat_id,
+            tl::enums::EncryptedMessage::Service(message) => message.chat_id,
+        };
+        if id == 0 {
+            return Err(Error::IngressUnavailable);
+        }
+        match core.state.chats.get(&id) {
+            Some(chat) if chat.state == ChatState::Closed => {}
+            Some(chat) => {
+                return Ok(
+                    !chat.paused && matches!(chat.state, ChatState::Ready | ChatState::Rekeying)
+                );
+            }
+            None if core.creation_pending(creating) => return Ok(false),
+            None => {}
+        }
+        core.mark_row(batch, index, update)?;
+        Ok(false)
+    }
     /// Non-secret updates have no secret-protocol mutation to couple. This does
     /// not settle any external cloud-send/callback obligation.
     pub fn acknowledge_nonsecret(&self, batch: u64, index: usize) -> Result<()> {
@@ -317,7 +369,7 @@ impl DurableIngress {
         let output = row.updates()?;
         let update = &output.0.get(index).ok_or(Error::InvalidState)?.0;
         if terminal {
-            if creating {
+            if core.creation_pending(creating) {
                 return Err(Error::IngressUnavailable);
             }
             match update {
@@ -334,11 +386,7 @@ impl DurableIngress {
         ) {
             return Err(Error::IngressUnavailable);
         }
-        let hash = sha2::Sha256::digest(update.to_bytes()).into();
-        let mut ledger = core.ledger.clone();
-        ledger.mark(batch, index, &hash)?;
-        let state = core.state.clone();
-        core.persist(state, ledger)
+        core.mark_row(batch, index, update)
     }
     pub fn fence(&self) -> Result<()> {
         let mut core = self.core.lock().map_err(|_| Error::Storage)?;

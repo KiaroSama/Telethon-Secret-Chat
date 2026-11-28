@@ -44,7 +44,7 @@ Add the crate to a Rust application by Git tag or commit:
 
 ```toml
 [dependencies]
-kiaro-secret-chat = { git = "https://github.com/KiaroSama/Grammers-Secret-Chat.git", tag = "v0.5.0" }
+kiaro-secret-chat = { git = "https://github.com/KiaroSama/Grammers-Secret-Chat.git", tag = "v0.6.0" }
 ```
 
 Read the [integration and upgrade boundaries](docs/integration-boundaries.md), including the `v0.5.0` authorization binding `v2` change and explicit offline migration helpers, before opening an existing `v1` store.

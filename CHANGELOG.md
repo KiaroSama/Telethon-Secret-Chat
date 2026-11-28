@@ -5,6 +5,37 @@ package by commit and reads this file before moving its pin. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/) with the pre-1.0 rule that a minor bump may break.
 
+## [0.6.0] - 2026-11-28
+
+### Changed (Breaking on 0.x)
+
+- `Chat` adds three public fields: `incoming_key_cutover`, `accepted_exchange`,
+  and `gap_key_fingerprints`. They record which rekey key authenticated each
+  buffered message across sequence gaps and restarts (PR #54, F01). Update
+  complete struct literals and exhaustive patterns. The loader refuses legacy
+  two-key snapshots with gaps and no authentication provenance without changing
+  the stored file.
+
+### Fixed
+
+- PR #54 (F01 through F09): retain rekey authentication provenance across gaps
+  and restarts, preserve `Error::Fingerprint`, and scrub rekey state on closure.
+  Validate buffered neighbors' ACKs and layers before sending an immediate
+  `Resend`. Allow the terminal sequence count `i32::MAX / 2 + 1`.
+- Reject duplicate keys and numeric key aliases in persisted and migrated stores.
+  Native `FileStorage` requires an empty, regular lockfile.
+- Check account binding on every chunk of native media uploads and both RAM and
+  disk downloads. Require staged export downloads to match the declared length
+  exactly before publishing them.
+- Enforce the cross-platform verification matrix with 2,258 test identities.
+  Restore Rust code generation via `generate-schema --output` alongside JSON
+  output via `--out`.
+- On startup, `StrongSecretChatManager` and `DurableIngress` retire
+  stale encrypted message rows for explicitly `Closed` or permanently absent
+  chats without failing `start()`, so healthy chats can recover. `Requested` and
+  `Waiting` rows stay pending until ready. Paused custody, including pauses that
+  cannot resume, and `UpdateEncryption` handling are unchanged.
+
 ## [0.5.0] - 2026-11-28
 
 ### Added

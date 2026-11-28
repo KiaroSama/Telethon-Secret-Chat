@@ -1,7 +1,26 @@
 # Integration and upgrade boundaries
 
-These contracts describe the current source, including the unreleased corrections
-after `v0.4.0`. The immutable release tag retains its original behavior.
+These contracts describe `v0.6.0`. Earlier release tags retain their original
+behavior.
+
+## Upgrading to `v0.6.0`
+
+`Chat` now exposes `incoming_key_cutover`, `accepted_exchange`, and
+`gap_key_fingerprints` so rekey authentication survives sequence gaps and
+restarts. Update complete `Chat` struct literals and exhaustive patterns. Back
+up your store before upgrading. If you must downgrade, restore the pre-upgrade
+backup: older versions do not enforce the provenance recorded by `v0.6.0`.
+
+A legacy snapshot with one key and buffered gaps remains readable. If a legacy
+snapshot has two keys, buffered gaps, and no provenance identifying which key
+verified each message, `v0.6.0` refuses to open it and leaves the file unchanged.
+
+At startup, `StrongSecretChatManager` uses `DurableIngress` to retire
+stale encrypted message rows for explicitly closed chats or absent chats with
+no pending creation. Those rows no longer stop other chats from recovering.
+Rows for `Requested` and `Waiting` chats stay pending until the chat is ready.
+Replay preserves paused custody, including pauses that cannot resume, and
+continues to process `UpdateEncryption` as before.
 
 ## Authorization ownership
 

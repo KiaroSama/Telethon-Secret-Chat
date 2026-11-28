@@ -1,6 +1,6 @@
 # Grammers Secret Chat architecture and contracts
 
-This page describes the compiled Rust implementation in `kiaro-secret-chat` (`v0.5.0`). The library uses the caller-owned vendored `Lonami/grammers` Layer 234 client with zero Python or PyO3 runtime dependencies, and generates typed end-to-end TL `types` and `enums` from the bundled schema via `build.rs`. First-party Rust forbids unsafe code; image processing uses the native `mozjpeg` C dependency. The current feature boundaries are documented in [integration boundaries](integration-boundaries.md).
+This page describes the compiled Rust implementation in `kiaro-secret-chat` (`v0.6.0`). The library uses the caller-owned vendored `Lonami/grammers` Layer 234 client with zero Python or PyO3 runtime dependencies, and generates typed end-to-end TL `types` and `enums` from the bundled schema via `build.rs`. First-party Rust forbids unsafe code; image processing uses the native `mozjpeg` C dependency. The current feature boundaries are documented in [integration boundaries](integration-boundaries.md).
 
 The generated `LAYER` constant and `framing::MAX_LAYER` are both 144, the Secret Chat capability ceiling. The bundled schema also contains additional end-to-end data families; generating those types does not imply that this manager transports group calls. The outer Grammers API layer 234 is separate from Secret Chat negotiation. See the [official end-to-end schema](https://core.telegram.org/schema/end-to-end).
 
