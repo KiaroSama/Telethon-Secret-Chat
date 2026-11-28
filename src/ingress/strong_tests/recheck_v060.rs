@@ -112,6 +112,7 @@ async fn establishment_revisits_deferred_message(same_batch: bool) {
     let (held, established) = install_waiting(&f);
     let (tx, mut receiver) = test_fixture::receiver(&f.ingress, &f.pool).await;
     if same_batch {
+        // The SDK sorts establishment before qts-bearing messages in this envelope.
         test_fixture::capture(&mut receiver, &tx, envelope(vec![held, established], 2)).await;
     } else {
         test_fixture::capture(&mut receiver, &tx, envelope(vec![held], 2)).await;
@@ -281,13 +282,17 @@ fn observe_readiness_delivery(f: &Fixture) -> Arc<tokio::sync::Notify> {
 async fn await_owned_readiness_replay(f: &Fixture, delivered: &tokio::sync::Notify) {
     soon(delivered.notified()).await;
     // Observe the owned replay finishing; do not provide a new drain wakeup.
+    await_empty_ingress(f).await;
+    one_receipt(&f.manager);
+}
+
+async fn await_empty_ingress(f: &Fixture) {
     soon(async {
         while !f.ingress.pending_batches().unwrap().is_empty() {
             tokio::task::yield_now().await;
         }
     })
     .await;
-    one_receipt(&f.manager);
 }
 
 fn assert_initial_layer_still_pending(f: &Fixture, attempt: &SendEffect) {
@@ -356,6 +361,205 @@ async fn cancelled_acceptance_wakes_ready_input_and_keeps_pending_send() {
     f.world.lock().unwrap().send_gate = None;
     accepting.abort();
     assert!(soon(accepting).await.unwrap_err().is_cancelled());
+    assert_eq!(f.world.lock().unwrap().active_sends, 0);
+    assert_initial_layer_still_pending(&f, &attempt);
+    await_owned_readiness_replay(&f, &delivered).await;
+    assert_initial_layer_still_pending(&f, &attempt);
+    check_repeat_and_restart(&f).await;
+}
+
+async fn creation_admission_retires_held_absent_row(cancel: bool) {
+    let f = started().await;
+    let gate = Arc::new(fake::Gate::default());
+    f.world.lock().unwrap().dh_gate = Some(Arc::clone(&gate));
+    let manager = f.manager.clone();
+    let creating = tokio::spawn(async move { manager.create(fake::peer(2000)).await });
+    soon(gate.entered.notified()).await;
+    capture(&f, vec![update(999, 41, 94, vec![])], 2).await;
+    soon(f.manager.drain_ingress()).await.unwrap();
+    let batches = f.ingress.pending_batches().unwrap();
+    assert_eq!(batches.len(), 1);
+    assert_eq!(batches[0].cursor, 0);
+    assert!(batches[0].applied.is_empty());
+    {
+        let core = f.ingress.core.lock().unwrap();
+        assert!(core.state.chats.is_empty());
+        assert!(
+            core.state
+                .private_records
+                .keys()
+                .all(|name| !name.starts_with("pending-create/"))
+        );
+    }
+    f.world.lock().unwrap().dh_gate = None;
+    if cancel {
+        creating.abort();
+        assert!(soon(creating).await.unwrap_err().is_cancelled());
+    } else {
+        gate.release.notify_one();
+        let created = soon(creating).await.unwrap().unwrap();
+        assert_eq!(created.id, 7);
+        assert_eq!(created.state, ChatState::Requested);
+    }
+    // Completion or cancellation must release admission and own the retirement wake.
+    await_empty_ingress(&f).await;
+    assert!(f.manager.status(999).is_err());
+    {
+        let core = f.ingress.core.lock().unwrap();
+        assert!(
+            core.state
+                .private_records
+                .keys()
+                .all(|name| !name.starts_with("pending-create/"))
+        );
+        if cancel {
+            assert!(core.state.chats.is_empty());
+        } else {
+            assert_eq!(core.state.chats.len(), 1);
+            assert_eq!(core.state.chats[&7].state, ChatState::Requested);
+            assert_eq!(core.state.chats[&7].in_seq_no, 0);
+        }
+    }
+    let binding = f.ingress.binding().unwrap();
+    let path = f.dir.path().join("state/custody.bin");
+    soon(f.manager.stop()).await.unwrap();
+    let (recovered, ingress, _pool) = soon(reopen(&path, binding)).await;
+    assert!(ingress.pending_batches().unwrap().is_empty());
+    assert!(recovered.status(999).is_err());
+    if cancel {
+        assert!(recovered.list().unwrap().is_empty());
+    } else {
+        assert_eq!(recovered.status(7).unwrap().state, ChatState::Requested);
+        assert!(recovered.pending_deliveries(7).unwrap().is_empty());
+    }
+    soon(recovered.stop()).await.unwrap();
+}
+
+#[tokio::test]
+async fn completed_creation_retires_absent_row_held_by_admission() {
+    creation_admission_retires_held_absent_row(false).await;
+}
+
+#[tokio::test]
+async fn cancelled_creation_retires_absent_row_after_admission_drops() {
+    creation_admission_retires_held_absent_row(true).await;
+}
+
+#[test]
+fn acceptance_dropped_outside_runtime_wakes_input_after_reentry() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let f = runtime.block_on(started());
+    let (held, _) = install_waiting(&f);
+    runtime.block_on(async {
+        capture(&f, vec![held], 2).await;
+        soon(f.manager.drain_ingress()).await.unwrap();
+    });
+    assert!(f.manager.pending_deliveries(7).unwrap().is_empty());
+    let delivered = observe_readiness_delivery(&f);
+    let gate = Arc::new(fake::Gate::default());
+    {
+        let mut world = f.world.lock().unwrap();
+        world.fail_accept = Some(RpcFailure::AlreadyAccepted);
+        world.send_gate = Some(Arc::clone(&gate));
+    }
+    let manager = f.manager.clone();
+    let mut accepting = Box::pin(async move { manager.accept(7).await });
+    runtime.block_on(async {
+        soon(async {
+            tokio::select! {
+                _ = accepting.as_mut() => panic!("gated acceptance unexpectedly completed"),
+                _ = gate.entered.notified() => {}
+            }
+        })
+        .await;
+    });
+    let attempt = f.world.lock().unwrap().sent.last().unwrap().clone();
+    assert_initial_layer_still_pending(&f, &attempt);
+    f.world.lock().unwrap().send_gate = None;
+    // Cancellation occurs with no runtime entered; the guard retains its original handle.
+    assert!(tokio::runtime::Handle::try_current().is_err());
+    drop(accepting);
+    assert_eq!(f.world.lock().unwrap().active_sends, 0);
+    assert_initial_layer_still_pending(&f, &attempt);
+    runtime.block_on(async {
+        await_owned_readiness_replay(&f, &delivered).await;
+        assert_initial_layer_still_pending(&f, &attempt);
+        check_repeat_and_restart(&f).await;
+    });
+}
+
+async fn paused_ready_with_retained_input() -> (Fixture, SendEffect, Arc<tokio::sync::Notify>) {
+    let f = started().await;
+    let (held, _) = install_waiting(&f);
+    {
+        let mut world = f.world.lock().unwrap();
+        world.fail_accept = Some(RpcFailure::AlreadyAccepted);
+        world.fail_send = Some(RpcFailure::Transient);
+    }
+    let error = soon(f.manager.accept(7)).await.unwrap_err();
+    let attempt = f.world.lock().unwrap().sent.last().unwrap().clone();
+    assert_eq!(
+        error,
+        Error::SendPending {
+            chat_id: 7,
+            random_id: attempt.outgoing.random_id,
+            cause: PendingCause::Transport,
+        }
+    );
+    assert_initial_layer_still_pending(&f, &attempt);
+    f.manager.pause_chat(7).unwrap();
+    capture(&f, vec![held], 2).await;
+    soon(f.manager.drain_ingress()).await.unwrap();
+    assert!(f.manager.pause_status(7).unwrap().paused);
+    assert!(f.manager.pending_deliveries(7).unwrap().is_empty());
+    let batches = f.ingress.pending_batches().unwrap();
+    assert_eq!(batches.len(), 1);
+    assert_eq!(batches[0].cursor, 0);
+    assert!(batches[0].applied.is_empty());
+    let delivered = observe_readiness_delivery(&f);
+    (f, attempt, delivered)
+}
+
+#[tokio::test]
+async fn resume_send_error_keeps_error_and_wakes_unpaused_input() {
+    let (f, attempt, delivered) = paused_ready_with_retained_input().await;
+    f.world.lock().unwrap().fail_send = Some(RpcFailure::Transient);
+    let error = soon(f.manager.resume_chat(7)).await.unwrap_err();
+    assert_eq!(
+        error,
+        Error::SendPending {
+            chat_id: 7,
+            random_id: attempt.outgoing.random_id,
+            cause: PendingCause::Transport,
+        }
+    );
+    let retried = f.world.lock().unwrap().sent.last().unwrap().clone();
+    assert_eq!(retried.outgoing.random_id, attempt.outgoing.random_id);
+    assert_eq!(retried.outgoing.frame, attempt.outgoing.frame);
+    assert_initial_layer_still_pending(&f, &attempt);
+    await_owned_readiness_replay(&f, &delivered).await;
+    assert_initial_layer_still_pending(&f, &attempt);
+    check_repeat_and_restart(&f).await;
+}
+
+#[tokio::test]
+async fn cancelled_resume_wakes_unpaused_input_and_keeps_pending_send() {
+    let (f, attempt, delivered) = paused_ready_with_retained_input().await;
+    let gate = Arc::new(fake::Gate::default());
+    f.world.lock().unwrap().send_gate = Some(Arc::clone(&gate));
+    let manager = f.manager.clone();
+    let resuming = tokio::spawn(async move { manager.resume_chat(7).await });
+    soon(gate.entered.notified()).await;
+    let retried = f.world.lock().unwrap().sent.last().unwrap().clone();
+    assert_eq!(retried.outgoing.random_id, attempt.outgoing.random_id);
+    assert_eq!(retried.outgoing.frame, attempt.outgoing.frame);
+    assert_initial_layer_still_pending(&f, &attempt);
+    f.world.lock().unwrap().send_gate = None;
+    resuming.abort();
+    assert!(soon(resuming).await.unwrap_err().is_cancelled());
     assert_eq!(f.world.lock().unwrap().active_sends, 0);
     assert_initial_layer_still_pending(&f, &attempt);
     await_owned_readiness_replay(&f, &delivered).await;
