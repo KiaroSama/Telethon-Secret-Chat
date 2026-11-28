@@ -16,14 +16,30 @@ fn closed_legacy_record_scrubs_keys_and_queues_without_revival() {
     let path = dir.path().join("state.json");
     let mut store = FileStorage::open(&path).unwrap();
     let mut state = State::empty("11".repeat(32)).unwrap();
-    let mut c = chat(true, 1);
-    c.previous_key = Some(key());
-    c.gaps.insert(3, envelope(3, 0, 144, true));
-    state.chats.insert(7, c);
+    state.chats.insert(7, chat(true, 1));
     store.commit(&state).unwrap();
     drop(store);
     let mut old: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    // Create historical bytes only after the current writer has committed a
+    // valid snapshot. A live two-key gap without provenance must stay refused.
+    old["chats"]["7"]["previous_key"] =
+        serde_json::to_value(kiaro_secret_chat::crypto::SharedKey::from_slice(&[9; 256]).unwrap())
+            .unwrap();
+    old["chats"]["7"]["gaps"]["3"] = serde_json::to_value(envelope(3, 0, 144, true)).unwrap();
+    for field in [
+        "incoming_key_cutover",
+        "accepted_exchange",
+        "gap_key_fingerprints",
+    ] {
+        old["chats"]["7"].as_object_mut().unwrap().remove(field);
+    }
+    let live_legacy = serde_json::to_vec(&old).unwrap();
+    std::fs::write(&path, &live_legacy).unwrap();
+    let store = FileStorage::open(&path).unwrap();
+    assert!(store.load().is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), live_legacy);
+    drop(store);
     old["chats"]["7"]["state"] = "closed".into();
     std::fs::write(&path, serde_json::to_vec(&old).unwrap()).unwrap();
     let p = Protocol::open(FileStorage::open(&path).unwrap(), "11".repeat(32)).unwrap();
@@ -34,6 +50,9 @@ fn closed_legacy_record_scrubs_keys_and_queues_without_revival() {
             && closed.previous_key.is_none()
             && closed.gaps.is_empty()
             && closed.outbox.is_empty()
+            && closed.gap_key_fingerprints.is_empty()
+            && closed.incoming_key_cutover.is_none()
+            && closed.accepted_exchange.is_none()
     );
     drop(p);
     let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();

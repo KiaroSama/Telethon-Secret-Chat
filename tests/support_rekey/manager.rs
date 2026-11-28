@@ -420,7 +420,17 @@ pub async fn run(name: &str) {
                 c.closed_reason.unwrap().to_string(),
                 "rekey commitment failed its fingerprint check"
             );
-            assert_eq!(events.lock().unwrap().len(), 1);
+            assert!(
+                c.key.is_none()
+                    && c.previous_key.is_none()
+                    && c.exchange.is_none()
+                    && c.gaps.is_empty()
+                    && c.outbox.is_empty()
+            );
+            assert_eq!(
+                *events.lock().unwrap(),
+                vec![(id, "rekey commitment failed its fingerprint check")]
+            );
         }
         _ => panic!("unknown rekey manager scenario {name}"),
     }

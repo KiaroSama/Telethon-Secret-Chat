@@ -80,11 +80,16 @@ impl<S: Storage + 'static, T: Transport> SecretChatManager<S, T> {
                             Error::Sequence
                                 | Error::ResendUnavailable
                                 | Error::InnerMessageRejected
+                                | Error::Fingerprint
                         ) {
-                            let reason = if error == Error::ResendUnavailable {
-                                "a resend request could not be satisfied"
-                            } else {
-                                "received protocol invariants were violated"
+                            let reason = match &error {
+                                Error::ResendUnavailable => {
+                                    "a resend request could not be satisfied"
+                                }
+                                Error::Fingerprint => {
+                                    "rekey commitment failed its fingerprint check"
+                                }
+                                _ => "received protocol invariants were violated",
                             };
                             self.close_failed_protocol(id, reason).await?;
                         }

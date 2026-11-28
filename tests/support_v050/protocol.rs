@@ -4,7 +4,9 @@ use kiaro_secret_chat::{
     Serializable,
     chat::{Chat, ChatState, DhRecord, Exchange},
     crypto::{Direction, SharedKey, encrypt_frame},
-    enums, framing,
+    enums,
+    error::Error,
+    framing,
     protocol::Protocol,
     storage::{MemoryStorage, State, Storage},
     types,
@@ -335,15 +337,47 @@ fn commit_frame(raw: i32, shared_key: &SharedKey) -> Vec<u8> {
 fn commitment_must_be_authenticated_with_the_preceding_key() {
     let mut protocol = accepted_receiver();
     let before = state_marker(&protocol);
-    assert!(
-        protocol
-            .receive(CHAT_ID, &commit_frame(0, &key(19)), None, 1)
-            .is_err()
-    );
+    assert!(matches!(
+        protocol.receive(CHAT_ID, &commit_frame(0, &key(19)), None, 1),
+        Err(Error::Sequence)
+    ));
     assert!(
         before == state_marker(&protocol),
         "invalid commitment changed state"
     );
+    for adopted in [false, true] {
+        let mut protocol = accepted_receiver();
+        if adopted {
+            protocol
+                .receive(CHAT_ID, &text_frame(2, 0, 144, &key(19)), None, 1)
+                .unwrap();
+            protocol = reopen(&protocol);
+        }
+        let invalid = frame(
+            0,
+            0,
+            144,
+            &key(7),
+            types::DecryptedMessageService {
+                random_id: 900,
+                action: types::DecryptedMessageActionCommitKey {
+                    exchange_id: 99,
+                    key_fingerprint: key(19).fingerprint() ^ 1,
+                }
+                .into(),
+            }
+            .into(),
+        );
+        let before = state_marker(&protocol);
+        assert!(matches!(
+            protocol.receive(CHAT_ID, &invalid, None, 1),
+            Err(Error::Fingerprint)
+        ));
+        assert!(
+            before == state_marker(&protocol),
+            "fingerprint rejection changed pending or restored adopted state"
+        );
+    }
 }
 
 #[test]

@@ -212,7 +212,7 @@
     "responsibility": "Handshake and protocol coordination",
     "files": [
       {
-        "path": "src/protocol.rs"
+        "path": "src/protocol/machine.rs"
       },
       {
         "path": "src/protocol/access.rs"
@@ -229,7 +229,16 @@
         "path": "src/binding.rs"
       },
       {
-        "path": "src/transport.rs"
+        "path": "src/transport/mod.rs"
+      },
+      {
+        "path": "src/transport/grammers.rs"
+      },
+      {
+        "path": "src/transport/grammers/binding.rs"
+      },
+      {
+        "path": "src/transport/grammers/bf_adapter.rs"
       }
     ]
   },

@@ -106,10 +106,13 @@ fn probes() -> Vec<(&'static str, Error, bool)> {
 fn storage_is_explicit() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let protocol =
-        syn::parse_file(&fs::read_to_string(root.join("src/protocol.rs")).unwrap()).unwrap();
+        syn::parse_file(&fs::read_to_string(root.join("src/protocol/machine.rs")).unwrap())
+            .unwrap();
     let mut found = false;
     for item in protocol.items {
-        if let syn::Item::Impl(i) = item {
+        if let syn::Item::Impl(i) = item
+            && matches!(i.self_ty.as_ref(), syn::Type::Path(p) if p.path.segments.last().is_some_and(|s| s.ident == "Protocol"))
+        {
             let bound=i.generics.params.iter().any(|p|matches!(p,syn::GenericParam::Type(t)if t.ident=="S"&&t.bounds.iter().any(|b|matches!(b,syn::TypeParamBound::Trait(t)if t.path.segments.last().is_some_and(|s|s.ident=="Storage")))));
             for member in i.items {
                 if let syn::ImplItem::Fn(f) = member

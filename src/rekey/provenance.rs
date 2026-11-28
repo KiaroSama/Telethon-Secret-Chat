@@ -73,7 +73,7 @@ pub(crate) fn received_key_cutover(
             if preceding.is_none_or(|key| key.fingerprint() != fingerprint) {
                 return Err(Error::Sequence);
             }
-            verify_fingerprint(key, commit.key_fingerprint).map_err(|_| Error::Sequence)?;
+            verify_fingerprint(key, commit.key_fingerprint)?;
             tighten(sequence.checked_add(1).ok_or(Error::Sequence)?);
         }
     }

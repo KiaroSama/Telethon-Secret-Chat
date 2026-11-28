@@ -9,6 +9,7 @@ use syn::{
 struct Calls {
     names: Vec<String>,
     fills: BTreeSet<String>,
+    methods: Vec<syn::ExprMethodCall>,
 }
 fn root_name(expr: &Expr) -> Option<String> {
     match expr {
@@ -20,6 +21,10 @@ fn root_name(expr: &Expr) -> Option<String> {
     }
 }
 impl<'a> Visit<'a> for Calls {
+    fn visit_expr_method_call(&mut self, call: &'a syn::ExprMethodCall) {
+        self.methods.push(call.clone());
+        visit::visit_expr_method_call(self, call);
+    }
     fn visit_expr_call(&mut self, call: &'a syn::ExprCall) {
         if let Expr::Path(path) = call.func.as_ref() {
             let name = path
@@ -185,6 +190,107 @@ fn assert_bound_result(tree: &syn::File, destination: &str, producer: &str) {
         );
     }
 }
+fn binding<'a>(block: &'a syn::Block, name: &str) -> &'a Expr {
+    block
+        .stmts
+        .iter()
+        .find_map(|statement| {
+            let Stmt::Local(local) = statement else {
+                return None;
+            };
+            if matches!(&local.pat, syn::Pat::Ident(pat) if pat.ident == name) {
+                local.init.as_ref().map(|init| init.expr.as_ref())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| panic!("missing secure producer binding {name}"))
+}
+fn expression_name(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::Path(path) => Some(
+            path.path
+                .segments
+                .iter()
+                .map(|segment| segment.ident.to_string())
+                .collect::<Vec<_>>()
+                .join("::"),
+        ),
+        Expr::Field(field) => {
+            let syn::Member::Named(member) = &field.member else {
+                return None;
+            };
+            Some(format!("{}.{member}", expression_name(&field.base)?))
+        }
+        Expr::Reference(reference) => expression_name(&reference.expr),
+        Expr::Paren(paren) => expression_name(&paren.expr),
+        _ => None,
+    }
+}
+fn expression_calls(expr: &Expr) -> Calls {
+    let mut result = Calls::default();
+    result.visit_expr(expr);
+    result
+}
+fn one_method<'a>(calls: &'a Calls, receiver: &str, method: &str) -> &'a syn::ExprMethodCall {
+    let found = calls
+        .methods
+        .iter()
+        .filter(|call| {
+            call.method == method && expression_name(&call.receiver).as_deref() == Some(receiver)
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(found.len(), 1, "expected one {receiver}.{method} call");
+    found[0]
+}
+fn constructed_from(expr: &Expr, constructor: &str, input: &str) -> bool {
+    match expr {
+        Expr::Reference(reference) => constructed_from(&reference.expr, constructor, input),
+        Expr::Call(call) => {
+            expression_name(&call.func).as_deref() == Some(constructor)
+                && call.args.len() == 1
+                && expression_name(&call.args[0]).as_deref() == Some(input)
+        }
+        _ => false,
+    }
+}
+fn encrypted_ingress_nonce_chain() {
+    let path = "src/ingress/encrypted.rs";
+    let commit = require(path, "method:EncryptedIngressStorage::commit", "seal", 1);
+    let commit_blocks = blocks(&commit);
+    assert_eq!(commit_blocks.len(), 1);
+    let outer = expression_calls(binding(commit_blocks[0], "outer"));
+    assert!(outer.names.iter().any(|name| name == "seal"));
+    let commit_calls = calls(&commit);
+    let write = one_method(&commit_calls, "self.backend", "commit");
+    assert_eq!(write.args.len(), 1);
+    assert_eq!(expression_name(&write.args[0]).as_deref(), Some("outer"));
+
+    let seal = require(path, "item:seal", "random_bytes", 1);
+    let seal_blocks = blocks(&seal);
+    assert_eq!(seal_blocks.len(), 1);
+    let block = seal_blocks[0];
+    let nonce = expression_calls(binding(block, "nonce"));
+    assert!(nonce.names.iter().any(|name| name == "random_bytes"));
+    let sealed = expression_calls(binding(block, "sealed"));
+    let encrypt = one_method(&sealed, "cipher", "encrypt");
+    assert_eq!(encrypt.args.len(), 2);
+    assert!(constructed_from(&encrypt.args[0], "Nonce::from", "nonce"));
+    let blob = expression_calls(binding(block, "blob"));
+    assert!(one_method(&blob, "nonce", "to_vec").args.is_empty());
+    let seal_calls = calls(&seal);
+    let append = one_method(&seal_calls, "blob", "extend_from_slice");
+    assert_eq!(append.args.len(), 1);
+    assert_eq!(expression_name(&append.args[0]).as_deref(), Some("sealed"));
+    let insert = one_method(&seal_calls, "outer.private_records", "insert");
+    assert_eq!(insert.args.len(), 2);
+    assert!(constructed_from(
+        &insert.args[1],
+        "SecretRecord::new",
+        "blob"
+    ));
+    assert_bound_result(&seal, "outer", "State::empty");
+}
 pub fn check() {
     let random = require("src/crypto.rs", "item:random_bytes", "getrandom::fill", 1);
     assert_filled_result(&random, "bytes");
@@ -236,12 +342,7 @@ pub fn check() {
     require("src/rekey.rs", "item:start", "random_id", 1);
     require("src/rekey.rs", "item:start", "SecretExponent::generate", 1);
     // Fresh encrypted-ingress nonces and pre-ack identity challenges are additional native producers.
-    require(
-        "src/ingress/encrypted.rs",
-        "method:EncryptedIngressStorage::commit",
-        "random_bytes",
-        1,
-    );
+    encrypted_ingress_nonce_chain();
     require(
         "src/ingress/coordinator.rs",
         "method:DurableIngress::new",
@@ -268,7 +369,7 @@ pub fn check() {
         ("framing.py", "src/framing.rs"),
         ("files.py0", "src/files.rs"),
         ("dh.py", "src/dh.rs"),
-        ("handshake.py", "src/protocol.rs"),
+        ("handshake.py", "src/protocol/machine.rs"),
         ("rekey.py", "src/rekey.rs"),
     ]);
     let scopes = audit::scopes();

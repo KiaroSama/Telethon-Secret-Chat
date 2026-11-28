@@ -10,6 +10,15 @@ pub fn verify(stage: &Path, target: &Path, empty: &Path, upstream: &Path) -> boo
         &stage.join("vendor/grammers"),
         &mut expected,
     );
+    // These tracked per-crate resolution locks are excluded by build.rs's SDK
+    // supplement and Cargo.toml's source-package contract. Keep actual unfiltered;
+    // the consumer fixture separately verifies the root Cargo.lock bytes.
+    for metadata in [
+        "grammers-mtsender/Cargo.lock",
+        "grammers-session/Cargo.lock",
+    ] {
+        expected.remove(metadata);
+    }
     run(cargo(&stage.join("Cargo.toml"), target).args([
         "build",
         "--offline",
@@ -73,7 +82,7 @@ pub fn verify(stage: &Path, target: &Path, empty: &Path, upstream: &Path) -> boo
     hashes(&prepared, &prepared, &mut actual);
     assert_eq!(
         actual, expected,
-        "embedded SDK supplement must reproduce every source byte"
+        "embedded SDK supplement must reproduce every distributed source byte"
     );
     let audit = run(Command::new(executable("migration-audit"))
         .current_dir(empty)
